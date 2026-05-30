@@ -23,6 +23,7 @@ import type { PagedGroups } from "./bindings/PagedGroups";
 import type { RomFile } from "./bindings/RomFile";
 import type { ScanProgress } from "./bindings/ScanProgress";
 import type { ScanStatus } from "./bindings/ScanStatus";
+import type { FormatPair } from "./bindings/FormatPair";
 
 // ── Defaults for browser-preview mode ────────────────────────────────────────
 
@@ -119,8 +120,6 @@ export const getDuplicates = (console?: string): Promise<RomGroup[]> =>
   isTauri()
     ? invoke("get_duplicates", { console: console ?? null })
     : Promise.resolve([]);
-
-import type { FormatPair } from "./bindings/FormatPair";
 
 export const getFormatPairs = (): Promise<FormatPair[]> =>
   isTauri() ? invoke("get_format_pairs") : Promise.resolve([]);

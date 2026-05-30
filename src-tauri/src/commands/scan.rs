@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 use crate::commands::group::group_roms;
 use crate::db::AppState;
 use crate::deduper::{detect_format_pairs, mark_format_pairs};
-pub use crate::models::FormatPair;
+use crate::models::FormatPair;
 use crate::models::{ConsoleStats, RomFile, ScanProgress, ScanStatus};
 use crate::parser;
 
@@ -63,14 +63,21 @@ pub async fn scan_roots(
         cached: false,
     };
 
-    // Start filesystem watcher for the scanned roots
-    drop(cache); // release lock before spawning watcher
-    if let Err(e) = crate::watcher::start(app.clone(), &roots) {
-        eprintln!("[watcher] Failed to start: {e}");
+    let final_status = cache.status.clone();
+    drop(cache); // release scan_cache lock before acquiring watcher lock
+
+    // Store the watcher in AppState so the OS handle stays alive.
+    // Replacing on each rescan stops the previous watcher automatically.
+    match crate::watcher::start(app.clone(), &roots) {
+        Ok(w) => {
+            if let Ok(mut guard) = state.watcher.lock() {
+                *guard = Some(w);
+            }
+        }
+        Err(e) => eprintln!("[watcher] Failed to start: {e}"),
     }
 
-    let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
-    Ok(cache.status.clone())
+    Ok(final_status)
 }
 
 /// Return all detected format pairs from the current scan cache.
