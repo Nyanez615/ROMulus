@@ -1,0 +1,26 @@
+import { create } from "zustand";
+import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
+import type { ScanStatus } from "@/lib/bindings/ScanStatus";
+import type { ScanProgress } from "@/lib/bindings/ScanProgress";
+
+interface ScanStore {
+  status: ScanStatus;
+  consoles: ConsoleStats[];
+  progress: ScanProgress | null;
+  setStatus: (s: ScanStatus) => void;
+  setConsoles: (c: ConsoleStats[]) => void;
+  setProgress: (p: ScanProgress | null) => void;
+  selectedConsole: string | null;
+  setSelectedConsole: (c: string | null) => void;
+}
+
+export const useScanStore = create<ScanStore>((set) => ({
+  status: { scanning: false, scanned: 0, total_estimate: 0, current_console: null, cached: false },
+  consoles: [],
+  progress: null,
+  selectedConsole: null,
+  setStatus: (status) => set({ status }),
+  setConsoles: (consoles) => set({ consoles }),
+  setProgress: (progress) => set({ progress }),
+  setSelectedConsole: (selectedConsole) => set({ selectedConsole }),
+}));

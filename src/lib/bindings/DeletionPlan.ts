@@ -2,4 +2,4 @@
 import type { ConsoleStats } from "./ConsoleStats";
 import type { RomFile } from "./RomFile";
 
-export type DeletionPlan = { to_delete: Array<RomFile>, to_keep: Array<RomFile>, no_preferred_version_count: number, total_bytes_freed: bigint, console_summary: Array<ConsoleStats>, };
+export type DeletionPlan = { to_delete: Array<RomFile>, to_keep: Array<RomFile>, no_preferred_version_count: number, total_bytes_freed: number, console_summary: Array<ConsoleStats>, };
