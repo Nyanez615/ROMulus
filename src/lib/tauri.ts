@@ -12,7 +12,11 @@ import { isTauri } from "./env";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { ConsoleStats } from "./bindings/ConsoleStats";
 import type { DeleteMode } from "./bindings/DeleteMode";
+import type { DeletionPlan } from "./bindings/DeletionPlan";
 import type { ExecutionResult } from "./bindings/ExecutionResult";
+import type { FilterSettings } from "./bindings/FilterSettings";
+import type { PagedHistory } from "./bindings/PagedHistory";
+import type { RomGroup } from "./bindings/RomGroup";
 import type { NewRomEvent } from "./bindings/NewRomEvent";
 import type { OnboardingState } from "./bindings/OnboardingState";
 import type { PagedGroups } from "./bindings/PagedGroups";
@@ -92,6 +96,34 @@ export const executePrune = (
 
 export const getInterruptedSession = (): Promise<boolean> =>
   isTauri() ? invoke("get_interrupted_session") : Promise.resolve(false);
+
+export const applyFilters = (settings: FilterSettings): Promise<DeletionPlan> =>
+  isTauri()
+    ? invoke("apply_filters", { settings })
+    : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
+
+export const exportCsv = (toDelete: RomFile[], path: string): Promise<void> =>
+  isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
+
+export const getUnofficial = (params: GetGamesParams): Promise<PagedGroups> =>
+  isTauri()
+    ? invoke("get_unofficial", { console: params.console ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
+    : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
+
+export const getSystemFiles = (params: GetGamesParams): Promise<PagedGroups> =>
+  isTauri()
+    ? invoke("get_system_files", { console: params.console ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
+    : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
+
+export const getDuplicates = (console?: string): Promise<RomGroup[]> =>
+  isTauri()
+    ? invoke("get_duplicates", { console: console ?? null })
+    : Promise.resolve([]);
+
+export const getHistory = (page: number, perPage: number): Promise<PagedHistory> =>
+  isTauri()
+    ? invoke("get_history", { page, perPage })
+    : Promise.resolve({ total: 0, page: 1, per_page: 50, entries: [] });
 
 // ── Settings & onboarding ─────────────────────────────────────────────────────
 

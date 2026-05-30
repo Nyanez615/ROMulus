@@ -74,7 +74,7 @@ pub async fn scan_roots(
 
 // ── Preferences loader ────────────────────────────────────────────────────────
 
-fn load_preferences(conn: &rusqlite::Connection) -> Result<crate::models::UserPreferences, String> {
+pub fn load_preferences(conn: &rusqlite::Connection) -> Result<crate::models::UserPreferences, String> {
     use crate::db::get_setting;
     let langs: Vec<String> = get_setting(conn, "preferred_languages")
         .map_err(|e| e.to_string())?
