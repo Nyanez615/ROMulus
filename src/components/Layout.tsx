@@ -5,6 +5,8 @@ import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 import { getConsoles, onScanProgress, onNewRom } from "@/lib/tauri";
 import { isTauri } from "@/lib/env";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { CommandPalette } from "./CommandPalette";
 import Dashboard from "@/pages/Dashboard";
 import Consoles from "@/pages/Consoles";
 import Games from "@/pages/Games";
@@ -30,6 +32,7 @@ const PAGES: Record<string, React.ComponentType> = {
 export function Layout() {
   const { activeTab } = useUIStore();
   const { setConsoles, setProgress, setStatus } = useScanStore();
+  useKeyboardShortcuts();
 
   // Load consoles on mount and subscribe to scan/watcher events
   useEffect(() => {
@@ -66,6 +69,7 @@ export function Layout() {
           <PageComponent />
         </ErrorBoundary>
       </main>
+      <CommandPalette />
     </div>
   );
 }

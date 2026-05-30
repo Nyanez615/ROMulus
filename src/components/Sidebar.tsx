@@ -3,7 +3,7 @@ import {
   CopyX, Scissors, History, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ConsoleIcon } from "./ConsoleIcon";
+import { ConsoleIcon, getConsoleColor } from "./ConsoleIcon";
 import { useUIStore, type TabId } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 
@@ -80,6 +80,7 @@ export function Sidebar() {
                         ? "bg-muted text-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
                     )}
+                    style={selectedConsole === c.name ? { borderLeft: `2px solid ${getConsoleColor(c.name)}` } : undefined}
                   >
                     <ConsoleIcon consoleName={c.name} size="sm" />
                     <span className="flex-1 truncate text-left">
