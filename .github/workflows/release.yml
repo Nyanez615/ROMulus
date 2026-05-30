@@ -18,16 +18,12 @@ jobs:
         include:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
-            artifact: sigs-macos-aarch64
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
-            artifact: sigs-macos-x64
           - platform: ubuntu-22.04
             args: ""
-            artifact: sigs-linux
           - platform: windows-latest
             args: ""
-            artifact: sigs-windows
 
     runs-on: ${{ matrix.platform }}
 
@@ -70,52 +66,61 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      - name: Save .sig files
-        shell: bash
-        run: |
-          mkdir -p sigs-out
-          find . -name "*.sig" -not -path "*/node_modules/*" -not -path "*/sigs-out/*" | while read f; do
-            echo "Found: $f"
-            cp "$f" sigs-out/
-          done
-          echo "Collected sig files:"
-          ls sigs-out/ || echo "(none)"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: sigs-out/
-          if-no-files-found: warn
-
   updater-json:
     needs: release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          path: sigs/
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
 
       - name: Create and upload latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          python3 << 'EOF'
-          import json, glob, subprocess
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          mkdir -p bundles
+
+          gh release download "${TAG}" --dir bundles/ \
+            --pattern "ROMulus_aarch64.app.tar.gz" \
+            --pattern "ROMulus_x64.app.tar.gz" \
+            --pattern "ROMulus_${VERSION}_amd64.AppImage" \
+            --pattern "ROMulus_${VERSION}_x64-setup.exe"
+
+          echo "Downloaded bundles:"
+          ls bundles/
+
+          for f in bundles/*; do
+            [ -f "$f" ] || continue
+            echo "Signing: $f"
+            npx @tauri-apps/cli signer sign "$f"
+          done
+
+          python3 - << 'EOF'
+          import json, subprocess
           from datetime import datetime, timezone
 
           tag = "${{ github.ref_name }}"
           version = tag.lstrip("v")
           base = f"https://github.com/Nyanez615/ROMulus/releases/download/{tag}"
 
-          def read_sig(pattern):
-              files = sorted(glob.glob(pattern, recursive=True))
-              if not files:
-                  print(f"WARNING: No .sig found for: {pattern}")
+          def read_sig(path):
+              try:
+                  return open(path).read().strip()
+              except FileNotFoundError:
+                  print(f"WARNING: {path} not found")
                   return ""
-              print(f"Using: {files[0]}")
-              return open(files[0]).read().strip()
 
           data = {
               "version": version,
@@ -123,19 +128,19 @@ jobs:
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {
                   "darwin-aarch64": {
-                      "signature": read_sig("sigs/sigs-macos-aarch64/ROMulus.app.tar.gz.sig"),
+                      "signature": read_sig("bundles/ROMulus_aarch64.app.tar.gz.sig"),
                       "url": f"{base}/ROMulus_aarch64.app.tar.gz",
                   },
                   "darwin-x86_64": {
-                      "signature": read_sig("sigs/sigs-macos-x64/ROMulus.app.tar.gz.sig"),
+                      "signature": read_sig("bundles/ROMulus_x64.app.tar.gz.sig"),
                       "url": f"{base}/ROMulus_x64.app.tar.gz",
                   },
                   "linux-x86_64": {
-                      "signature": read_sig("sigs/sigs-linux/ROMulus_*.AppImage.sig"),
+                      "signature": read_sig(f"bundles/ROMulus_{version}_amd64.AppImage.sig"),
                       "url": f"{base}/ROMulus_{version}_amd64.AppImage",
                   },
                   "windows-x86_64": {
-                      "signature": read_sig("sigs/sigs-windows/ROMulus_*x64-setup.exe.sig"),
+                      "signature": read_sig(f"bundles/ROMulus_{version}_x64-setup.exe.sig"),
                       "url": f"{base}/ROMulus_{version}_x64-setup.exe",
                   },
               },
@@ -145,6 +150,6 @@ jobs:
               json.dump(data, f, indent=2)
 
           print(json.dumps(data, indent=2))
-          subprocess.run(["gh", "release", "upload", tag, "latest.json", "--clobber"], check=True)
+          subprocess.run(["gh", "release", "upload", "${{ github.ref_name }}", "latest.json", "--clobber"], check=True)
           print("Uploaded latest.json")
           EOF
