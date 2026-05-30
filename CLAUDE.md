@@ -6,9 +6,12 @@ Manages files already on the user's device — does NOT download, distribute, or
 Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-clever-otter.md`
 
 ## Current status
-- **Phase 0** complete: scaffold, deps, dark theme, CI, GitHub repo
-- **Phase 1** complete: migrations, models, parser, scanner, grouper, executor, watcher, settings
-- **Phase 2** next: React frontend — Tauri bindings, Zustand stores, shadcn/ui pages, onboarding wizard
+- **Phase 0** ✅ Scaffold, all deps, dark gaming theme, GitHub Actions CI, public repo
+- **Phase 1** ✅ SQL migrations, 60 data models + TS bindings, No-Intro parser (19 tests), scanner, grouper, executor, watcher, format-pair detection
+- **Phase 2** ✅ Tauri bindings layer, 4 Zustand stores, shadcn/ui components, Layout+Sidebar, 4-step onboarding wizard, Settings page
+- **Phase 3** ✅ All 8 feature pages (Dashboard, Consoles, Games, Hacks, System Files, Duplicates, Prune, History) + Rust browse/prune/history commands
+- **Phase 4** ✅ IGDB metadata (OAuth2, Keychain, background enrichment), SteamGridDB thumbnails (asset:// protocol), OS notifications, No-Intro DAT import + CRC32 verification + completeness tracking
+- **Phase 5** ▶️ next: console icons, keyboard shortcuts, accessibility, auto-updater + release pipeline
 
 ## Dev setup
 
