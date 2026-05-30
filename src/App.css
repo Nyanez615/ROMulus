@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark gaming palette — default */
+    --background: 222 20% 8%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 18% 11%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 20% 10%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 213 90% 58%;
+    --primary-foreground: 222 20% 8%;
+
+    --secondary: 222 18% 16%;
+    --secondary-foreground: 210 20% 80%;
+
+    --muted: 222 18% 14%;
+    --muted-foreground: 215 16% 50%;
+
+    --accent: 213 90% 58%;
+    --accent-foreground: 222 20% 8%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 92%;
+
+    --border: 222 18% 18%;
+    --input: 222 18% 16%;
+    --ring: 213 90% 58%;
+
+    --radius: 0.5rem;
+  }
+
+  /* Light theme override */
+  .light {
+    --background: 0 0% 98%;
+    --foreground: 222 20% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 10%;
+
+    --primary: 213 90% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 14% 92%;
+    --secondary-foreground: 222 20% 20%;
+
+    --muted: 210 14% 94%;
+    --muted-foreground: 215 16% 44%;
+
+    --accent: 210 14% 90%;
+    --accent-foreground: 222 20% 10%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 18% 88%;
+    --input: 214 18% 88%;
+    --ring: 213 90% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-foreground h-full overflow-hidden;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none; /* Tauri desktop app — prevent accidental text selection */
+  }
+
+  #root {
+    @apply h-full flex flex-col;
+  }
+
+  /* Allow text selection in inputs and content areas */
+  input, textarea, [data-selectable] {
+    user-select: text;
+  }
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
