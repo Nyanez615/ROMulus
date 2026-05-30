@@ -4,7 +4,9 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] → v0.1.0
+## [Unreleased]
+
+## [0.1.0] - 2026-05-30
 
 ### Added — Phase 5 (polish & distribution)
 
