@@ -18,12 +18,16 @@ jobs:
         include:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            artifact_name: "updater-macos-aarch64"
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            artifact_name: "updater-macos-x86_64"
           - platform: ubuntu-22.04
             args: ""
+            artifact_name: "updater-linux-x86_64"
           - platform: windows-latest
             args: ""
+            artifact_name: "updater-windows-x86_64"
 
     runs-on: ${{ matrix.platform }}
 
@@ -66,6 +70,45 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Collect macOS aarch64 updater artifact
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'aarch64')
+        run: |
+          mkdir -p updater
+          cp src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz \
+             updater/ROMulus_aarch64.app.tar.gz
+          cp src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz.sig \
+             updater/ROMulus_aarch64.app.tar.gz.sig
+
+      - name: Collect macOS x86_64 updater artifact
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'x86_64')
+        run: |
+          mkdir -p updater
+          cp src-tauri/target/x86_64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz \
+             updater/ROMulus_x64.app.tar.gz
+          cp src-tauri/target/x86_64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz.sig \
+             updater/ROMulus_x64.app.tar.gz.sig
+
+      - name: Collect Linux updater artifact
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p updater
+          cp src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz updater/
+          cp src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig updater/
+
+      - name: Collect Windows updater artifact
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p updater
+          cp src-tauri/target/release/bundle/nsis/*.nsis.zip updater/
+          cp src-tauri/target/release/bundle/nsis/*.nsis.zip.sig updater/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: updater/
+          if-no-files-found: error
+
   updater-json:
     needs: release
     runs-on: ubuntu-latest
@@ -74,41 +117,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 24
-          cache: npm
+          pattern: updater-*
+          path: bundles
+          merge-multiple: true
 
-      - run: npm ci
+      - name: List bundles
+        run: find bundles -type f | sort
 
-      - name: Create and upload latest.json
+      - name: Upload Linux/Windows updater bundles to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
+          find bundles -type f \( -name "*.AppImage.tar.gz" -o -name "*.nsis.zip" \) \
+            -exec gh release upload "${TAG}" {} --clobber \;
 
-          mkdir -p bundles
-
-          gh release download "${TAG}" --dir bundles/ \
-            --pattern "ROMulus_aarch64.app.tar.gz" \
-            --pattern "ROMulus_x64.app.tar.gz" \
-            --pattern "ROMulus_${VERSION}_amd64.AppImage" \
-            --pattern "ROMulus_${VERSION}_x64-setup.exe"
-
-          echo "Downloaded bundles:"
-          ls bundles/
-
-          for f in bundles/*; do
-            [ -f "$f" ] || continue
-            echo "Signing: $f"
-            npx @tauri-apps/cli signer sign "$f"
-          done
-
+      - name: Assemble and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           python3 - << 'EOF'
-          import json, subprocess
+          import json, subprocess, glob, sys
           from datetime import datetime, timezone
 
           tag = "${{ github.ref_name }}"
@@ -121,6 +152,12 @@ jobs:
               except FileNotFoundError:
                   print(f"WARNING: {path} not found")
                   return ""
+
+          linux_matches = glob.glob(f"bundles/*_{version}_amd64.AppImage.tar.gz")
+          linux_name = linux_matches[0].split("/")[-1] if linux_matches else f"ROMulus_{version}_amd64.AppImage.tar.gz"
+
+          win_matches = glob.glob(f"bundles/*_{version}_x64-setup.nsis.zip")
+          win_name = win_matches[0].split("/")[-1] if win_matches else f"ROMulus_{version}_x64-setup.nsis.zip"
 
           data = {
               "version": version,
@@ -136,20 +173,25 @@ jobs:
                       "url": f"{base}/ROMulus_x64.app.tar.gz",
                   },
                   "linux-x86_64": {
-                      "signature": read_sig(f"bundles/ROMulus_{version}_amd64.AppImage.sig"),
-                      "url": f"{base}/ROMulus_{version}_amd64.AppImage",
+                      "signature": read_sig(f"bundles/{linux_name}.sig"),
+                      "url": f"{base}/{linux_name}",
                   },
                   "windows-x86_64": {
-                      "signature": read_sig(f"bundles/ROMulus_{version}_x64-setup.exe.sig"),
-                      "url": f"{base}/ROMulus_{version}_x64-setup.exe",
+                      "signature": read_sig(f"bundles/{win_name}.sig"),
+                      "url": f"{base}/{win_name}",
                   },
               },
           }
+
+          missing = [k for k, v in data["platforms"].items() if not v["signature"]]
+          if missing:
+              print(f"ERROR: Missing signatures for platforms: {missing}")
+              sys.exit(1)
 
           with open("latest.json", "w") as f:
               json.dump(data, f, indent=2)
 
           print(json.dumps(data, indent=2))
-          subprocess.run(["gh", "release", "upload", "${{ github.ref_name }}", "latest.json", "--clobber"], check=True)
+          subprocess.run(["gh", "release", "upload", tag, "latest.json", "--clobber"], check=True)
           print("Uploaded latest.json")
           EOF
