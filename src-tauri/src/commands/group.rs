@@ -1,0 +1,331 @@
+use std::collections::HashMap;
+
+use tauri::State;
+
+use crate::db::AppState;
+use crate::models::{FileCategory, PagedGroups, RomFile, RomGroup, UserPreferences};
+use crate::parser::region_default_languages;
+
+// ── Preference matching ───────────────────────────────────────────────────────
+
+pub fn matches_preferred(rom: &RomFile, prefs: &UserPreferences) -> bool {
+    if prefs.preferred_languages.is_empty() {
+        return true; // No preference set yet → treat everything as matching
+    }
+    if !rom.languages.is_empty() {
+        return rom.languages.iter().any(|l| prefs.preferred_languages.contains(l));
+    }
+    // No explicit language tag — infer from region
+    let primary = rom.regions.first().map(|s| s.as_str()).unwrap_or("");
+    let inferred = region_default_languages(primary);
+    inferred.iter().any(|l| prefs.preferred_languages.contains(&l.to_string()))
+}
+
+// ── Scoring ───────────────────────────────────────────────────────────────────
+
+const COLLECTION_TAGS: &[&str] = &[
+    "Virtual Console", "Wii Virtual Console", "Switch Online", "Switch",
+    "Classic Mini", "Evercade", "NP", "GameCube", "LodgeNet",
+    "Limited Run Games", "Retro-Bit Generations",
+];
+
+/// Higher score = more preferred variant. Returns (score, revision) tuple.
+pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32) {
+    // Non-matching language → lowest priority
+    if !matches_preferred(rom, prefs) {
+        return (-9999, rom.revision);
+    }
+
+    // Pre-release → never keep unless sole copy
+    if rom.status_flags.iter().any(|f| {
+        matches!(f.as_str(), "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk")
+    }) {
+        return (-100, rom.revision);
+    }
+
+    // Bad dump → very low
+    if rom.bad_dump {
+        return (-80, rom.revision);
+    }
+
+    // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease
+    if matches!(rom.file_category, FileCategory::Unofficial) {
+        return (-30, rom.revision);
+    }
+
+    // Region score from user's preferred_regions list
+    let region_score = region_score(&rom.regions, prefs);
+
+    // Collection tag penalty
+    let collection_penalty: i32 = if rom.extra_tags.iter().any(|t| COLLECTION_TAGS.contains(&t.as_str())) {
+        -10
+    } else {
+        0
+    };
+
+    let alt_penalty: i32 = if rom.extra_tags.iter().any(|t| t == "Alt") { -5 } else { 0 };
+
+    (region_score + collection_penalty + alt_penalty, rom.revision)
+}
+
+fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
+    if prefs.preferred_regions.is_empty() {
+        // Fallback scoring when no preference set
+        let best = regions.iter().map(|r| default_region_score(r.as_str())).max();
+        return best.unwrap_or(5);
+    }
+
+    let max_priority = prefs.preferred_regions.len() as i32;
+    regions
+        .iter()
+        .filter_map(|r| {
+            prefs.preferred_regions.iter().position(|p| p == r)
+                .map(|idx| (max_priority - idx as i32) * 20)
+        })
+        .max()
+        .unwrap_or(5)
+}
+
+fn default_region_score(region: &str) -> i32 {
+    match region {
+        "USA" => 100,
+        "World" => 80,
+        "Australia" | "United Kingdom" => 60,
+        "Europe" => 50,
+        _ => 5,
+    }
+}
+
+// ── Grouping ──────────────────────────────────────────────────────────────────
+
+pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> {
+    // Tag each ROM with preference match
+    let mut roms: Vec<RomFile> = roms
+        .into_iter()
+        .map(|mut rom| {
+            rom.matches_preferred_language = matches_preferred(&rom, prefs);
+            rom.matches_preferred_region = region_score(&rom.regions, prefs) > 5;
+            rom
+        })
+        .collect();
+
+    // Group by (console, title_normalized) — but also handle multi-disc coalescing
+    // Key: (console, title_normalized_without_disc)
+    let mut groups: HashMap<(String, String), Vec<RomFile>> = HashMap::new();
+
+    for rom in roms.drain(..) {
+        let key = (rom.console.clone(), rom.title_normalized.clone());
+        groups.entry(key).or_default().push(rom);
+    }
+
+    groups
+        .into_values()
+        .map(|variants| build_group(variants, prefs))
+        .collect()
+}
+
+fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup {
+    let console = variants[0].console.clone();
+    let title_normalized = variants[0].title_normalized.clone();
+
+    // Detect multi-disc
+    let max_disc = variants.iter().filter_map(|r| r.disc_number).max().unwrap_or(0);
+    let disc_count = if max_disc > 0 { max_disc } else { 1 };
+
+    // Sort variants by score descending, then revision descending as tiebreaker
+    variants.sort_by(|a, b| {
+        let sa = score_rom(a, prefs);
+        let sb = score_rom(b, prefs);
+        sb.cmp(&sa)
+    });
+
+    // Determine preferred index — None if no variant matches preferences
+    let has_preferred = variants.iter().any(|r| r.matches_preferred_language);
+
+    let preferred_idx = if has_preferred {
+        // Prefer the highest-scored variant, but never choose a BIOS file as "preferred game"
+        variants
+            .iter()
+            .position(|r| r.matches_preferred_language && !r.is_bios)
+    } else {
+        None
+    };
+
+    // Mark unofficial fallback candidates
+    let has_official_preferred = variants.iter().any(|r| {
+        r.matches_preferred_language && !matches!(r.file_category, FileCategory::Unofficial)
+    });
+
+    let mut variants = variants;
+    for rom in &mut variants {
+        rom.is_unofficial_preferred_fallback = !has_official_preferred
+            && rom.matches_preferred_language
+            && matches!(rom.file_category, FileCategory::Unofficial);
+    }
+
+    RomGroup {
+        title_normalized,
+        console,
+        variants,
+        preferred_idx,
+        has_preferred_version: has_preferred,
+        is_format_pair: false,
+        disc_count,
+    }
+}
+
+// ── Tauri commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_games(
+    state: State<'_, AppState>,
+    console: Option<String>,
+    search: Option<String>,
+    page: u32,
+    per_page: u32,
+) -> PagedGroups {
+    let cache = state.scan_cache.lock().unwrap();
+    let search_lower = search.as_deref().map(|s| s.to_lowercase());
+
+    let filtered: Vec<&RomGroup> = cache
+        .groups
+        .iter()
+        .filter(|g| {
+            if let Some(ref c) = console {
+                if &g.console != c {
+                    return false;
+                }
+            }
+            if let Some(ref q) = search_lower {
+                if !g.title_normalized.contains(q.as_str()) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    let total = filtered.len() as u32;
+    let start = (page.saturating_sub(1) * per_page) as usize;
+    let end = (start + per_page as usize).min(filtered.len());
+
+    PagedGroups {
+        total_groups: total,
+        page,
+        per_page,
+        groups: filtered[start..end].iter().map(|g| (*g).clone()).collect(),
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{FileFormat, RomFile};
+
+    fn rom(title: &str, regions: &[&str], langs: &[&str], status: &[&str]) -> RomFile {
+        RomFile {
+            path: format!("/roms/{title}.zip"),
+            filename: format!("{title}.zip"),
+            console: "Test".into(),
+            title: title.into(),
+            title_normalized: crate::parser::normalize_title(title),
+            regions: regions.iter().map(|s| s.to_string()).collect(),
+            languages: langs.iter().map(|s| s.to_string()).collect(),
+            status_flags: status.iter().map(|s| s.to_string()).collect(),
+            extra_tags: vec![],
+            bad_dump: false,
+            revision: 0,
+            disc_number: None,
+            version: None,
+            is_bios: false,
+            file_format: FileFormat::Zip,
+            file_category: FileCategory::Game,
+            filesize: 1024,
+            matches_preferred_language: false,
+            matches_preferred_region: false,
+            is_unofficial_preferred_fallback: false,
+        }
+    }
+
+    fn en_prefs() -> UserPreferences {
+        UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec!["USA".into(), "World".into(), "Europe".into()],
+        }
+    }
+
+    #[test]
+    fn usa_matches_english_preference() {
+        let r = rom("Game (USA)", &["USA"], &[], &[]);
+        assert!(matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn japan_only_does_not_match_english() {
+        let r = rom("Game (Japan)", &["Japan"], &[], &[]);
+        assert!(!matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn japan_with_en_tag_matches() {
+        let r = rom("Game (Japan) (En)", &["Japan"], &["En"], &[]);
+        assert!(matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn usa_rom_scores_higher_than_europe() {
+        let usa = rom("Game", &["USA"], &[], &[]);
+        let eu = rom("Game", &["Europe"], &[], &[]);
+        let prefs = en_prefs();
+        assert!(score_rom(&usa, &prefs) > score_rom(&eu, &prefs));
+    }
+
+    #[test]
+    fn beta_scores_lower_than_release() {
+        let release = rom("Game", &["USA"], &[], &[]);
+        let beta = rom("Game", &["USA"], &[], &["Beta"]);
+        let prefs = en_prefs();
+        assert!(score_rom(&release, &prefs) > score_rom(&beta, &prefs));
+    }
+
+    #[test]
+    fn non_english_gets_min_score() {
+        let jp = rom("Game", &["Japan"], &[], &[]);
+        let prefs = en_prefs();
+        let (score, _) = score_rom(&jp, &prefs);
+        assert_eq!(score, -9999);
+    }
+
+    #[test]
+    fn grouper_picks_usa_as_preferred() {
+        // Titles are the parsed title only (no region tags) — as the parser produces
+        let roms = vec![
+            rom("Castlevania", &["USA"], &[], &[]),
+            rom("Castlevania", &["Japan"], &[], &[]),
+            rom("Castlevania", &["Europe"], &["En"], &[]),
+        ];
+        let prefs = en_prefs();
+        let groups = group_roms(roms, &prefs);
+        // Should produce one group (same normalized title)
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        assert!(g.has_preferred_version);
+        // Preferred variant should be USA
+        let preferred = &g.variants[g.preferred_idx.unwrap()];
+        assert!(preferred.regions.contains(&"USA".to_string()));
+    }
+
+    #[test]
+    fn no_preferred_version_when_japan_only() {
+        let roms = vec![
+            rom("Game", &["Japan"], &[], &[]),
+            rom("Game", &["Japan"], &[], &[]),
+        ];
+        let prefs = en_prefs();
+        let groups = group_roms(roms, &prefs);
+        assert_eq!(groups[0].preferred_idx, None);
+        assert!(!groups[0].has_preferred_version);
+    }
+}
