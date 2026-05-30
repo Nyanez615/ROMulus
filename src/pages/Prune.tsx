@@ -45,8 +45,12 @@ export default function Prune() {
 
   async function doExportCsv() {
     if (!plan) return;
-    const now = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-    await exportCsv(plan.to_delete, `${process.env.HOME ?? "~"}/Desktop/romulus-prune-${now}.csv`);
+    // Prompt user for save location via file dialog
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const now = new Date().toISOString().slice(0, 10);
+    const filePath = await save({ defaultPath: `romulus-prune-${now}.csv`, filters: [{ name: "CSV", extensions: ["csv"] }] });
+    if (!filePath) return;
+    await exportCsv(plan.to_delete, filePath);
   }
 
   async function doExecute() {

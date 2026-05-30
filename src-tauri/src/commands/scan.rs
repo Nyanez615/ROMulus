@@ -7,6 +7,7 @@ use walkdir::WalkDir;
 use crate::commands::group::group_roms;
 use crate::db::AppState;
 use crate::deduper::{detect_format_pairs, mark_format_pairs};
+pub use crate::models::FormatPair;
 use crate::models::{ConsoleStats, RomFile, ScanProgress, ScanStatus};
 use crate::parser;
 
@@ -70,6 +71,13 @@ pub async fn scan_roots(
 
     let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
     Ok(cache.status.clone())
+}
+
+/// Return all detected format pairs from the current scan cache.
+#[tauri::command]
+pub fn get_format_pairs(state: State<'_, AppState>) -> Vec<FormatPair> {
+    let cache = state.scan_cache.lock().unwrap();
+    detect_format_pairs(&cache.roms)
 }
 
 // ── Preferences loader ────────────────────────────────────────────────────────
