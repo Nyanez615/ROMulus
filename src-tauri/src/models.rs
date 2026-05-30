@@ -64,6 +64,7 @@ pub struct RomFile {
     pub is_bios: bool,
     pub file_format: FileFormat,
     pub file_category: FileCategory,
+    #[ts(type = "number")]
     pub filesize: u64,
     /// Computed from UserPreferences at grouping time — never hardcoded.
     pub matches_preferred_language: bool,
@@ -154,6 +155,7 @@ pub struct DeletionPlan {
     pub to_delete: Vec<RomFile>,
     pub to_keep: Vec<RomFile>,
     pub no_preferred_version_count: u32,
+    #[ts(type = "number")]
     pub total_bytes_freed: u64,
     pub console_summary: Vec<ConsoleStats>,
 }
@@ -165,6 +167,7 @@ pub struct ConsoleStats {
     pub total_files: u32,
     pub preferred_count: u32,
     pub marked_for_deletion: u32,
+    #[ts(type = "number")]
     pub bytes_to_free: u64,
 }
 
@@ -312,5 +315,8 @@ mod tests {
         FormatPair::export_all_to(out).unwrap();
         PagedGroups::export_all_to(out).unwrap();
         PagedHistory::export_all_to(out).unwrap();
+        DeleteMode::export_all_to(out).unwrap();
+        ScanProgress::export_all_to(out).unwrap();
+        NewRomEvent::export_all_to(out).unwrap();
     }
 }

@@ -1,18 +1,53 @@
+import { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
+import { Layout } from "./components/Layout";
+import { OnboardingWizard } from "./onboarding/OnboardingWizard";
+import { useOnboardingStore } from "./store/onboarding";
+import { getOnboardingState } from "./lib/tauri";
+import { isTauri } from "./lib/env";
 
-function App() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center space-y-3">
-        <h1 className="text-4xl font-bold tracking-tight text-foreground">
-          ROMulus
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          ROM collection management hub — loading…
-        </p>
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+});
+
+function AppShell() {
+  const { state, setState } = useOnboardingStore();
+  // Start as false (not loading) in browser dev preview; true only inside Tauri
+  const [loading, setLoading] = useState(isTauri);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    getOnboardingState()
+      .then(setState)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [setState]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Starting…
       </div>
-    </div>
-  );
+    );
+  }
+
+  // In browser preview, skip onboarding and show the main layout
+  if (!isTauri()) {
+    return <Layout />;
+  }
+
+  if (!state?.is_complete) {
+    return <OnboardingWizard />;
+  }
+
+  return <Layout />;
 }
 
-export default App;
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell />
+    </QueryClientProvider>
+  );
+}
