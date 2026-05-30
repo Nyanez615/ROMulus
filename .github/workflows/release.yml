@@ -18,12 +18,16 @@ jobs:
         include:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            artifact: sigs-macos-aarch64
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            artifact: sigs-macos-x64
           - platform: ubuntu-22.04
             args: ""
+            artifact: sigs-linux
           - platform: windows-latest
             args: ""
+            artifact: sigs-windows
 
     runs-on: ${{ matrix.platform }}
 
@@ -64,4 +68,74 @@ jobs:
             See [CHANGELOG.md](https://github.com/Nyanez615/ROMulus/blob/main/CHANGELOG.md) for details.
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+      - name: Save .sig files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/**/*.sig
+          if-no-files-found: warn
+
+  updater-json:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: sigs/
+
+      - name: Create and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'EOF'
+          import json, glob, subprocess
+          from datetime import datetime, timezone
+
+          tag = "${{ github.ref_name }}"
+          version = tag.lstrip("v")
+          base = f"https://github.com/Nyanez615/ROMulus/releases/download/{tag}"
+
+          def read_sig(pattern):
+              files = sorted(glob.glob(pattern, recursive=True))
+              if not files:
+                  print(f"WARNING: No .sig found for: {pattern}")
+                  return ""
+              print(f"Using: {files[0]}")
+              return open(files[0]).read().strip()
+
+          data = {
+              "version": version,
+              "notes": "See https://github.com/Nyanez615/ROMulus/blob/main/CHANGELOG.md for details.",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {
+                  "darwin-aarch64": {
+                      "signature": read_sig("sigs/sigs-macos-aarch64/**/ROMulus.app.tar.gz.sig"),
+                      "url": f"{base}/ROMulus_aarch64.app.tar.gz",
+                  },
+                  "darwin-x86_64": {
+                      "signature": read_sig("sigs/sigs-macos-x64/**/ROMulus.app.tar.gz.sig"),
+                      "url": f"{base}/ROMulus_x64.app.tar.gz",
+                  },
+                  "linux-x86_64": {
+                      "signature": read_sig("sigs/sigs-linux/**/ROMulus_*.AppImage.sig"),
+                      "url": f"{base}/ROMulus_{version}_amd64.AppImage",
+                  },
+                  "windows-x86_64": {
+                      "signature": read_sig("sigs/sigs-windows/**/ROMulus_*x64-setup.exe.sig"),
+                      "url": f"{base}/ROMulus_{version}_x64-setup.exe",
+                  },
+              },
+          }
+
+          with open("latest.json", "w") as f:
+              json.dump(data, f, indent=2)
+
+          print(json.dumps(data, indent=2))
+          subprocess.run(["gh", "release", "upload", tag, "latest.json", "--clobber"], check=True)
+          print("Uploaded latest.json")
+          EOF
