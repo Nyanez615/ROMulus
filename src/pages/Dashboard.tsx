@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   getConsoles, getInterruptedSession, getHistory,
-  scanRoots, getSettings, formatBytes,
+  scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
+  onEnrichProgress, onEnrichComplete, getEnrichmentStatus,
 } from "@/lib/tauri";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
+import type { EnrichmentStatus } from "@/lib/bindings/EnrichmentStatus";
+import type { Completeness } from "@/lib/bindings/Completeness";
+import type { DatFile } from "@/lib/bindings/DatFile";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import { useScanStore } from "@/store/scan";
 import { useUIStore } from "@/store/ui";
@@ -18,11 +23,27 @@ export default function Dashboard() {
   const [interrupted, setInterrupted] = useState(false);
   const [recentActions, setRecentActions] = useState<ActionLogEntry[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [enrichment, setEnrichment] = useState<EnrichmentStatus | null>(null);
+  const [completeness, setCompleteness] = useState<Completeness[]>([]);
 
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
     getInterruptedSession().then(setInterrupted).catch(console.error);
     getHistory(1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
+    getEnrichmentStatus().then((s) => { if (s.total > 0) setEnrichment(s); }).catch(console.error);
+
+    // Load completeness for any imported DATs
+    getDatFiles().then((dats) => {
+      Promise.all(dats.map((d: DatFile) => getCompleteness(d.console)))
+        .then(setCompleteness).catch(console.error);
+    }).catch(console.error);
+
+    // Subscribe to enrichment events
+    let unlistenProgress: (() => void) | null = null;
+    let unlistenComplete: (() => void) | null = null;
+    onEnrichProgress((s) => setEnrichment(s)).then((fn) => { unlistenProgress = fn; });
+    onEnrichComplete((s) => setEnrichment(s)).then((fn) => { unlistenComplete = fn; });
+    return () => { unlistenProgress?.(); unlistenComplete?.(); };
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
@@ -89,6 +110,49 @@ export default function Dashboard() {
           <Gamepad2 className="w-12 h-12 text-muted-foreground/40 mx-auto" />
           <p className="text-muted-foreground">No ROMs scanned yet.</p>
           <Button onClick={handleScan} disabled={scanning}>Start scan</Button>
+        </div>
+      )}
+
+      {/* Enrichment progress */}
+      {enrichment && enrichment.total > 0 && (
+        <div className="border border-border rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className={`w-4 h-4 ${enrichment.running ? "text-primary animate-pulse" : "text-green-400"}`} />
+            <span className="text-sm font-medium text-foreground">
+              {enrichment.running ? "Enriching metadata…" : "Metadata enrichment complete"}
+            </span>
+            <span className="text-xs text-muted-foreground ml-auto">{enrichment.enriched}/{enrichment.total}</span>
+          </div>
+          <Progress value={enrichment.total > 0 ? (enrichment.enriched / enrichment.total) * 100 : 0} className="h-1.5" />
+          {enrichment.current_title && (
+            <p className="text-xs text-muted-foreground truncate">{enrichment.current_title}</p>
+          )}
+        </div>
+      )}
+
+      {/* DAT Completeness */}
+      {completeness.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Database className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Collection completeness</h2>
+          </div>
+          <div className="space-y-2">
+            {completeness.map((c) => (
+              <div key={c.console} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-foreground truncate">{c.console.split(" - ")[1] ?? c.console}</span>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.have.toLocaleString()} / {c.total.toLocaleString()}</span>
+                  </div>
+                  <Progress value={c.percent} className="h-1" />
+                </div>
+                <span className={`text-sm font-semibold shrink-0 ${c.percent >= 80 ? "text-green-400" : c.percent >= 50 ? "text-amber-400" : "text-muted-foreground"}`}>
+                  {Math.round(c.percent)}%
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

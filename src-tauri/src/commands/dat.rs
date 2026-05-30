@@ -170,13 +170,13 @@ pub async fn verify_roms(
     // Collect ROMs to verify
     let roms: Vec<(i64, String, String)> = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let filter = console.as_deref().map(|c| format!("AND console = '{c}'")).unwrap_or_default();
-        let sql = format!(
-            "SELECT id, path, console FROM rom_cache WHERE file_format = 'zip' {} LIMIT 5000",
-            filter
-        );
-        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        // Use nullable parameter to avoid SQL injection from console name
+        let mut stmt = conn.prepare(
+            "SELECT id, path, console FROM rom_cache
+             WHERE file_format = 'zip' AND (?1 IS NULL OR console = ?1)
+             LIMIT 5000",
+        ).map_err(|e| e.to_string())?;
+        let mut rows = stmt.query(rusqlite::params![console]).map_err(|e| e.to_string())?;
         let mut result = vec![];
         while let Some(row) = rows.next().map_err(|e| e.to_string())? {
             result.push((

@@ -204,22 +204,28 @@ pub async fn enrich_all_games(app: AppHandle, state: State<'_, AppState>) -> Res
     let total = roms.len() as u32;
     let (client_id, token) = get_igdb_token(&state.db).await?;
 
-    // Clone Arc for the spawned task
+    // Clone Arcs for the spawned task
     let db = Arc::clone(&state.db);
+    let scan_cache = Arc::clone(&state.scan_cache);
     let app2 = app.clone();
 
     tauri::async_runtime::spawn(async move {
         for (i, (title, console)) in roms.iter().enumerate() {
-            app2.emit("enrich:progress", EnrichmentStatus {
+            let status = EnrichmentStatus {
                 running: true, enriched: i as u32, total, current_title: Some(title.clone()),
-            }).ok();
+            };
+            app2.emit("enrich:progress", &status).ok();
+            // Also write back to scan_cache so get_enrichment_status is accurate
+            if let Ok(mut cache) = scan_cache.lock() { cache.enrichment = status; }
 
             if let Ok(Some(meta)) = fetch_igdb_metadata(title, console, &client_id, &token).await {
                 if let Ok(conn) = db.lock() { let _ = save_metadata(&conn, &meta); }
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
         }
-        app2.emit("enrich:complete", EnrichmentStatus { running: false, enriched: total, total, current_title: None }).ok();
+        let done = EnrichmentStatus { running: false, enriched: total, total, current_title: None };
+        app2.emit("enrich:complete", &done).ok();
+        if let Ok(mut cache) = scan_cache.lock() { cache.enrichment = done; }
         let _ = app2.notification().builder().title("ROMulus").body(format!("Metadata enrichment complete — {total} games updated")).show();
     });
     Ok(())
