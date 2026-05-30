@@ -37,5 +37,6 @@ notify = "6"
 keyring = "3"
 sentry = { version = "0.34", default-features = false, features = ["backtrace", "contexts", "panic"] }
 uuid = { version = "1", features = ["v4"] }
+urlencoding = "2"
 
 [dev-dependencies]

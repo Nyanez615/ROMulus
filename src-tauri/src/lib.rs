@@ -10,7 +10,7 @@ mod models;
 mod parser;
 mod watcher;
 
-use commands::{execute, group, history, prune, scan, settings};
+use commands::{dat, execute, group, history, metadata, prune, scan, settings, thumbnail};
 use db::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,8 +26,8 @@ pub fn run() {
         .setup(|app| {
             let conn = db::open(app.handle())?;
             app.manage(AppState {
-                db: Mutex::new(conn),
-                scan_cache: Mutex::new(db::ScanCache::default()),
+                db: std::sync::Arc::new(Mutex::new(conn)),
+                scan_cache: std::sync::Arc::new(Mutex::new(db::ScanCache::default())),
                 watcher: Mutex::new(None),
             });
             Ok(())
@@ -57,6 +57,24 @@ pub fn run() {
             settings::save_settings,
             settings::get_onboarding_state,
             settings::complete_onboarding_step,
+            // Metadata (IGDB)
+            metadata::set_igdb_credentials,
+            metadata::has_igdb_credentials,
+            metadata::clear_igdb_credentials,
+            metadata::get_game_metadata,
+            metadata::get_enrichment_status,
+            metadata::enrich_all_games,
+            // Thumbnails (SteamGridDB)
+            thumbnail::set_steamgriddb_key,
+            thumbnail::has_steamgriddb_key,
+            thumbnail::clear_steamgriddb_key,
+            thumbnail::get_thumbnail,
+            // DAT files
+            dat::import_dat,
+            dat::get_dat_files,
+            dat::remove_dat,
+            dat::verify_roms,
+            dat::get_completeness,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

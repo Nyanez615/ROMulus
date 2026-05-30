@@ -1,6 +1,9 @@
+pub mod dat;
 pub mod execute;
 pub mod group;
 pub mod history;
+pub mod metadata;
 pub mod prune;
 pub mod scan;
 pub mod settings;
+pub mod thumbnail;

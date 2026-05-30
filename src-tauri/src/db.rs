@@ -1,17 +1,19 @@
 use rusqlite::{Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 
 use crate::models::{RomFile, RomGroup, ScanStatus};
 
 // ── AppState ─────────────────────────────────────────────────────────────────
 
+/// Application-wide shared state managed by Tauri.
+/// `db` and `scan_cache` use `Arc<Mutex<>>` so background tokio tasks
+/// can clone the Arc and access them without lifetime constraints.
 pub struct AppState {
-    pub db: Mutex<Connection>,
-    pub scan_cache: Mutex<ScanCache>,
+    pub db: Arc<Mutex<Connection>>,
+    pub scan_cache: Arc<Mutex<ScanCache>>,
     /// Held here so the OS watcher isn't dropped after scan_roots returns.
-    /// Replacing with a new watcher on each rescan is intentional.
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
@@ -20,6 +22,8 @@ pub struct ScanCache {
     pub roms: Vec<RomFile>,
     pub groups: Vec<RomGroup>,
     pub status: ScanStatus,
+    pub enrichment: crate::models::EnrichmentStatus,
+    pub verification: crate::models::VerificationStatus,
 }
 
 // ── Migrations ───────────────────────────────────────────────────────────────
