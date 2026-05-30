@@ -4,7 +4,9 @@ use std::time::UNIX_EPOCH;
 use tauri::{AppHandle, Emitter, State};
 use walkdir::WalkDir;
 
+use crate::commands::group::group_roms;
 use crate::db::AppState;
+use crate::deduper::{detect_format_pairs, mark_format_pairs};
 use crate::models::{ConsoleStats, RomFile, ScanProgress, ScanStatus};
 use crate::parser;
 
@@ -38,8 +40,20 @@ pub async fn scan_roots(
     let roms = scan_all_roots(&app, &roots, &state)?;
     let total = roms.len() as u32;
 
+    // Load preferences from DB to score variants
+    let prefs = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        load_preferences(&conn)?
+    };
+
+    // Group + score variants, detect format pairs
+    let mut groups = group_roms(roms.clone(), &prefs);
+    let format_pairs = detect_format_pairs(&roms);
+    mark_format_pairs(&mut groups, &format_pairs);
+
     let mut cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
     cache.roms = roms;
+    cache.groups = groups;
     cache.status = ScanStatus {
         scanning: false,
         scanned: total,
@@ -48,7 +62,29 @@ pub async fn scan_roots(
         cached: false,
     };
 
+    // Start filesystem watcher for the scanned roots
+    drop(cache); // release lock before spawning watcher
+    if let Err(e) = crate::watcher::start(app.clone(), &roots) {
+        eprintln!("[watcher] Failed to start: {e}");
+    }
+
+    let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
     Ok(cache.status.clone())
+}
+
+// ── Preferences loader ────────────────────────────────────────────────────────
+
+fn load_preferences(conn: &rusqlite::Connection) -> Result<crate::models::UserPreferences, String> {
+    use crate::db::get_setting;
+    let langs: Vec<String> = get_setting(conn, "preferred_languages")
+        .map_err(|e| e.to_string())?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    let regions: Vec<String> = get_setting(conn, "preferred_regions")
+        .map_err(|e| e.to_string())?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    Ok(crate::models::UserPreferences { preferred_languages: langs, preferred_regions: regions })
 }
 
 // ── Scanner implementation ────────────────────────────────────────────────────
