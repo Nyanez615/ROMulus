@@ -12,20 +12,11 @@ pub struct AppState {
     pub scan_cache: Mutex<ScanCache>,
 }
 
+#[derive(Default)]
 pub struct ScanCache {
     pub roms: Vec<RomFile>,
     pub groups: Vec<RomGroup>,
     pub status: ScanStatus,
-}
-
-impl Default for ScanCache {
-    fn default() -> Self {
-        ScanCache {
-            roms: vec![],
-            groups: vec![],
-            status: ScanStatus::default(),
-        }
-    }
 }
 
 // ── Migrations ───────────────────────────────────────────────────────────────

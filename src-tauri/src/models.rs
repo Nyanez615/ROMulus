@@ -3,22 +3,17 @@ use ts_rs::TS;
 
 // ── File-level types ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum FileFormat {
+    #[default]
     Zip,
     Chd,
     CueBin,
     Iso,
     SevenZip,
     Raw,
-}
-
-impl Default for FileFormat {
-    fn default() -> Self {
-        FileFormat::Zip
-    }
 }
 
 impl FileFormat {
@@ -34,10 +29,11 @@ impl FileFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum FileCategory {
+    #[default]
     Game,
     Unofficial,
     Bios,
@@ -45,12 +41,6 @@ pub enum FileCategory {
     Demo,
     Video,
     EReader,
-}
-
-impl Default for FileCategory {
-    fn default() -> Self {
-        FileCategory::Game
-    }
 }
 
 // ── Core ROM types ───────────────────────────────────────────────────────────
@@ -97,22 +87,13 @@ pub struct RomGroup {
 
 // ── User settings ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct UserPreferences {
     /// e.g. ["En"] or ["En", "Fr"] — ordered, first = most preferred
     pub preferred_languages: Vec<String>,
     /// Ordered priority list; user drag-reorders in Settings
     pub preferred_regions: Vec<String>,
-}
-
-impl Default for UserPreferences {
-    fn default() -> Self {
-        UserPreferences {
-            preferred_languages: vec![],
-            preferred_regions: vec![],
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -237,7 +218,7 @@ pub struct FailedFile {
 
 // ── Scan & background event payloads ────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ScanStatus {
     pub scanning: bool,
@@ -245,18 +226,6 @@ pub struct ScanStatus {
     pub total_estimate: u32,
     pub current_console: Option<String>,
     pub cached: bool,
-}
-
-impl Default for ScanStatus {
-    fn default() -> Self {
-        ScanStatus {
-            scanning: false,
-            scanned: 0,
-            total_estimate: 0,
-            current_console: None,
-            cached: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
