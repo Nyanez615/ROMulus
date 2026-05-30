@@ -6,26 +6,57 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added — Phase 4 completions & fixes (post-Phase-4)
+### Added — Phase 4 (enrichment, DAT, notifications)
 
-**Backend bug fixes**
-- SQL injection in `verify_roms`: parameterized `console` filter with nullable WHERE clause
-- `enrich_all_games` background task now writes back to `scan_cache.enrichment` via `Arc::clone`
-  so `get_enrichment_status` returns live data instead of always returning default
-- `verify_roms` background task now writes back to `scan_cache.verification`
-- Added `get_verification_status` Tauri command
+**IGDB metadata enrichment** (`commands/metadata.rs`)
+- OAuth2 client credentials flow; token cached in SQLite
+- Client ID + secret stored in OS Keychain via `keyring` crate
+- Three enrichment modes: automatic background (250ms rate-limited), on-demand per game, bulk
+- `get_game_metadata`, `enrich_all_games`, `get_enrichment_status` Tauri commands
+- Emits `enrich:progress` + `enrich:complete` events; writes back to `scan_cache.enrichment`
+- Settings UI: Client ID + secret inputs, "Enrich all games" button, "Remove credentials" button
 
-**Frontend completions**
-- Dashboard: live enrichment progress bar (subscribes to `enrich:progress`/`enrich:complete` events)
-- Dashboard: collection completeness progress bars per console (requires imported DAT files)
-- Games: `GameThumbnail` component — lazy-loads SteamGridDB cover art via `convertFileSrc`
-- Games: `VerificationBadge` component per variant row (✅/⚠️/❓) after DAT verification
+**SteamGridDB thumbnails** (`commands/thumbnail.rs`)
+- API key stored in Keychain; fetches capsule art via search → grid → download pipeline
+- Cached locally in `app_data_dir/thumbnails/<hash>.jpg`
+- Served via `asset://` protocol (`convertFileSrc`); `protocol-asset` Tauri feature enabled
+- Settings UI: API key input, connected status badge
+- Games page: `GameThumbnail` component lazy-loads when row is expanded
 
-**Infrastructure**
-- Removed `#![allow(dead_code)]` from `lib.rs` — all code is wired, clippy clean without it
-- Added `protocol-asset` Tauri feature + `assetProtocol` scope in `tauri.conf.json`
-  for serving cached thumbnails via `asset://` protocol
-- Removed duplicate `COLLECTION_TAGS` constant from `parser.rs` (live copy in `group.rs`)
+**OS notifications** (via `tauri-plugin-notification`)
+- Fires on scan complete, enrichment complete, deletion complete, verification complete
+
+**No-Intro DAT support** (`commands/dat.rs`)
+- Import XML DAT files; parses `<game>/<rom>` elements via `quick-xml`
+- CRC32 verification: reads ZIP central directory via `zip` crate (no extraction)
+- Collection completeness: cross-references collection against DAT entries
+- `import_dat`, `get_dat_files`, `remove_dat`, `verify_roms`, `get_verification_status`,
+  `get_completeness` Tauri commands
+- Emits `verify:complete` event; writes back to `scan_cache.verification`
+- Settings UI: import DAT (file picker), list of imported DATs, Verify/Remove per DAT
+
+**New models** (5 new Rust structs + TypeScript bindings)
+`GameMetadata`, `EnrichmentStatus`, `DatFile`, `Completeness`, `VerificationStatus`
+
+**AppState refactor**
+- `db` and `scan_cache` changed from `Mutex<T>` to `Arc<Mutex<T>>`
+  so background tokio tasks can clone the Arc without lifetime constraints
+
+**Dashboard additions**
+- Live enrichment progress bar (event-driven)
+- Collection completeness progress bars per console (after DAT import)
+
+**Games additions**
+- `GameThumbnail` — lazy SteamGridDB cover art via `convertFileSrc`
+- `VerificationBadge` — ✅/⚠️/❓ per variant row after DAT verification
+
+### Fixed — post-Phase-4 cleanup
+- SQL injection in `verify_roms` console filter (parameterized nullable WHERE)
+- Removed `#![allow(dead_code)]` — all 60+ symbols wired, clippy clean without suppressor
+- Removed duplicate `COLLECTION_TAGS` from `parser.rs`
+- Watcher bug fixed: `RecommendedWatcher` now stored in `AppState.watcher` (was dropped immediately)
+- Backup manifest path fixed: uses `app.path().desktop_dir()` not `process.env.HOME`
+- `assetProtocol` + `protocol-asset` feature added for thumbnail serving in production
 
 ### Added — Phase 3 (feature pages)
 
