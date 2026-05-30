@@ -1,0 +1,47 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+dist-ssr
+
+# Build artifacts
+*.dmg
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# Database and user data
+*.db
+*.db-shm
+*.db-wal
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.sw?
+
+# Secrets
+*.pem
+*.p12
+*.key
+.env
+.env.local
+.env*.local
+
+# Tauri generated
+src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test artifacts
+coverage/
