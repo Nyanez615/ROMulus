@@ -1,14 +1,36 @@
 import { useState, useEffect, useRef } from "react";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
-import { getGames } from "@/lib/tauri";
+import { getGames, getThumbnail } from "@/lib/tauri";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
 import { DiscBadge } from "@/components/DiscBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
+
+// ── Verification badge ────────────────────────────────────────────────────────
+function VerificationBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  if (status === "verified") return <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" aria-label="Verified" />;
+  if (status === "modified") return <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-label="Modified" />;
+  return <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" aria-label="Unverified" />;
+}
+
+// ── Lazy thumbnail ────────────────────────────────────────────────────────────
+function GameThumbnail({ title, consoleName }: { title: string; consoleName: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    getThumbnail(title, consoleName).then((path) => {
+      if (path) setSrc(convertFileSrc(path));
+    }).catch(() => {});
+  }, [title, consoleName]);
+
+  if (!src) return <div className="w-10 h-10 rounded bg-muted/40 shrink-0" />;
+  return <img src={src} alt={title} className="w-10 h-10 rounded object-cover shrink-0" />;
+}
 
 const PER_PAGE = 200;
 
@@ -80,6 +102,9 @@ export default function Games() {
                   onClick={() => toggleExpand(key)}
                 >
                   {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  {isOpen && preferred && (
+                    <GameThumbnail title={preferred.title} consoleName={g.console} />
+                  )}
                   <span className="flex-1 font-medium text-foreground truncate">
                     {preferred?.title ?? g.title_normalized}
                   </span>
@@ -101,7 +126,7 @@ export default function Games() {
   );
 }
 
-function VariantRow({ rom, isPreferred }: { rom: RomFile; isPreferred: boolean }) {
+function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; isPreferred: boolean; verificationStatus?: string }) {
   const statusColor = rom.is_bios
     ? "border-l-orange-400"
     : isPreferred
@@ -112,6 +137,7 @@ function VariantRow({ rom, isPreferred }: { rom: RomFile; isPreferred: boolean }
     <div className={`flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`}>
       <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
       <TagList regions={rom.regions} languages={rom.languages} statusFlags={rom.status_flags} max={3} />
+      <VerificationBadge status={verificationStatus} />
       <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
       {isPreferred && <span className="text-green-400 shrink-0">★</span>}
     </div>
