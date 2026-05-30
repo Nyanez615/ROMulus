@@ -68,14 +68,23 @@ jobs:
             See [CHANGELOG.md](https://github.com/Nyanez615/ROMulus/blob/main/CHANGELOG.md) for details.
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
       - name: Save .sig files
-        uses: actions/upload-artifact@v4
+        shell: bash
+        run: |
+          mkdir -p sigs-out
+          find . -name "*.sig" -not -path "*/node_modules/*" -not -path "*/sigs-out/*" | while read f; do
+            echo "Found: $f"
+            cp "$f" sigs-out/
+          done
+          echo "Collected sig files:"
+          ls sigs-out/ || echo "(none)"
+
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: src-tauri/target/**/*.sig
+          path: sigs-out/
           if-no-files-found: warn
 
   updater-json:
@@ -114,19 +123,19 @@ jobs:
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {
                   "darwin-aarch64": {
-                      "signature": read_sig("sigs/sigs-macos-aarch64/**/ROMulus.app.tar.gz.sig"),
+                      "signature": read_sig("sigs/sigs-macos-aarch64/ROMulus.app.tar.gz.sig"),
                       "url": f"{base}/ROMulus_aarch64.app.tar.gz",
                   },
                   "darwin-x86_64": {
-                      "signature": read_sig("sigs/sigs-macos-x64/**/ROMulus.app.tar.gz.sig"),
+                      "signature": read_sig("sigs/sigs-macos-x64/ROMulus.app.tar.gz.sig"),
                       "url": f"{base}/ROMulus_x64.app.tar.gz",
                   },
                   "linux-x86_64": {
-                      "signature": read_sig("sigs/sigs-linux/**/ROMulus_*.AppImage.sig"),
+                      "signature": read_sig("sigs/sigs-linux/ROMulus_*.AppImage.sig"),
                       "url": f"{base}/ROMulus_{version}_amd64.AppImage",
                   },
                   "windows-x86_64": {
-                      "signature": read_sig("sigs/sigs-windows/**/ROMulus_*x64-setup.exe.sig"),
+                      "signature": read_sig("sigs/sigs-windows/ROMulus_*x64-setup.exe.sig"),
                       "url": f"{base}/ROMulus_{version}_x64-setup.exe",
                   },
               },
