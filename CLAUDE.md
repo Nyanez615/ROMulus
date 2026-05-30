@@ -77,29 +77,12 @@ src-tauri/
 - **Crash recovery** — actions written as `pending` before file touch; updated to
   `deleted/failed` after. `has_pending_actions()` checked on launch.
 
-## Dead code — remaining (Phase 3 only)
+## Dead code status
 
-`#![allow(dead_code)]` stays in `lib.rs` until Phase 3 pages are complete.
+**All dead code is now wired.** The `#![allow(dead_code)]` in `lib.rs` is a safety net
+during active development. All symbols from Phases 1–3 are connected.
 
-**All Phase 2 dead code is now wired:**
-- `group_roms`, `matches_preferred`, `score_rom`, `region_score`, `default_region_score`,
-  `build_group`, `COLLECTION_TAGS` — called from `scan_roots` via `group_roms`
-- `detect_format_pairs`, `mark_format_pairs`, `likely_format_pair`, `derive_group_name`,
-  `strip_last_paren` — called from `scan_roots` after grouping
-- `start`, `process_events`, `DEBOUNCE_MS` — called from `scan_roots` after scan
-- `region_default_languages` — called by `matches_preferred` → `group_roms`
-- `FormatPair`, `NewRomEvent` — used in tauri.ts and stores
-
-**Remaining dead code (Phase 3):**
-
-| Symbol | File | Wired up in |
-|--------|------|-------------|
-| `DeletionPlan` | models.rs | Phase 3 — Prune tab `apply_filters` command |
-| `FilterSettings` | models.rs | Phase 3 — Prune tab (already in `preferences` store) |
-| `ActionLogEntry` / `ActionType` | models.rs | Phase 3 — History tab |
-| `PagedHistory` | models.rs | Phase 3 — History tab |
-
-Remove `#![allow(dead_code)]` from `lib.rs` after Phase 3 is complete.
+Remove `#![allow(dead_code)]` from `lib.rs` before the first public release (after Phase 5 polish).
 
 ## Database
 SQLite at `~/Library/Application Support/com.romulus.app/romulus.db` (macOS).
