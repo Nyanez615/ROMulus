@@ -77,38 +77,29 @@ src-tauri/
 - **Crash recovery** — actions written as `pending` before file touch; updated to
   `deleted/failed` after. `has_pending_actions()` checked on launch.
 
-## Dead code — wired up in Phase 2+
+## Dead code — remaining (Phase 3 only)
 
-`#![allow(dead_code)]` is set in `lib.rs` during Phase 1. The following functions/types
-exist but are not yet called from Tauri commands. They will be wired up as each UI tab
-is built in Phase 2 and Phase 3:
+`#![allow(dead_code)]` stays in `lib.rs` until Phase 3 pages are complete.
+
+**All Phase 2 dead code is now wired:**
+- `group_roms`, `matches_preferred`, `score_rom`, `region_score`, `default_region_score`,
+  `build_group`, `COLLECTION_TAGS` — called from `scan_roots` via `group_roms`
+- `detect_format_pairs`, `mark_format_pairs`, `likely_format_pair`, `derive_group_name`,
+  `strip_last_paren` — called from `scan_roots` after grouping
+- `start`, `process_events`, `DEBOUNCE_MS` — called from `scan_roots` after scan
+- `region_default_languages` — called by `matches_preferred` → `group_roms`
+- `FormatPair`, `NewRomEvent` — used in tauri.ts and stores
+
+**Remaining dead code (Phase 3):**
 
 | Symbol | File | Wired up in |
 |--------|------|-------------|
-| `group_roms` | commands/group.rs | Phase 2 — called from `scan_roots` after scan |
-| `matches_preferred` | commands/group.rs | Phase 2 — called by `group_roms` |
-| `score_rom` | commands/group.rs | Phase 2 — called by `group_roms` |
-| `region_score` | commands/group.rs | Phase 2 — called by `score_rom` |
-| `default_region_score` | commands/group.rs | Phase 2 |
-| `build_group` | commands/group.rs | Phase 2 |
-| `detect_format_pairs` | deduper.rs | Phase 2 — Settings → Format Wizard |
-| `mark_format_pairs` | deduper.rs | Phase 2 — after scan + grouping |
-| `likely_format_pair` | deduper.rs | Phase 2 |
-| `derive_group_name` | deduper.rs | Phase 2 |
-| `strip_last_paren` | deduper.rs | Phase 2 |
-| `start` (watcher) | watcher.rs | Phase 2 — called from `scan_roots` |
-| `process_events` | watcher.rs | Phase 2 — internal to watcher thread |
-| `region_default_languages` | parser.rs | Phase 2 — called by `matches_preferred` |
 | `DeletionPlan` | models.rs | Phase 3 — Prune tab `apply_filters` command |
-| `FilterSettings` | models.rs | Phase 3 — Prune tab |
+| `FilterSettings` | models.rs | Phase 3 — Prune tab (already in `preferences` store) |
 | `ActionLogEntry` / `ActionType` | models.rs | Phase 3 — History tab |
-| `FormatPair` | models.rs | Phase 2 — Format Wizard |
-| `NewRomEvent` | models.rs | Phase 2 — watcher events |
 | `PagedHistory` | models.rs | Phase 3 — History tab |
-| `COLLECTION_TAGS` | commands/group.rs | Phase 2 — used in score_rom |
-| `DEBOUNCE_MS` | watcher.rs | Phase 2 — used in process_events |
 
-Remove `#![allow(dead_code)]` from `lib.rs` once all Phase 2 + Phase 3 pages are complete.
+Remove `#![allow(dead_code)]` from `lib.rs` after Phase 3 is complete.
 
 ## Database
 SQLite at `~/Library/Application Support/com.romulus.app/romulus.db` (macOS).
