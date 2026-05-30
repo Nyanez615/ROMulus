@@ -176,6 +176,7 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
+/// Returns official game groups (FileCategory::Game variants only).
 #[tauri::command]
 pub fn get_games(
     state: State<'_, AppState>,
@@ -191,30 +192,131 @@ pub fn get_games(
         .groups
         .iter()
         .filter(|g| {
+            // Only groups that contain at least one official game variant
+            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game)) {
+                return false;
+            }
             if let Some(ref c) = console {
-                if &g.console != c {
-                    return false;
-                }
+                if &g.console != c { return false; }
             }
             if let Some(ref q) = search_lower {
-                if !g.title_normalized.contains(q.as_str()) {
-                    return false;
-                }
+                if !g.title_normalized.contains(q.as_str()) { return false; }
             }
             true
         })
         .collect();
 
+    paginate(filtered, page, per_page)
+}
+
+/// Returns unofficial ROM groups (Pirate/Unl/Aftermarket/Hack).
+#[tauri::command]
+pub fn get_unofficial(
+    state: State<'_, AppState>,
+    console: Option<String>,
+    search: Option<String>,
+    page: u32,
+    per_page: u32,
+) -> PagedGroups {
+    let cache = state.scan_cache.lock().unwrap();
+    let search_lower = search.as_deref().map(|s| s.to_lowercase());
+
+    let filtered: Vec<&RomGroup> = cache
+        .groups
+        .iter()
+        .filter(|g| {
+            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Unofficial)) {
+                return false;
+            }
+            if let Some(ref c) = console {
+                if &g.console != c { return false; }
+            }
+            if let Some(ref q) = search_lower {
+                if !g.title_normalized.contains(q.as_str()) { return false; }
+            }
+            true
+        })
+        .collect();
+
+    paginate(filtered, page, per_page)
+}
+
+/// Returns system file groups (BIOS, Utility, Demo, Video, EReader).
+#[tauri::command]
+pub fn get_system_files(
+    state: State<'_, AppState>,
+    console: Option<String>,
+    search: Option<String>,
+    page: u32,
+    per_page: u32,
+) -> PagedGroups {
+    let cache = state.scan_cache.lock().unwrap();
+    let search_lower = search.as_deref().map(|s| s.to_lowercase());
+
+    let filtered: Vec<&RomGroup> = cache
+        .groups
+        .iter()
+        .filter(|g| {
+            if !g.variants.iter().any(|v| {
+                matches!(
+                    v.file_category,
+                    FileCategory::Bios | FileCategory::Utility | FileCategory::Demo
+                    | FileCategory::Video | FileCategory::EReader
+                )
+            }) {
+                return false;
+            }
+            if let Some(ref c) = console {
+                if &g.console != c { return false; }
+            }
+            if let Some(ref q) = search_lower {
+                if !g.title_normalized.contains(q.as_str()) { return false; }
+            }
+            true
+        })
+        .collect();
+
+    paginate(filtered, page, per_page)
+}
+
+/// Returns groups with multiple keep-eligible variants (duplicates for manual resolution).
+#[tauri::command]
+pub fn get_duplicates(
+    state: State<'_, AppState>,
+    console: Option<String>,
+) -> Vec<RomGroup> {
+    let cache = state.scan_cache.lock().unwrap();
+
+    cache
+        .groups
+        .iter()
+        .filter(|g| {
+            // Duplicate = more than one variant that matches preferred language,
+            // OR a format-pair group
+            if g.is_format_pair { return true; }
+            let eligible_count = g.variants.iter()
+                .filter(|v| v.matches_preferred_language && !v.bad_dump
+                    && !v.status_flags.iter().any(|f| {
+                        matches!(f.as_str(), "Beta"|"Proto"|"Demo"|"Sample"|"Promo"|"Kiosk")
+                    }))
+                .count();
+            eligible_count > 1
+        })
+        .filter(|g| console.as_ref().is_none_or(|c| &g.console == c))
+        .cloned()
+        .collect()
+}
+
+fn paginate(filtered: Vec<&RomGroup>, page: u32, per_page: u32) -> PagedGroups {
     let total = filtered.len() as u32;
     let start = (page.saturating_sub(1) * per_page) as usize;
     let end = (start + per_page as usize).min(filtered.len());
-
-    PagedGroups {
-        total_groups: total,
-        page,
-        per_page,
-        groups: filtered[start..end].iter().map(|g| (*g).clone()).collect(),
-    }
+    let groups = if start < filtered.len() {
+        filtered[start..end].iter().map(|g| (*g).clone()).collect()
+    } else {
+        vec![]
+    };
+    PagedGroups { total_groups: total, page, per_page, groups }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

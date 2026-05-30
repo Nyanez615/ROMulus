@@ -1,7 +1,6 @@
-#![allow(dead_code)] // Phase 1: many functions not yet called from all commands — remove when wired up
+#![allow(dead_code)] // Phase 3 items (DeletionPlan, ActionLogEntry, etc.) — remove after History/Prune tabs done
 
 use std::sync::Mutex;
-
 use tauri::Manager;
 
 mod commands;
@@ -11,7 +10,7 @@ mod models;
 mod parser;
 mod watcher;
 
-use commands::{execute, group, scan, settings};
+use commands::{execute, group, history, prune, scan, settings};
 use db::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -37,11 +36,20 @@ pub fn run() {
             scan::get_scan_status,
             scan::get_consoles,
             scan::scan_roots,
-            // Games / groups
+            // Browse — official games
             group::get_games,
+            // Browse — filtered
+            group::get_unofficial,
+            group::get_system_files,
+            group::get_duplicates,
+            // Prune
+            prune::apply_filters,
+            prune::export_csv,
             // Execute
             execute::execute_prune,
             execute::get_interrupted_session,
+            // History
+            history::get_history,
             // Settings & onboarding
             settings::get_settings,
             settings::save_settings,
