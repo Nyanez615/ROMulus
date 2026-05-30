@@ -131,7 +131,7 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
         }
 
         // Version: "v1.0", "v2.0.5"
-        if content.starts_with('v') && content.len() > 1 && content.chars().nth(1).map_or(false, |c| c.is_ascii_digit()) {
+        if content.starts_with('v') && content.chars().nth(1).is_some_and(|c| c.is_ascii_digit()) {
             version = Some(content.to_string());
             continue;
         }
@@ -157,7 +157,7 @@ fn is_language_tag(s: &str) -> bool {
         let bytes = part.as_bytes();
         (bytes.len() == 2 || bytes.len() == 3)
             && bytes.iter().all(|b| b.is_ascii_alphabetic())
-            && part.chars().next().map_or(false, |c| c.is_uppercase())
+            && part.chars().next().is_some_and(|c| c.is_uppercase())
     })
 }
 
@@ -281,8 +281,8 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
     }
 
     // BIOS detection — "[BIOS]" prefix
-    let (is_bios, stem) = if stem.starts_with("[BIOS]") {
-        (true, stem["[BIOS]".len()..].trim())
+    let (is_bios, stem) = if let Some(stripped) = stem.strip_prefix("[BIOS]") {
+        (true, stripped.trim())
     } else {
         (false, stem)
     };

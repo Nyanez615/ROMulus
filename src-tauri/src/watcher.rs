@@ -74,7 +74,7 @@ fn process_events(rx: mpsc::Receiver<notify::Result<Event>>, app: AppHandle) {
                         .to_string();
 
                     // Only emit if it parses as a valid ROM
-                    if let Some(meta) = std::fs::metadata(path).ok() {
+                    if let Ok(meta) = std::fs::metadata(path) {
                         if meta.len() > 0
                             && parser::parse_file(path, &console, meta.len(), 0).is_some()
                         {

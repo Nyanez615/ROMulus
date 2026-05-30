@@ -6,29 +6,75 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 1 (Rust backend core)
+
+**Database (`src-tauri/src/db.rs`, `src-tauri/migrations/`)**
+- 3 SQL migration files: `001_initial.sql` (settings, rom_cache, action_log, rom_roots,
+  format_preferences), `002_metadata.sql` (game_metadata, dat_files, dat_entries,
+  rom_verifications, thumbnail_cache), `003_onboarding.sql`
+- Migration runner via `rusqlite_migration`; runs on every launch, creates DB at platform
+  app-data dir (`~/Library/Application Support/com.romulus.app/romulus.db` on macOS)
+- `AppState` managed by Tauri: `Mutex<Connection>` + `Mutex<ScanCache>`
+- Action log helpers: `log_action`, `update_pending_action`, `has_pending_actions`
+
+**Data models (`src-tauri/src/models.rs`)**
+- 18 shared Rust structs/enums with `serde` + `ts-rs` derives
+- 18 TypeScript bindings auto-generated to `src/lib/bindings/` via `cargo test`
+- Key types: `RomFile`, `RomGroup`, `UserPreferences`, `FilterSettings`, `AppSettings`,
+  `DeletionPlan`, `ConsoleStats`, `ScanStatus`, `OnboardingState`, `FormatPair`, `PagedGroups`
+
+**Parser (`src-tauri/src/parser.rs`)**
+- Full No-Intro naming convention parser
+- Handles: regions (single + multi-value like `USA, Europe`), languages (`En,Fr,De`),
+  status flags with numeric suffixes (`Beta 1`, `Proto 2`), revisions (`Rev 1`),
+  disc numbers (`Disc 2`), versions (`v1.03`), `[b]` bad dumps, `[BIOS]` prefix,
+  `.cue/.bin` pair detection, `.chd`/`.iso`/`.7z`/raw ROM extensions
+- `[BIOS]` → `FileCategory::Bios`; `Pirate/Unl/Aftermarket/Hack` → `FileCategory::Unofficial`
+- `normalize_title`: lowercase, strip leading articles, remove punctuation, collapse spaces
+- 19 unit tests covering all edge cases from the real collection
+
+**Scanner (`src-tauri/src/commands/scan.rs`)**
+- `walkdir`-based console folder discovery; emits `scan:progress` Tauri events
+- OneDrive zero-byte file guard (skips `filesize == 0`)
+- `compute_console_stats` — per-console counts for sidebar
+
+**Grouper + Scorer (`src-tauri/src/commands/group.rs`)**
+- `matches_preferred` — language matching via `UserPreferences` (never hardcoded)
+- `region_default_languages` — infers language from region when no explicit language tag
+- `score_rom` — priority: preferred language > region score > penalties
+  (pre-release -100, bad dump -80, unofficial -30, collection tag -10, Alt -5)
+- `group_roms` — groups by `(console, title_normalized)`, detects multi-disc sets
+- Marks `is_unofficial_preferred_fallback` for unofficial ROMs that are the only
+  preferred-language version of a game
+- 9 unit tests
+
+**Format pair detection (`src-tauri/src/deduper.rs`)**
+- Detects console folder pairs with >80% title overlap (NES Headered/Headerless,
+  N64 BigEndian/ByteSwapped, etc.) by comparing last parenthetical suffix
+- `mark_format_pairs` propagates `is_format_pair` to affected `RomGroup`s
+- 3 unit tests
+
+**Execution engine (`src-tauri/src/commands/execute.rs`)**
+- `execute_prune` — atomic trash/delete with `pending → deleted/failed` SQLite pattern
+- OneDrive path detection requires acknowledgment header
+- `get_interrupted_session` — crash recovery detection on next launch
+
+**Filesystem watcher (`src-tauri/src/watcher.rs`)**
+- `notify`-based cross-platform watcher; emits `watcher:new_rom` Tauri events
+- 200ms debounce via `HashMap<path, Instant>`; validates new files through parser
+
+**Settings & onboarding (`src-tauri/src/commands/settings.rs`)**
+- `get_settings` / `save_settings` — preferences persisted in SQLite settings table
+- `get_onboarding_state` / `complete_onboarding_step` — 4-step wizard state
+
+**Infrastructure**
+- All 11 Tauri commands registered in `lib.rs`
+- `#![allow(dead_code)]` in `lib.rs` — Phase 1 functions not yet called from all
+  command handlers; will be removed when Phase 2 wires the frontend
+
 ### Added — Phase 0 (scaffold)
-
-**Project setup**
-- Tauri v2 + React 19 + TypeScript + Vite scaffold
-- Bundle identifier: `com.romulus.app`
-- Window defaults: 1280×800, minimum 900×600
-
-**Rust backend**
-- All crates wired: `rusqlite`, `rusqlite_migration`, `walkdir`, `notify`, `trash`, `reqwest`,
-  `ts-rs`, `quick-xml`, `zip`, `keyring`, `sentry`
-- Tauri plugins registered: `fs`, `shell`, `dialog`, `notification`, `global-shortcut`, `updater`
-- Tauri capabilities configured for filesystem read/write, watch, dialog, notifications, shortcuts
-
-**Frontend**
-- Tailwind CSS with dark gaming palette (CSS custom properties)
-- shadcn/ui component library (18 components): Button, Badge, Card, Dialog, Table, Tabs,
-  Tooltip, Separator, ScrollArea, Progress, Label, Checkbox, Switch, Select, Popover, Toast
-- Dependencies: TanStack Query v5, TanStack Virtual v3, Zustand v5, Lucide React,
-  Simple Icons, Radix UI primitives, Sentry React
-- `@` path alias, `src/lib/utils.ts` (cn helper)
-
-**Repository**
-- BSL 1.1 — personal use free; commercial use requires license; converts to Apache 2.0 after 4 years
-- PRIVACY.md, CLAUDE.md, README.md with badges
-- GitHub Actions CI: Rust clippy + test, TypeScript type-check
+- Tauri v2 + React 19 + TypeScript + Vite, bundle ID `com.romulus.app`
+- Dark gaming theme (Tailwind CSS variables), shadcn/ui (18 components)
+- ESLint, Prettier, Vitest configured; GitHub Actions CI (Rust + TypeScript)
+- BSL 1.1 license (Licensor: Nicolas Yanez), PRIVACY.md, CLAUDE.md, README.md
 - Public repo: https://github.com/Nyanez615/ROMulus
