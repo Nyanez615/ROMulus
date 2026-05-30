@@ -6,6 +6,27 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 4 completions & fixes (post-Phase-4)
+
+**Backend bug fixes**
+- SQL injection in `verify_roms`: parameterized `console` filter with nullable WHERE clause
+- `enrich_all_games` background task now writes back to `scan_cache.enrichment` via `Arc::clone`
+  so `get_enrichment_status` returns live data instead of always returning default
+- `verify_roms` background task now writes back to `scan_cache.verification`
+- Added `get_verification_status` Tauri command
+
+**Frontend completions**
+- Dashboard: live enrichment progress bar (subscribes to `enrich:progress`/`enrich:complete` events)
+- Dashboard: collection completeness progress bars per console (requires imported DAT files)
+- Games: `GameThumbnail` component — lazy-loads SteamGridDB cover art via `convertFileSrc`
+- Games: `VerificationBadge` component per variant row (✅/⚠️/❓) after DAT verification
+
+**Infrastructure**
+- Removed `#![allow(dead_code)]` from `lib.rs` — all code is wired, clippy clean without it
+- Added `protocol-asset` Tauri feature + `assetProtocol` scope in `tauri.conf.json`
+  for serving cached thumbnails via `asset://` protocol
+- Removed duplicate `COLLECTION_TAGS` constant from `parser.rs` (live copy in `group.rs`)
+
 ### Added — Phase 3 (feature pages)
 
 **New Rust commands**

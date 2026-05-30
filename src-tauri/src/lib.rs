@@ -1,4 +1,4 @@
-#![allow(dead_code)] // All phase items are wired; remove this before first public release (Phase 5 polish)
+// All dead code is wired — no suppressor needed.
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -74,6 +74,7 @@ pub fn run() {
             dat::get_dat_files,
             dat::remove_dat,
             dat::verify_roms,
+            dat::get_verification_status,
             dat::get_completeness,
         ])
         .run(tauri::generate_context!())

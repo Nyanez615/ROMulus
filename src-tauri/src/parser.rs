@@ -16,13 +16,6 @@ const STATUS_FLAGS: &[&str] = &[
     "Aftermarket", "Unl", "Pirate", "Hack",
 ];
 
-/// Tags that mark a re-release / collection variant (lower scoring priority).
-const COLLECTION_TAGS: &[&str] = &[
-    "Virtual Console", "Wii Virtual Console", "Switch Online", "Switch",
-    "Classic Mini", "Evercade", "NP", "GameCube", "LodgeNet",
-    "Limited Run Games", "Retro-Bit Generations",
-];
-
 /// Tags that mark a utility / non-game ROM.
 const UTILITY_TAGS: &[&str] = &[
     "Cart Present", "No Cart Present", "Action Replay", "Game Shark",

@@ -23,6 +23,8 @@ pub struct ScanCache {
     pub groups: Vec<RomGroup>,
     pub status: ScanStatus,
     pub enrichment: crate::models::EnrichmentStatus,
+    // verification is updated via events from verify_roms background task;
+    // stored here so get_enrichment_status-style polling is available if needed.
     pub verification: crate::models::VerificationStatus,
 }
 

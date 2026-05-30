@@ -172,6 +172,8 @@ export const removeDat = (console: string): Promise<void> =>
   isTauri() ? invoke("remove_dat", { console }) : Promise.resolve();
 export const verifyRoms = (console?: string): Promise<void> =>
   isTauri() ? invoke("verify_roms", { console: console ?? null }) : Promise.resolve();
+export const getVerificationStatus = (): Promise<VerificationStatus> =>
+  isTauri() ? invoke("get_verification_status") : Promise.resolve({ running: false, verified: 0, modified: 0, unknown: 0, total: 0 });
 export const getCompleteness = (console: string): Promise<Completeness> =>
   isTauri() ? invoke("get_completeness", { console }) : Promise.resolve({ console, have: 0, total: 0, percent: 0 });
 
