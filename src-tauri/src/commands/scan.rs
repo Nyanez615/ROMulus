@@ -8,6 +8,7 @@ use crate::commands::group::group_roms;
 use crate::db::AppState;
 use crate::deduper::{detect_format_pairs, mark_format_pairs};
 use crate::models::FormatPair;
+use tauri_plugin_notification::NotificationExt;
 use crate::models::{ConsoleStats, RomFile, ScanProgress, ScanStatus};
 use crate::parser;
 
@@ -76,6 +77,16 @@ pub async fn scan_roots(
         }
         Err(e) => eprintln!("[watcher] Failed to start: {e}"),
     }
+
+    // OS notification: scan complete
+    let console_count = {
+        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
+        cache.groups.iter().map(|g| &g.console).collect::<std::collections::HashSet<_>>().len()
+    };
+    let _ = app.notification().builder()
+        .title("ROMulus")
+        .body(format!("Scan complete — {total} ROMs across {console_count} consoles"))
+        .show();
 
     Ok(final_status)
 }

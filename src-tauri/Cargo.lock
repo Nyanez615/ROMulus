@@ -3624,6 +3624,7 @@ dependencies = [
  "tokio",
  "trash",
  "ts-rs",
+ "urlencoding",
  "uuid",
  "walkdir",
  "zip 2.4.2",

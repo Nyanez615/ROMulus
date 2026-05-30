@@ -129,6 +129,60 @@ export const getHistory = (page: number, perPage: number): Promise<PagedHistory>
     ? invoke("get_history", { page, perPage })
     : Promise.resolve({ total: 0, page: 1, per_page: 50, entries: [] });
 
+// ── Phase 4: Metadata, Thumbnails, DAT ───────────────────────────────────────
+
+import type { GameMetadata } from "./bindings/GameMetadata";
+import type { EnrichmentStatus } from "./bindings/EnrichmentStatus";
+import type { DatFile } from "./bindings/DatFile";
+import type { Completeness } from "./bindings/Completeness";
+import type { VerificationStatus } from "./bindings/VerificationStatus";
+
+// IGDB credentials
+export const setIgdbCredentials = (clientId: string, secret: string): Promise<void> =>
+  isTauri() ? invoke("set_igdb_credentials", { clientId, secret }) : Promise.resolve();
+export const hasIgdbCredentials = (): Promise<boolean> =>
+  isTauri() ? invoke("has_igdb_credentials") : Promise.resolve(false);
+export const clearIgdbCredentials = (): Promise<void> =>
+  isTauri() ? invoke("clear_igdb_credentials") : Promise.resolve();
+
+// IGDB metadata
+export const getGameMetadata = (title: string, console: string): Promise<GameMetadata | null> =>
+  isTauri() ? invoke("get_game_metadata", { title, console }) : Promise.resolve(null);
+export const getEnrichmentStatus = (): Promise<EnrichmentStatus> =>
+  isTauri() ? invoke("get_enrichment_status") : Promise.resolve({ running: false, enriched: 0, total: 0, current_title: null });
+export const enrichAllGames = (): Promise<void> =>
+  isTauri() ? invoke("enrich_all_games") : Promise.resolve();
+
+// SteamGridDB
+export const setSteamGridDbKey = (key: string): Promise<void> =>
+  isTauri() ? invoke("set_steamgriddb_key", { key }) : Promise.resolve();
+export const hasSteamGridDbKey = (): Promise<boolean> =>
+  isTauri() ? invoke("has_steamgriddb_key") : Promise.resolve(false);
+export const clearSteamGridDbKey = (): Promise<void> =>
+  isTauri() ? invoke("clear_steamgriddb_key") : Promise.resolve();
+export const getThumbnail = (title: string, console: string): Promise<string | null> =>
+  isTauri() ? invoke("get_thumbnail", { title, console }) : Promise.resolve(null);
+
+// DAT files
+export const importDat = (path: string, console: string): Promise<DatFile> =>
+  isTauri() ? invoke("import_dat", { path, console }) : Promise.resolve({ console, filename: "", version: null, entry_count: 0, imported_at: "" });
+export const getDatFiles = (): Promise<DatFile[]> =>
+  isTauri() ? invoke("get_dat_files") : Promise.resolve([]);
+export const removeDat = (console: string): Promise<void> =>
+  isTauri() ? invoke("remove_dat", { console }) : Promise.resolve();
+export const verifyRoms = (console?: string): Promise<void> =>
+  isTauri() ? invoke("verify_roms", { console: console ?? null }) : Promise.resolve();
+export const getCompleteness = (console: string): Promise<Completeness> =>
+  isTauri() ? invoke("get_completeness", { console }) : Promise.resolve({ console, have: 0, total: 0, percent: 0 });
+
+// Event listeners for Phase 4 background tasks
+export const onEnrichProgress = (cb: (s: EnrichmentStatus) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<EnrichmentStatus>("enrich:progress", (e) => cb(e.payload)) : Promise.resolve(noop);
+export const onEnrichComplete = (cb: (s: EnrichmentStatus) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<EnrichmentStatus>("enrich:complete", (e) => cb(e.payload)) : Promise.resolve(noop);
+export const onVerifyComplete = (cb: (s: VerificationStatus) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<VerificationStatus>("verify:complete", (e) => cb(e.payload)) : Promise.resolve(noop);
+
 // ── Settings & onboarding ─────────────────────────────────────────────────────
 
 export const getSettings = (): Promise<AppSettings> =>

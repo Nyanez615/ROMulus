@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
 use crate::db::{self, AppState, LogEntry};
@@ -85,6 +86,12 @@ pub fn execute_prune(
             }
         }
     }
+
+    // OS notification: deletion complete
+    let _ = app.notification().builder()
+        .title("ROMulus")
+        .body(format!("Moved {success_count} files to Trash"))
+        .show();
 
     Ok(ExecutionResult {
         success_count,

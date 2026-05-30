@@ -290,6 +290,60 @@ pub struct PagedHistory {
     pub entries: Vec<ActionLogEntry>,
 }
 
+// ── Phase 4: Metadata, DAT, Enrichment ───────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GameMetadata {
+    pub title_normalized: String,
+    pub console: String,
+    pub igdb_id: Option<i64>,
+    pub name: Option<String>,
+    pub release_year: Option<i32>,
+    pub genres: Vec<String>,
+    pub summary: Option<String>,
+    pub rating: Option<f64>,
+    pub cover_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EnrichmentStatus {
+    pub running: bool,
+    pub enriched: u32,
+    pub total: u32,
+    pub current_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DatFile {
+    pub console: String,
+    pub filename: String,
+    pub version: Option<String>,
+    pub entry_count: u32,
+    pub imported_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Completeness {
+    pub console: String,
+    pub have: u32,
+    pub total: u32,
+    pub percent: f32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct VerificationStatus {
+    pub running: bool,
+    pub verified: u32,
+    pub modified: u32,
+    pub unknown: u32,
+    pub total: u32,
+}
+
 // ── Type export test ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -318,5 +372,10 @@ mod tests {
         DeleteMode::export_all_to(out).unwrap();
         ScanProgress::export_all_to(out).unwrap();
         NewRomEvent::export_all_to(out).unwrap();
+        GameMetadata::export_all_to(out).unwrap();
+        EnrichmentStatus::export_all_to(out).unwrap();
+        DatFile::export_all_to(out).unwrap();
+        Completeness::export_all_to(out).unwrap();
+        VerificationStatus::export_all_to(out).unwrap();
     }
 }

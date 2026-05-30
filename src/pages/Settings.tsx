@@ -1,14 +1,21 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { getSettings, saveSettings, isOneDrivePath, getFormatPairs } from "@/lib/tauri";
+import { Input } from "@/components/ui/input";
+import {
+  getSettings, saveSettings, isOneDrivePath, getFormatPairs,
+  setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
+  setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
+  getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
+} from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
+import type { DatFile } from "@/lib/bindings/DatFile";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
 
@@ -22,11 +29,21 @@ export default function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
+  const [hasIgdb, setHasIgdb] = useState(false);
+  const [hasSgdb, setHasSgdb] = useState(false);
+  const [igdbClientId, setIgdbClientId] = useState("");
+  const [igdbSecret, setIgdbSecret] = useState("");
+  const [sgdbKey, setSgdbKey] = useState("");
+  const [datFiles, setDatFiles] = useState<DatFile[]>([]);
+  const [enriching, setEnriching] = useState(false);
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
 
   useEffect(() => {
     getSettings().then(setSettings).catch(console.error);
     getFormatPairs().then(setFormatPairs).catch(console.error);
+    hasIgdbCredentials().then(setHasIgdb).catch(console.error);
+    hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
+    getDatFiles().then(setDatFiles).catch(console.error);
   }, []);
 
   async function save(next: AppSettings) {
@@ -289,6 +306,101 @@ export default function Settings() {
           })}
         </section>
       )}
+
+      <Separator />
+
+      {/* IGDB Metadata */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">IGDB Metadata</h2>
+          {hasIgdb && <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">Connected</span>}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          IGDB provides game metadata (genre, release year, description, ratings). Requires a free Twitch developer API key.
+          Register at <span className="text-primary">dev.twitch.tv/console</span>.
+        </p>
+        {hasIgdb ? (
+          <div className="flex gap-2">
+            <Button size="sm" onClick={async () => { setEnriching(true); await enrichAllGames().finally(() => setEnriching(false)); }} disabled={enriching} className="gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />{enriching ? "Enriching…" : "Enrich all games"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={async () => { await clearIgdbCredentials(); setHasIgdb(false); }} className="text-destructive border-destructive/40">Remove credentials</Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Input placeholder="Client ID" value={igdbClientId} onChange={(e) => setIgdbClientId(e.target.value)} className="h-8 text-sm" />
+            <Input placeholder="Client Secret" type="password" value={igdbSecret} onChange={(e) => setIgdbSecret(e.target.value)} className="h-8 text-sm" />
+            <Button size="sm" disabled={!igdbClientId || !igdbSecret} onClick={async () => { await setIgdbCredentials(igdbClientId, igdbSecret); setHasIgdb(true); setIgdbClientId(""); setIgdbSecret(""); }}>
+              Connect IGDB
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <Separator />
+
+      {/* SteamGridDB */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Image className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">SteamGridDB Cover Art</h2>
+          {hasSgdb && <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">Connected</span>}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          SteamGridDB provides game cover art thumbnails. Requires a free API key from <span className="text-primary">steamgriddb.com</span>.
+        </p>
+        {hasSgdb ? (
+          <Button size="sm" variant="outline" onClick={async () => { await clearSteamGridDbKey(); setHasSgdb(false); }} className="text-destructive border-destructive/40">Remove API key</Button>
+        ) : (
+          <div className="flex gap-2">
+            <Input placeholder="API key" type="password" value={sgdbKey} onChange={(e) => setSgdbKey(e.target.value)} className="h-8 text-sm flex-1" />
+            <Button size="sm" disabled={!sgdbKey} onClick={async () => { await setSteamGridDbKey(sgdbKey); setHasSgdb(true); setSgdbKey(""); }}>Connect</Button>
+          </div>
+        )}
+      </section>
+
+      <Separator />
+
+      {/* DAT Management */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">DAT File Management</h2>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Import No-Intro DAT files to verify ROM checksums and track collection completeness.
+          Download DATs from <span className="text-primary">no-intro.org</span>.
+        </p>
+        {datFiles.length > 0 && (
+          <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+            {datFiles.map((dat) => (
+              <div key={dat.console} className="flex items-center gap-3 px-4 py-3 bg-card text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="text-foreground truncate">{dat.console.split(" - ")[1] ?? dat.console}</div>
+                  <div className="text-xs text-muted-foreground">{dat.entry_count.toLocaleString()} entries {dat.version ? `· ${dat.version}` : ""}</div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={async () => { await verifyRoms(dat.console); }}>Verify</Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); }}>Remove</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <Button variant="outline" size="sm" onClick={async () => {
+          const path = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }] });
+          if (typeof path === "string") {
+            const consoleName = prompt("Which console is this DAT for? (e.g. 'Nintendo - Game Boy Advance')") ?? "";
+            if (consoleName) {
+              const dat = await importDat(path, consoleName);
+              setDatFiles((prev) => [...prev.filter((d) => d.console !== dat.console), dat]);
+            }
+          }
+        }}>
+          <Plus className="w-4 h-4 mr-2" /> Import DAT file
+        </Button>
+      </section>
 
       <Separator />
 
