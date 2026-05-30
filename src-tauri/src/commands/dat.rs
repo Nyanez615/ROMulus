@@ -189,8 +189,9 @@ pub async fn verify_roms(
     };
 
     let total = roms.len() as u32;
-    // Clone Arc for the spawned task
+    // Clone Arcs for the spawned task
     let db = Arc::clone(&state.db);
+    let scan_cache = Arc::clone(&state.scan_cache);
     let app2 = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -227,7 +228,9 @@ pub async fn verify_roms(
             }
         }
 
-        app2.emit("verify:complete", VerificationStatus { running: false, verified, modified, unknown, total }).ok();
+        let done = VerificationStatus { running: false, verified, modified, unknown, total };
+        app2.emit("verify:complete", &done).ok();
+        if let Ok(mut cache) = scan_cache.lock() { cache.verification = done; }
         let _ = app2.notification().builder()
             .title("ROMulus")
             .body(format!("Verification complete — {verified} verified, {modified} modified, {unknown} unknown"))
@@ -261,6 +264,11 @@ pub fn get_completeness(
 
     let percent = if total > 0 { have as f32 / total as f32 * 100.0 } else { 0.0 };
     Ok(Completeness { console, have, total, percent })
+}
+
+#[tauri::command]
+pub fn get_verification_status(state: State<'_, AppState>) -> VerificationStatus {
+    state.scan_cache.lock().map(|c| c.verification.clone()).unwrap_or_default()
 }
 
 fn chrono_now() -> String {
