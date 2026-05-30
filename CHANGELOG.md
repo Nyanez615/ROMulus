@@ -4,7 +4,27 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] → v0.1.0
+
+### Added — Phase 5 (polish & distribution)
+
+**Console icons & branding** (Steps 36–37)
+- `ConsoleIcon.tsx`: per-console colored icon + manufacturer accent color; `getConsoleColor()` utility
+- `ManufacturerIcon.tsx`: Simple Icons SVG for Sega, Sony/PlayStation, Atari (Nintendo/Microsoft not in SI)
+- Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`
+- Sidebar: selected console highlighted with manufacturer accent left-border
+
+**Keyboard shortcuts** (Step 38)
+- `useKeyboardShortcuts` hook in `Layout.tsx`; `⌘K/Ctrl+K` palette, `⌘F` search, `Escape` clear, `⌘1-9` jump to tab
+- `CommandPalette.tsx`: navigation + action palette using shadcn/ui Command component
+
+**Accessibility** (Step 39)
+- `focus-visible` CSS ring for keyboard navigation (WCAG 2.4.7)
+- Default outline removed on mouse interaction; `aria-label` on icon-only elements
+
+**Auto-updater + release pipeline** (Step 40)
+- `@tauri-apps/plugin-updater` installed; updater endpoint in `tauri.conf.json`
+- `release.yml`: matrix build for macOS arm64+x86_64, Ubuntu, Windows via `tauri-apps/tauri-action@v0`
 
 ### Added — Phase 4 (enrichment, DAT, notifications)
 

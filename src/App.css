@@ -123,3 +123,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Focus-visible ring for keyboard navigation (WCAG 2.4.7) */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Remove default browser ring — only show on keyboard nav */
+:focus:not(:focus-visible) {
+  outline: none;
+}
