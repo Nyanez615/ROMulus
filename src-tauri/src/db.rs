@@ -10,6 +10,9 @@ use crate::models::{RomFile, RomGroup, ScanStatus};
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub scan_cache: Mutex<ScanCache>,
+    /// Held here so the OS watcher isn't dropped after scan_roots returns.
+    /// Replacing with a new watcher on each rescan is intentional.
+    pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
 #[derive(Default)]

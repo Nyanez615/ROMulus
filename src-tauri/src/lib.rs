@@ -1,4 +1,4 @@
-#![allow(dead_code)] // Phase 3 items (DeletionPlan, ActionLogEntry, etc.) — remove after History/Prune tabs done
+#![allow(dead_code)] // All phase items are wired; remove this before first public release (Phase 5 polish)
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -28,6 +28,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(conn),
                 scan_cache: Mutex::new(db::ScanCache::default()),
+                watcher: Mutex::new(None),
             });
             Ok(())
         })
