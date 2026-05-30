@@ -6,6 +6,41 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 2 (React frontend scaffold)
+
+**Foundation**
+- `src/lib/env.ts` — `isTauri()` helper; all Tauri API calls return safe defaults in browser
+- `src/lib/tauri.ts` — fully typed wrappers for all Tauri `invoke()` commands and `listen()` events
+
+**Zustand stores** (`src/store/`)
+- `scan.ts` — scan status, console list, progress, selected console
+- `preferences.ts` — `UserPreferences`, `FilterSettings`
+- `onboarding.ts` — 4-step wizard state with derived step index
+- `ui.ts` — active tab, search query, theme, command palette open state
+
+**Shared components** (`src/components/`)
+- `TagBadge.tsx` / `TagList.tsx` — region/language/status chips, color-coded by type
+- `ConsoleIcon.tsx` — per-console icon + manufacturer accent color (Nintendo/Sega/Sony/etc.)
+- `DiscBadge.tsx` — multi-disc game count indicator
+- `ErrorBoundary.tsx` — per-page React class error boundary with "Reload tab" action
+- `Layout.tsx` — root layout: sidebar + main content + Tauri event subscriptions
+- `Sidebar.tsx` — ROMulus logo, 9 navigation tabs, console list with file counts
+
+**Additional shadcn/ui components** — `input`, `alert`, `alert-dialog`, `command`, `accordion`
+
+**Onboarding wizard** (`src/onboarding/`)
+- 4-step wizard: Terms + crash opt-in → Language/Region prefs → Add ROM root → First scan
+- Blocks main UI until all steps complete; state persisted in SQLite
+- Folder picker uses `@tauri-apps/plugin-dialog`
+
+**Settings page** (`src/pages/Settings.tsx`) — full implementation
+- Language multi-select, region drag-to-reorder (`@dnd-kit`), ROM root manager
+- OneDrive detection warning, dark/light theme toggle, crash reporting toggle, Danger Zone
+
+**Stub pages** — `Dashboard`, `Consoles`, `Games`, `HacksUnofficial`, `SystemFiles`, `Duplicates`, `Prune`, `History` — all implemented in Phase 3
+
+**Rust model fix** — `filesize` and `bytes_to_free` annotated `#[ts(type = "number")]` (u64 → number, not bigint)
+
 ### Added — Phase 1 (Rust backend core)
 
 **Database (`src-tauri/src/db.rs`, `src-tauri/migrations/`)**
