@@ -1,5 +1,8 @@
+use std::io::Write;
 use std::path::Path;
-use tauri::State;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::db::{self, AppState, LogEntry};
@@ -7,6 +10,7 @@ use crate::models::{DeleteMode, ExecutionResult, FailedFile, RomFile};
 
 #[tauri::command]
 pub fn execute_prune(
+    app: AppHandle,
     state: State<'_, AppState>,
     to_delete: Vec<RomFile>,
     mode: DeleteMode,
@@ -23,6 +27,11 @@ pub fn execute_prune(
                     .into(),
             );
         }
+    }
+
+    // Write a pre-prune backup manifest to the Desktop before touching any file
+    if let Err(e) = write_backup_manifest(&app, &to_delete) {
+        eprintln!("[backup] Could not write manifest: {e}");
     }
 
     let session_id = Uuid::new_v4().to_string();
@@ -82,6 +91,24 @@ pub fn execute_prune(
         failed,
         skipped_count,
     })
+}
+
+/// Writes a human-readable .txt manifest of all files about to be deleted
+/// to the user's Desktop. Non-fatal — execution continues even if this fails.
+fn write_backup_manifest(app: &AppHandle, to_delete: &[RomFile]) -> Result<(), Box<dyn std::error::Error>> {
+    let desktop = app.path().desktop_dir()?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let manifest_path = desktop.join(format!("romulus-prune-{ts}.txt"));
+    let mut file = std::fs::File::create(&manifest_path)?;
+    writeln!(file, "# ROMulus pre-prune manifest — {ts}")?;
+    writeln!(file, "# Files moved to Trash or deleted by this operation:")?;
+    for rom in to_delete {
+        writeln!(file, "{}", rom.path)?;
+    }
+    Ok(())
 }
 
 /// Returns true if the previous session was interrupted mid-execution.

@@ -120,6 +120,11 @@ export const getDuplicates = (console?: string): Promise<RomGroup[]> =>
     ? invoke("get_duplicates", { console: console ?? null })
     : Promise.resolve([]);
 
+import type { FormatPair } from "./bindings/FormatPair";
+
+export const getFormatPairs = (): Promise<FormatPair[]> =>
+  isTauri() ? invoke("get_format_pairs") : Promise.resolve([]);
+
 export const getHistory = (page: number, perPage: number): Promise<PagedHistory> =>
   isTauri()
     ? invoke("get_history", { page, perPage })

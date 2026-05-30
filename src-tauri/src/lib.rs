@@ -36,6 +36,7 @@ pub fn run() {
             scan::get_scan_status,
             scan::get_consoles,
             scan::scan_roots,
+            scan::get_format_pairs,
             // Browse — official games
             group::get_games,
             // Browse — filtered
