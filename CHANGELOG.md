@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 3 (feature pages)
+
+**New Rust commands**
+- `commands/prune.rs`: `apply_filters` (→ DeletionPlan), `export_csv`
+- `commands/history.rs`: `get_history` (paginated ActionLogEntry list)
+- `commands/group.rs`: `get_unofficial`, `get_system_files`, `get_duplicates`
+  new `paginate()` helper; category filter on `get_games`
+
+**8 feature pages**
+- **Dashboard** — stats cards (total ROMs, consoles, size, health %), scan button,
+  crash recovery banner, recent activity, console health grid
+- **Consoles** — manufacturer-grouped grid with health indicators, click-to-filter
+- **Games** — virtual-scrolled list (TanStack Virtual), expandable variants,
+  TagBadge list, DiscBadge, preferred marker (★), debounced search
+- **Hacks & Unofficial** — category-colored badges (Pirate/Unl/Aftermarket/Hack),
+  preferred-language fallback indicator
+- **System Files** — categorized BIOS/Utility/Demo/Video/e-Reader with protected badge
+- **Duplicates** — side-by-side resolution panel, format-pair detection, Keep/Skip
+- **Prune** — filter toggles, DeletionPlan preview with scrollable file list,
+  CSV export, OneDrive acknowledgment guard, AlertDialog confirmation before execution
+- **History** — paginated action log with action-type icons, page controls
+
+All Phase 1–3 dead code is now wired. Only `#![allow(dead_code)]` lint suppressor
+remains pending removal before first public release.
+
 ### Added — Phase 2 (React frontend scaffold)
 
 **Foundation**
