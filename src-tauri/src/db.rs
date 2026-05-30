@@ -1,0 +1,181 @@
+use rusqlite::{Connection, OptionalExtension};
+use rusqlite_migration::{Migrations, M};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
+
+use crate::models::{RomFile, RomGroup, ScanStatus};
+
+// ── AppState ─────────────────────────────────────────────────────────────────
+
+pub struct AppState {
+    pub db: Mutex<Connection>,
+    pub scan_cache: Mutex<ScanCache>,
+}
+
+pub struct ScanCache {
+    pub roms: Vec<RomFile>,
+    pub groups: Vec<RomGroup>,
+    pub status: ScanStatus,
+}
+
+impl Default for ScanCache {
+    fn default() -> Self {
+        ScanCache {
+            roms: vec![],
+            groups: vec![],
+            status: ScanStatus::default(),
+        }
+    }
+}
+
+// ── Migrations ───────────────────────────────────────────────────────────────
+
+fn migrations() -> Migrations<'static> {
+    Migrations::new(vec![
+        M::up(include_str!("../migrations/001_initial.sql")),
+        M::up(include_str!("../migrations/002_metadata.sql")),
+        M::up(include_str!("../migrations/003_onboarding.sql")),
+    ])
+}
+
+// ── Initialisation ───────────────────────────────────────────────────────────
+
+pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
+    let data_dir = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&data_dir)?;
+    let db_path = data_dir.join("romulus.db");
+
+    let mut conn = Connection::open(&db_path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+
+    migrations()
+        .to_latest(&mut conn)
+        .map_err(|e| format!("Migration failed: {e}"))?;
+
+    Ok(conn)
+}
+
+/// In-memory connection for unit tests.
+#[cfg(test)]
+pub fn open_in_memory() -> Connection {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+    migrations().to_latest(&mut conn).unwrap();
+    conn
+}
+
+// ── Settings helpers ─────────────────────────────────────────────────────────
+
+pub fn get_setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [key, value],
+    )?;
+    Ok(())
+}
+
+// ── Action log helpers ────────────────────────────────────────────────────────
+
+pub struct LogEntry<'a> {
+    pub action: &'a str,
+    pub path: &'a str,
+    pub console: &'a str,
+    pub title: &'a str,
+    pub reason: &'a str,
+    pub session_id: &'a str,
+}
+
+pub fn log_action(conn: &Connection, entry: LogEntry<'_>) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO action_log (action, path, console, title, reason, session_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            entry.action,
+            entry.path,
+            entry.console,
+            entry.title,
+            entry.reason,
+            entry.session_id,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn update_pending_action(
+    conn: &Connection,
+    path: &str,
+    new_action: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE action_log SET action = ?1 WHERE path = ?2 AND action = 'pending'",
+        [new_action, path],
+    )?;
+    Ok(())
+}
+
+pub fn has_pending_actions(conn: &Connection) -> rusqlite::Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM action_log WHERE action = 'pending'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrations_run_cleanly() {
+        let conn = open_in_memory();
+        // Verify all tables exist
+        let tables: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert!(tables.contains(&"rom_cache".to_string()));
+        assert!(tables.contains(&"action_log".to_string()));
+        assert!(tables.contains(&"settings".to_string()));
+        assert!(tables.contains(&"onboarding".to_string()));
+        assert!(tables.contains(&"game_metadata".to_string()));
+        assert!(tables.contains(&"dat_files".to_string()));
+    }
+
+    #[test]
+    fn settings_round_trip() {
+        let conn = open_in_memory();
+        set_setting(&conn, "theme", "dark").unwrap();
+        let val = get_setting(&conn, "theme").unwrap();
+        assert_eq!(val, Some("dark".to_string()));
+    }
+
+    #[test]
+    fn onboarding_row_exists() {
+        let conn = open_in_memory();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM onboarding WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+}
