@@ -20,9 +20,11 @@ export default function Consoles() {
   }, {});
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl">
-      <h1 className="text-xl font-bold text-foreground">Consoles</h1>
-
+    <div className="flex flex-col h-full">
+      <div className="px-6 py-4 border-b border-border flex items-center gap-3">
+        <h1 className="text-base font-semibold text-foreground shrink-0">Consoles</h1>
+      </div>
+      <div className="flex-1 overflow-auto p-6 space-y-8">
       {Object.entries(grouped).map(([mfr, list]) => (
         <div key={mfr}>
           <div className="flex items-center gap-2 mb-3">
@@ -64,8 +66,9 @@ export default function Consoles() {
       ))}
 
       {consoles.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground">No consoles scanned. Run a scan from the Dashboard.</div>
+        <div className="text-center py-16 text-sm text-muted-foreground">No consoles scanned. Run a scan from the Dashboard.</div>
       )}
+      </div>
     </div>
   );
 }

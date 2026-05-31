@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Server, Gamepad2, Skull, Cpu,
-  CopyX, Scissors, History, Settings,
+  CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon, getConsoleColor } from "./ConsoleIcon";
@@ -26,17 +26,61 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { activeTab, setActiveTab } = useUIStore();
+  const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();
   const { consoles, selectedConsole, setSelectedConsole, status } = useScanStore();
 
+  // ── Collapsed icon rail ───────────────────────────────────────────────────
+  if (!sidebarOpen) {
+    return (
+      <aside className="flex flex-col w-10 shrink-0 border-r border-border bg-card overflow-hidden">
+        {/* Expand button — same height as the open header */}
+        <div className="flex items-center justify-center py-[18px] border-b border-border">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            aria-label="Show sidebar"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Nav icons */}
+        <nav className="flex-1 overflow-y-auto py-2">
+          <ul className="space-y-0.5 px-1">
+            {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
+              <li key={id}>
+                <button
+                  onClick={() => setActiveTab(id)}
+                  title={label}
+                  className={cn(
+                    "w-full flex items-center justify-center p-2 rounded-md transition-colors",
+                    activeTab === id
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                  )}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+    );
+  }
+
+  // ── Full sidebar ──────────────────────────────────────────────────────────
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-border bg-card overflow-hidden">
-      {/* Logo */}
-      <div className="flex items-center gap-2 px-4 py-4 border-b border-border">
-        <div className="w-7 h-7 rounded bg-primary/20 border border-primary/40 flex items-center justify-center">
-          <Gamepad2 className="w-4 h-4 text-primary" />
-        </div>
-        <span className="font-bold text-lg tracking-tight text-foreground">ROMulus</span>
+      {/* Header: ROMulus wordmark + collapse toggle */}
+      <div className="flex items-center px-4 py-4 border-b border-border">
+        <span className="font-bold text-lg tracking-tight text-foreground flex-1">ROMulus</span>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          aria-label="Hide sidebar"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Main navigation */}
