@@ -18,16 +18,12 @@ jobs:
         include:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
-            artifact_name: "updater-macos-aarch64"
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
-            artifact_name: "updater-macos-x86_64"
           - platform: ubuntu-22.04
             args: ""
-            artifact_name: "updater-linux-x86_64"
           - platform: windows-latest
             args: ""
-            artifact_name: "updater-windows-x86_64"
 
     runs-on: ${{ matrix.platform }}
 
@@ -70,45 +66,6 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      - name: Collect macOS aarch64 updater artifact
-        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'aarch64')
-        run: |
-          mkdir -p updater
-          cp src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz \
-             updater/ROMulus_aarch64.app.tar.gz
-          cp src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz.sig \
-             updater/ROMulus_aarch64.app.tar.gz.sig
-
-      - name: Collect macOS x86_64 updater artifact
-        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'x86_64')
-        run: |
-          mkdir -p updater
-          cp src-tauri/target/x86_64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz \
-             updater/ROMulus_x64.app.tar.gz
-          cp src-tauri/target/x86_64-apple-darwin/release/bundle/macos/ROMulus.app.tar.gz.sig \
-             updater/ROMulus_x64.app.tar.gz.sig
-
-      - name: Collect Linux updater artifact
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          mkdir -p updater
-          cp src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz updater/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig updater/
-
-      - name: Collect Windows updater artifact
-        if: matrix.platform == 'windows-latest'
-        shell: bash
-        run: |
-          mkdir -p updater
-          cp src-tauri/target/release/bundle/nsis/*.nsis.zip updater/
-          cp src-tauri/target/release/bundle/nsis/*.nsis.zip.sig updater/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: updater/
-          if-no-files-found: error
-
   updater-json:
     needs: release
     runs-on: ubuntu-latest
@@ -117,29 +74,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          pattern: updater-*
-          path: bundles
-          merge-multiple: true
+          node-version: 24
+          cache: npm
 
-      - name: List bundles
-        run: find bundles -type f | sort
+      - run: npm ci
 
-      - name: Upload Linux/Windows updater bundles to release
+      - name: Build and upload latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           TAG="${{ github.ref_name }}"
-          find bundles -type f \( -name "*.AppImage.tar.gz" -o -name "*.nsis.zip" \) \
-            -exec gh release upload "${TAG}" {} --clobber \;
+          VERSION="${TAG#v}"
 
-      - name: Assemble and upload latest.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
+          mkdir -p bundles
+
+          # Download the platform bundles tauri-action already uploaded
+          gh release download "${TAG}" --dir bundles/ \
+            --pattern "ROMulus_aarch64.app.tar.gz" \
+            --pattern "ROMulus_x64.app.tar.gz" \
+            --pattern "ROMulus_${VERSION}_amd64.AppImage" \
+            --pattern "ROMulus_${VERSION}_x64-setup.exe"
+
+          echo "Downloaded:"
+          ls -la bundles/
+
+          # Tauri v2 updater requires .AppImage.tar.gz for Linux and .nsis.zip for Windows.
+          # Wrap the plain bundles into the expected archive formats.
+          tar -czf "bundles/ROMulus_${VERSION}_amd64.AppImage.tar.gz" \
+            -C bundles "ROMulus_${VERSION}_amd64.AppImage"
+          (cd bundles && zip "ROMulus_${VERSION}_x64-setup.nsis.zip" \
+            "ROMulus_${VERSION}_x64-setup.exe")
+
+          # Sign all four updater bundles (TAURI_SIGNING_PRIVATE_KEY is base64-encoded)
+          for bundle in \
+            "bundles/ROMulus_aarch64.app.tar.gz" \
+            "bundles/ROMulus_x64.app.tar.gz" \
+            "bundles/ROMulus_${VERSION}_amd64.AppImage.tar.gz" \
+            "bundles/ROMulus_${VERSION}_x64-setup.nsis.zip"; do
+            echo "Signing: $bundle"
+            npx @tauri-apps/cli signer sign "$bundle"
+          done
+
+          echo "Signatures:"
+          ls bundles/*.sig
+
+          # Upload the Linux and Windows updater archives (macOS ones are already in the release)
+          gh release upload "${TAG}" \
+            "bundles/ROMulus_${VERSION}_amd64.AppImage.tar.gz" \
+            "bundles/ROMulus_${VERSION}_x64-setup.nsis.zip" \
+            --clobber
+
           python3 - << 'EOF'
-          import json, subprocess, glob, sys
+          import json, subprocess, sys
           from datetime import datetime, timezone
 
           tag = "${{ github.ref_name }}"
@@ -150,14 +140,20 @@ jobs:
               try:
                   return open(path).read().strip()
               except FileNotFoundError:
-                  print(f"WARNING: {path} not found")
-                  return ""
+                  print(f"ERROR: {path} not found")
+                  return None
 
-          linux_matches = glob.glob(f"bundles/*_{version}_amd64.AppImage.tar.gz")
-          linux_name = linux_matches[0].split("/")[-1] if linux_matches else f"ROMulus_{version}_amd64.AppImage.tar.gz"
+          sigs = {
+              "darwin-aarch64":  read_sig("bundles/ROMulus_aarch64.app.tar.gz.sig"),
+              "darwin-x86_64":   read_sig("bundles/ROMulus_x64.app.tar.gz.sig"),
+              "linux-x86_64":    read_sig(f"bundles/ROMulus_{version}_amd64.AppImage.tar.gz.sig"),
+              "windows-x86_64":  read_sig(f"bundles/ROMulus_{version}_x64-setup.nsis.zip.sig"),
+          }
 
-          win_matches = glob.glob(f"bundles/*_{version}_x64-setup.nsis.zip")
-          win_name = win_matches[0].split("/")[-1] if win_matches else f"ROMulus_{version}_x64-setup.nsis.zip"
+          missing = [k for k, v in sigs.items() if not v]
+          if missing:
+              print(f"ERROR: Missing signatures for: {missing}")
+              sys.exit(1)
 
           data = {
               "version": version,
@@ -165,28 +161,23 @@ jobs:
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {
                   "darwin-aarch64": {
-                      "signature": read_sig("bundles/ROMulus_aarch64.app.tar.gz.sig"),
+                      "signature": sigs["darwin-aarch64"],
                       "url": f"{base}/ROMulus_aarch64.app.tar.gz",
                   },
                   "darwin-x86_64": {
-                      "signature": read_sig("bundles/ROMulus_x64.app.tar.gz.sig"),
+                      "signature": sigs["darwin-x86_64"],
                       "url": f"{base}/ROMulus_x64.app.tar.gz",
                   },
                   "linux-x86_64": {
-                      "signature": read_sig(f"bundles/{linux_name}.sig"),
-                      "url": f"{base}/{linux_name}",
+                      "signature": sigs["linux-x86_64"],
+                      "url": f"{base}/ROMulus_{version}_amd64.AppImage.tar.gz",
                   },
                   "windows-x86_64": {
-                      "signature": read_sig(f"bundles/{win_name}.sig"),
-                      "url": f"{base}/{win_name}",
+                      "signature": sigs["windows-x86_64"],
+                      "url": f"{base}/ROMulus_{version}_x64-setup.nsis.zip",
                   },
               },
           }
-
-          missing = [k for k, v in data["platforms"].items() if not v["signature"]]
-          if missing:
-              print(f"ERROR: Missing signatures for platforms: {missing}")
-              sys.exit(1)
 
           with open("latest.json", "w") as f:
               json.dump(data, f, indent=2)
