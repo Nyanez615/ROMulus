@@ -63,7 +63,7 @@ export default function Duplicates() {
                 ) : (
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                 )}
-                <span className="text-sm font-medium text-foreground">{preferred?.title ?? g.title_normalized}</span>
+                <span className="text-sm font-medium text-foreground">{preferred?.title ?? g.variants[0]?.title ?? g.title_normalized}</span>
                 {g.is_format_pair && (
                   <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">format pair</span>
                 )}

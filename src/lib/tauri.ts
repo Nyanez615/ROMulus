@@ -75,9 +75,9 @@ export interface GetGamesParams {
   perPage: number;
 }
 
-export const getGames = (params: GetGamesParams): Promise<PagedGroups> =>
+export const getRoms = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
-    ? invoke("get_games", {
+    ? invoke("get_roms", {
         console: params.console ?? null,
         search: params.search ?? null,
         page: params.page,

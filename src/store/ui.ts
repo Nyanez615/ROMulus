@@ -3,7 +3,7 @@ import { create } from "zustand";
 export type TabId =
   | "dashboard"
   | "consoles"
-  | "games"
+  | "roms"
   | "hacks"
   | "system"
   | "duplicates"

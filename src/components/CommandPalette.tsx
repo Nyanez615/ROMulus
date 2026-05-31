@@ -14,7 +14,7 @@ import { useScanStore } from "@/store/scan";
 const NAV_COMMANDS = [
   { label: "Dashboard",           tab: "dashboard"  as TabId, icon: LayoutDashboard },
   { label: "Consoles",            tab: "consoles"   as TabId, icon: Server          },
-  { label: "Games",               tab: "games"      as TabId, icon: Gamepad2        },
+  { label: "ROMs",                 tab: "roms"       as TabId, icon: Gamepad2        },
   { label: "Hacks & Unofficial",  tab: "hacks"      as TabId, icon: Skull           },
   { label: "System Files",        tab: "system"     as TabId, icon: Cpu             },
   { label: "Duplicates",          tab: "duplicates" as TabId, icon: CopyX           },

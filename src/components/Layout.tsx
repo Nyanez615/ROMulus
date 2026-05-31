@@ -9,7 +9,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import Dashboard from "@/pages/Dashboard";
 import Consoles from "@/pages/Consoles";
-import Games from "@/pages/Games";
+import Roms from "@/pages/Roms";
 import HacksUnofficial from "@/pages/HacksUnofficial";
 import SystemFiles from "@/pages/SystemFiles";
 import Duplicates from "@/pages/Duplicates";
@@ -20,7 +20,7 @@ import Settings from "@/pages/Settings";
 const PAGES: Record<string, React.ComponentType> = {
   dashboard: Dashboard,
   consoles: Consoles,
-  games: Games,
+  roms: Roms,
   hacks: HacksUnofficial,
   system: SystemFiles,
   duplicates: Duplicates,

@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
-import { getGames, getThumbnail } from "@/lib/tauri";
+import { getRoms, getThumbnail } from "@/lib/tauri";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
@@ -20,7 +20,7 @@ function VerificationBadge({ status }: { status?: string }) {
 }
 
 // ── Lazy thumbnail ────────────────────────────────────────────────────────────
-function GameThumbnail({ title, consoleName }: { title: string; consoleName: string }) {
+function RomThumbnail({ title, consoleName }: { title: string; consoleName: string }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     getThumbnail(title, consoleName).then((path) => {
@@ -34,7 +34,7 @@ function GameThumbnail({ title, consoleName }: { title: string; consoleName: str
 
 const PER_PAGE = 200;
 
-export default function Games() {
+export default function Roms() {
   const { selectedConsole } = useScanStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [total, setTotal] = useState(0);
@@ -47,18 +47,19 @@ export default function Games() {
   useEffect(() => {
     clearTimeout(debouncedRef.current);
     debouncedRef.current = setTimeout(() => {
-      getGames({ console: selectedConsole ?? undefined, search, page, perPage: PER_PAGE })
+      getRoms({ console: selectedConsole ?? undefined, search, page, perPage: PER_PAGE })
         .then((r) => { setGroups(r.groups); setTotal(r.total_groups); })
         .catch(console.error);
     }, 200);
   }, [selectedConsole, search, page]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer is a valid hook from @tanstack/react-virtual
+  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer from @tanstack/react-virtual is intentional
   const virtualizer = useVirtualizer({
     count: groups.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => 52,
     overscan: 10,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 52,
   });
 
   function toggleExpand(key: string) {
@@ -69,12 +70,14 @@ export default function Games() {
     });
   }
 
+  // Build page title: "Platform — Console Name — ROMs" or plain "ROMs"
+  const [platform, consolePart] = (selectedConsole ?? "").split(" - ");
+  const pageTitle = selectedConsole ? `${platform} — ${consolePart} — ROMs` : "ROMs";
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">
-          Games{selectedConsole ? ` — ${selectedConsole.split(" - ")[1] ?? selectedConsole}` : ""}
-        </h1>
+        <h1 className="text-base font-semibold text-foreground">{pageTitle}</h1>
       </div>
       <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
         <Input
@@ -88,7 +91,7 @@ export default function Games() {
 
       <div ref={containerRef} className="flex-1 overflow-auto">
         {groups.length === 0 && (
-          <div className="text-center py-16 text-muted-foreground text-sm">No games found. Run a scan from the Dashboard.</div>
+          <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
         )}
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((vItem) => {
@@ -96,10 +99,13 @@ export default function Games() {
             const key = `${g.console}::${g.title_normalized}`;
             const isOpen = expanded.has(key);
             const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
+            const displayTitle = preferred?.title ?? g.variants[0]?.title ?? g.title_normalized;
 
             return (
               <div
                 key={vItem.key}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
                 style={{ position: "absolute", top: vItem.start, left: 0, right: 0 }}
               >
                 <div
@@ -108,11 +114,17 @@ export default function Games() {
                 >
                   {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
                   {isOpen && preferred && (
-                    <GameThumbnail title={preferred.title} consoleName={g.console} />
+                    <RomThumbnail title={preferred.title} consoleName={g.console} />
                   )}
-                  <span className="flex-1 font-medium text-foreground truncate">
-                    {preferred?.title ?? g.title_normalized}
+                  <span
+                    className="flex-1 font-medium text-foreground truncate"
+                    title={displayTitle}
+                  >
+                    {displayTitle}
                   </span>
+                  {preferred && (
+                    <TagList regions={preferred.regions} statusFlags={preferred.status_flags} max={2} />
+                  )}
                   <DiscBadge count={g.disc_count} />
                   {!g.has_preferred_version && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">no preferred</span>

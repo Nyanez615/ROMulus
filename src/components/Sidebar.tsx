@@ -16,7 +16,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard",  label: "Dashboard",     icon: LayoutDashboard },
   { id: "consoles",   label: "Consoles",       icon: Server          },
-  { id: "games",      label: "Games",          icon: Gamepad2        },
+  { id: "roms",       label: "ROMs",           icon: Gamepad2        },
   { id: "hacks",      label: "Hacks & Unofficial", icon: Skull       },
   { id: "system",     label: "System Files",   icon: Cpu             },
   { id: "duplicates", label: "Duplicates",     icon: CopyX           },
@@ -116,7 +116,8 @@ export function Sidebar() {
                   <button
                     onClick={() => {
                       setSelectedConsole(selectedConsole === c.name ? null : c.name);
-                      setActiveTab("games");
+                      const consoleAwareTabs: TabId[] = ["roms", "hacks", "system", "duplicates"];
+                      if (!consoleAwareTabs.includes(activeTab)) setActiveTab("roms");
                     }}
                     className={cn(
                       "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",

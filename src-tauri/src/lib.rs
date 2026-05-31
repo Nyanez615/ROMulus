@@ -97,8 +97,8 @@ pub fn run() {
             scan::get_consoles,
             scan::scan_roots,
             scan::get_format_pairs,
-            // Browse — official games
-            group::get_games,
+            // Browse — official ROMs
+            group::get_roms,
             // Browse — filtered
             group::get_unofficial,
             group::get_system_files,

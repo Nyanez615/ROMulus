@@ -95,6 +95,9 @@ pub fn apply_filters(
         }
     }
 
+    // Sort preview list: console name ascending, then filename ascending
+    to_delete.sort_by(|a, b| a.console.cmp(&b.console).then_with(|| a.filename.cmp(&b.filename)));
+
     let total_bytes = to_delete.iter().map(|r| r.filesize).sum();
 
     // Build per-console summary
