@@ -36,16 +36,14 @@ export default function History() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border flex items-center gap-3">
-        <h1 className="text-base font-semibold text-foreground flex items-center gap-2">
-          <Clock className="w-4 h-4" /> History
-        </h1>
+      <div className="px-6 py-4 border-b border-border flex items-center">
+        <h1 className="text-base font-semibold text-foreground">History</h1>
         <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} total actions</span>
       </div>
 
       <div className="flex-1 overflow-auto">
         {entries.length === 0 && (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No actions recorded yet.</div>
+          <div className="px-6 pt-16 text-center text-sm text-muted-foreground">No actions recorded yet.</div>
         )}
         <div className="divide-y divide-border/60">
           {entries.map((entry) => {

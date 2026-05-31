@@ -31,15 +31,17 @@ export default function HacksUnofficial() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border flex items-center gap-3">
-        <h1 className="text-base font-semibold text-foreground">Hacks & Unofficial</h1>
+      <div className="px-6 py-4 border-b border-border">
+        <h1 className="text-base font-semibold text-foreground">Hacks &amp; Unofficial</h1>
+      </div>
+      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
         <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs h-8 text-sm" />
         <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} titles</span>
       </div>
 
       <div className="flex-1 overflow-auto">
         {groups.length === 0 && (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No unofficial ROMs found.</div>
+          <div className="text-center py-16 text-muted-foreground text-sm">No unofficial ROMs found.</div>
         )}
         {groups.map((g) => (
           <div key={`${g.console}::${g.title_normalized}`} className="border-b border-border/40">

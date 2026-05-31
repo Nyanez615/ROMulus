@@ -94,7 +94,14 @@ export default function Settings() {
   }
 
   if (!settings) {
-    return <div className="p-8 text-muted-foreground text-sm">Loading settings…</div>;
+    return (
+      <div className="flex flex-col h-full">
+        <div className="px-6 py-4 border-b border-border">
+          <h1 className="text-base font-semibold text-foreground">Settings</h1>
+        </div>
+        <div className="p-8 text-muted-foreground text-sm">Loading settings…</div>
+      </div>
+    );
   }
 
   const unaddedRegions = COMMON_REGIONS.filter(
@@ -102,11 +109,13 @@ export default function Settings() {
   );
 
   return (
-    <div className="max-w-2xl mx-auto p-8 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Settings</h1>
-        {saved && <span className="text-xs text-green-400">Saved ✓</span>}
+    <div className="flex flex-col h-full">
+      <div className="px-6 py-4 border-b border-border flex items-center">
+        <h1 className="text-base font-semibold text-foreground">Settings</h1>
+        {saved && <span className="text-xs text-green-400 ml-auto">Saved ✓</span>}
       </div>
+      <div className="flex-1 overflow-auto">
+      <div className="max-w-2xl mx-auto p-8 space-y-8">
 
       {/* Language & Region */}
       <section className="space-y-4">
@@ -425,6 +434,14 @@ export default function Settings() {
           />
         </div>
       </section>
+
+      <footer className="mt-10 pt-6 border-t border-border/40 text-center text-xs text-muted-foreground/50 space-y-0.5">
+        <p>ROMulus v{__APP_VERSION__}</p>
+        <p>Developed by Nicolas Yanez · <a href="https://github.com/Nyanez615/ROMulus" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-muted-foreground transition-colors">GitHub</a></p>
+        <p>© 2025 Nicolas Yanez · Business Source License 1.1</p>
+      </footer>
+      </div>
+      </div>
     </div>
   );
 }

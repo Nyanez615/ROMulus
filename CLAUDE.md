@@ -110,6 +110,33 @@ Run `cargo test` in `src-tauri/` to regenerate all `src/lib/bindings/*.ts`.
 Commit updated bindings alongside any `models.rs` changes.
 `src-tauri/bindings/` is gitignored; canonical location is `src/lib/bindings/`.
 
+## Tab layout — canonical pattern (macOS convention)
+Every tab uses this exact shell. Do not deviate:
+
+```tsx
+<div className="flex flex-col h-full">
+  {/* Title bar — always title-only, consistent height across all tabs */}
+  <div className="px-6 py-4 border-b border-border">
+    <h1 className="text-base font-semibold text-foreground">Tab Name</h1>
+  </div>
+
+  {/* Optional: tab-specific toolbar (search, count, etc.) — non-scrolling, below the divider */}
+  {/* <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3"> ... </div> */}
+
+  {/* Scrollable content */}
+  <div className="flex-1 overflow-auto p-6 space-y-6">
+    {/* content */}
+  </div>
+</div>
+```
+
+Rules:
+- **No buttons or controls in the title bar.** Action buttons (e.g. "Rescan collection") go at the top of the scrollable content area.
+- **No icons in `<h1>`.** Sidebar nav items keep their icons; page titles do not.
+- **Search bars / counts** go in a secondary toolbar row (`py-2 border-b border-border/50`) between the title bar and the scrollable content — never inside the title bar.
+- **Settings-style content** (Settings, Prune): wrap scrollable content in `<div className="max-w-2xl mx-auto p-8 space-y-8">` for a centered column. The `flex-1 overflow-auto` wrapper stays on the outer div.
+- **`[scrollbar-gutter:stable]`** is applied globally in `Layout.tsx` to prevent layout shift when a scrollbar appears.
+
 ## Styling
 Dark theme default. CSS variables in `src/App.css`. Toggle via `document.documentElement.classList.toggle('light')`.
 Theme stored in SQLite `settings` table (key: `"theme"`).

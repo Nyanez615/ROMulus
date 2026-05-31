@@ -22,6 +22,8 @@ interface UIStore {
   setCommandPaletteOpen: (v: boolean) => void;
   onedriveAcknowledged: boolean;
   setOnedriveAcknowledged: (v: boolean) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (v: boolean) => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -38,4 +40,6 @@ export const useUIStore = create<UIStore>((set) => ({
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   onedriveAcknowledged: false,
   setOnedriveAcknowledged: (onedriveAcknowledged) => set({ onedriveAcknowledged }),
+  sidebarOpen: true,
+  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 }));

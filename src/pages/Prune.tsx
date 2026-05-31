@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Scissors, AlertTriangle, Download, Trash2, Eye } from "lucide-react";
+import { AlertTriangle, Download, Trash2, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -74,12 +74,11 @@ export default function Prune() {
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground flex items-center gap-2">
-          <Scissors className="w-4 h-4" /> Prune
-        </h1>
+        <h1 className="text-base font-semibold text-foreground">Prune</h1>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6 max-w-2xl">
+      <div className="flex-1 overflow-auto">
+      <div className="max-w-2xl mx-auto p-6 space-y-6">
         {result && (
           <Alert className="border-green-500/40 bg-green-500/10">
             <AlertDescription className="text-green-300 text-sm">
@@ -179,6 +178,7 @@ export default function Prune() {
             </AlertDialog>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

@@ -66,15 +66,17 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
+    <div className="flex flex-col h-full">
+      <div className="px-6 py-4 border-b border-border">
+        <h1 className="text-base font-semibold text-foreground">Dashboard</h1>
+      </div>
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex justify-end">
         <Button onClick={handleScan} disabled={scanning || status.scanning} size="sm">
-          <Zap className="w-4 h-4 mr-2" />
+          <Zap className="w-4 h-4 mr-1.5" />
           {scanning || status.scanning ? "Scanning…" : "Rescan collection"}
         </Button>
       </div>
-
       {interrupted && (
         <Alert className="border-amber-500/40 bg-amber-500/10">
           <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -108,7 +110,7 @@ export default function Dashboard() {
       {consoles.length === 0 && !status.scanning && (
         <div className="text-center py-16 space-y-3">
           <Gamepad2 className="w-12 h-12 text-muted-foreground/40 mx-auto" />
-          <p className="text-muted-foreground">No ROMs scanned yet.</p>
+          <p className="text-sm text-muted-foreground">No ROMs scanned yet.</p>
           <Button onClick={handleScan} disabled={scanning}>Start scan</Button>
         </div>
       )}
@@ -173,6 +175,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

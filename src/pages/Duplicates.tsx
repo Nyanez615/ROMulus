@@ -41,14 +41,15 @@ export default function Duplicates() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-4 max-w-4xl">
+      <div className="flex-1 overflow-auto">
         {groups.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <div className="flex flex-col items-center gap-3 px-6 pt-16 pb-6 text-muted-foreground">
             <CheckCircle2 className="w-10 h-10 text-green-500/40" />
-            <p className="text-sm">No duplicates found — your collection is clean.</p>
+            <p className="text-sm text-center">No duplicates found — your collection is clean.</p>
           </div>
         )}
 
+        <div className="p-6 space-y-4 max-w-4xl mx-auto">
         {groups.map((g) => {
           const key = `${g.console}::${g.title_normalized}`;
           const isResolved = resolved.has(key);
@@ -98,6 +99,7 @@ export default function Duplicates() {
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );
