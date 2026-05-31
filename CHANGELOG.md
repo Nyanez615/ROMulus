@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Collapsible sidebar icon rail: collapse to a `w-10` icon strip with tooltip labels and active-tab highlight; expand/collapse via `PanelLeftClose` / `PanelLeft` buttons; `sidebarOpen` state in `ui.ts` store
+- Settings page footer: version, author, GitHub link, and license line
+- `__APP_VERSION__` Vite define injected from `package.json`; typed in `vite-env.d.ts`
+- Games tab: "No games found" empty state (was missing)
+- `scripts/generate_icon.py`: canonical icon generator (dark navy-indigo gradient cartridge, ROMulus wordmark ROM=white/ulus=gold, "Collection Hub" subtitle)
+
+### Changed
+- **App icon redesigned** — dark navy-indigo gradient cartridge fills the canvas; inline wordmark with ROM=white and ulus=gold; "Collection Hub" subtitle; underline rule below text; all platform sizes regenerated
+- **Canonical tab layout** applied to all 9 tabs: fixed `px-6 py-4 border-b` title bar with a text-only `<h1>`; optional secondary toolbar row (`py-2 border-b border-border/50`) for search/count; scrollable content below. No buttons or icons in the title bar.
+- Dashboard "Rescan collection" button moved into scrollable content (below title bar)
+- Search bars for Games and Hacks & Unofficial moved to secondary toolbar row
+- Settings and Prune content centered with `max-w-2xl mx-auto`
+- Layout.tsx: added `[scrollbar-gutter:stable]` to prevent layout shift on scroll
+- Empty states: all tabs now use `text-sm text-muted-foreground`; Duplicates and History empty states changed from vertically centered to `pt-16` top-aligned (consistent with System Files)
+- History: removed `Clock` icon from `<h1>` (canonical pattern: no icons in page titles)
+- Duplicates: empty state spans full content width; list content uses `max-w-4xl mx-auto`
+- macOS About panel: `build_menu()` + `AboutMetadata` with icon, copyright, license, website; `short_version: Some(String::new())` suppresses the duplicate version string
+- `Cargo.toml`: `authors = ["Nicolas Yanez"]`; `[[bin]] name = "ROMulus"` fixes the lowercase Dock label in dev builds
+- `tauri.conf.json`: window title set to `""` (removes redundant native title bar label); `center: true`
+- Copyright year updated to 2026 in About panel and Settings footer
+
 ## [0.1.0] - 2026-05-30
 
 ### Added — Phase 5 (polish & distribution)

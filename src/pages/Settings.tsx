@@ -438,7 +438,7 @@ export default function Settings() {
       <footer className="mt-10 pt-6 border-t border-border/40 text-center text-xs text-muted-foreground/50 space-y-0.5">
         <p>ROMulus v{__APP_VERSION__}</p>
         <p>Developed by Nicolas Yanez · <a href="https://github.com/Nyanez615/ROMulus" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-muted-foreground transition-colors">GitHub</a></p>
-        <p>© 2025 Nicolas Yanez · Business Source License 1.1</p>
+        <p>© 2026 Nicolas Yanez · Business Source License 1.1</p>
       </footer>
       </div>
       </div>
