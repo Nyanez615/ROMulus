@@ -40,7 +40,7 @@ export default function Consoles() {
                   key={c.name}
                   onClick={() => {
                     setSelectedConsole(c.name);
-                    setActiveTab("games");
+                    setActiveTab("roms");
                   }}
                   className="flex items-center gap-3 p-4 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full"
                 >

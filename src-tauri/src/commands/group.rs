@@ -176,9 +176,9 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
-/// Returns official game groups (FileCategory::Game variants only).
+/// Returns official ROM groups (FileCategory::Game variants only).
 #[tauri::command]
-pub fn get_games(
+pub fn get_roms(
     state: State<'_, AppState>,
     console: Option<String>,
     search: Option<String>,
@@ -188,7 +188,7 @@ pub fn get_games(
     let cache = state.scan_cache.lock().unwrap();
     let search_lower = search.as_deref().map(|s| s.to_lowercase());
 
-    let filtered: Vec<&RomGroup> = cache
+    let mut filtered: Vec<&RomGroup> = cache
         .groups
         .iter()
         .filter(|g| {
@@ -206,6 +206,7 @@ pub fn get_games(
         })
         .collect();
 
+    filtered.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
     paginate(filtered, page, per_page)
 }
 
@@ -221,7 +222,7 @@ pub fn get_unofficial(
     let cache = state.scan_cache.lock().unwrap();
     let search_lower = search.as_deref().map(|s| s.to_lowercase());
 
-    let filtered: Vec<&RomGroup> = cache
+    let mut filtered: Vec<&RomGroup> = cache
         .groups
         .iter()
         .filter(|g| {
@@ -238,6 +239,7 @@ pub fn get_unofficial(
         })
         .collect();
 
+    filtered.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
     paginate(filtered, page, per_page)
 }
 
@@ -253,7 +255,7 @@ pub fn get_system_files(
     let cache = state.scan_cache.lock().unwrap();
     let search_lower = search.as_deref().map(|s| s.to_lowercase());
 
-    let filtered: Vec<&RomGroup> = cache
+    let mut filtered: Vec<&RomGroup> = cache
         .groups
         .iter()
         .filter(|g| {
@@ -276,6 +278,7 @@ pub fn get_system_files(
         })
         .collect();
 
+    filtered.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
     paginate(filtered, page, per_page)
 }
 
@@ -287,7 +290,7 @@ pub fn get_duplicates(
 ) -> Vec<RomGroup> {
     let cache = state.scan_cache.lock().unwrap();
 
-    cache
+    let mut groups: Vec<RomGroup> = cache
         .groups
         .iter()
         .filter(|g| {
@@ -304,7 +307,10 @@ pub fn get_duplicates(
         })
         .filter(|g| console.as_ref().is_none_or(|c| &g.console == c))
         .cloned()
-        .collect()
+        .collect();
+
+    groups.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
+    groups
 }
 
 fn paginate(filtered: Vec<&RomGroup>, page: u32, per_page: u32) -> PagedGroups {

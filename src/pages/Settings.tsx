@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   DndContext,
@@ -25,6 +25,7 @@ import {
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
+  scanRoots,
 } from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
@@ -71,10 +72,11 @@ function SortableRegion({ region, index, onRemove }: { region: string; index: nu
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Settings() {
-  const { theme, setTheme } = useUIStore();
+  const { theme, setTheme, setActiveTab } = useUIStore();
   const { setPreferences } = usePreferencesStore();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [showScanPrompt, setShowScanPrompt] = useState(false);
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
   const [hasIgdb, setHasIgdb] = useState(false);
   const [hasSgdb, setHasSgdb] = useState(false);
@@ -106,7 +108,8 @@ export default function Settings() {
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected === "string" && settings && !settings.rom_roots.includes(selected)) {
-      save({ ...settings, rom_roots: [...settings.rom_roots, selected] });
+      await save({ ...settings, rom_roots: [...settings.rom_roots, selected] });
+      setShowScanPrompt(true);
     }
   }
 
@@ -203,6 +206,31 @@ export default function Settings() {
         <Button variant="outline" onClick={pickFolder} className="w-full">
           <Plus className="w-4 h-4 mr-2" /> Add folder
         </Button>
+
+        {showScanPrompt && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/30 bg-primary/10">
+            <span className="text-sm flex-1">Library added. Scan now to index your ROMs.</span>
+            <Button
+              size="sm"
+              onClick={async () => {
+                setShowScanPrompt(false);
+                const s = await getSettings();
+                setActiveTab("dashboard");
+                await scanRoots(s.rom_roots);
+              }}
+              className="gap-1.5 shrink-0"
+            >
+              <Zap className="w-3.5 h-3.5" /> Scan now
+            </Button>
+            <button
+              onClick={() => setShowScanPrompt(false)}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </section>
 
       <Separator />
