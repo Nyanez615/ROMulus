@@ -121,6 +121,7 @@ fn scan_all_roots(
     state: &State<'_, AppState>,
 ) -> Result<Vec<RomFile>, String> {
     let mut all_roms: Vec<RomFile> = vec![];
+    let mut seen_consoles: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for root in roots {
         let root_path = Path::new(root);
@@ -128,60 +129,55 @@ fn scan_all_roots(
             continue;
         }
 
-        // Each immediate subdirectory is a console folder
-        let console_dirs: Vec<_> = std::fs::read_dir(root_path)
-            .map_err(|e| e.to_string())?
+        // Recursive walk: console name = immediate parent dir of each file.
+        // This handles any nesting depth below the root.
+        for entry in WalkDir::new(root_path)
+            .follow_links(false)
+            .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
 
-        for dir_entry in console_dirs {
-            let console_path = dir_entry.path();
-            let console_name = console_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            if console_name.is_empty() {
+            // Skip files sitting directly in the root — they're not in a console folder.
+            let parent = match path.parent() {
+                Some(p) => p,
+                None => continue,
+            };
+            if parent == root_path {
                 continue;
             }
 
-            // Emit progress event
-            let _ = app.emit(
-                "scan:progress",
-                ScanProgress {
-                    console: console_name.clone(),
-                    scanned: all_roms.len() as u32,
-                    total: 0,
-                },
-            );
+            let console_name = match parent.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
 
-            // Update scanning console in state
-            {
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            // Skip zero-byte OneDrive placeholder files
+            if meta.len() == 0 {
+                continue;
+            }
+
+            // Emit progress the first time a console is encountered
+            if seen_consoles.insert(console_name.clone()) {
+                let _ = app.emit(
+                    "scan:progress",
+                    ScanProgress {
+                        console: console_name.clone(),
+                        scanned: all_roms.len() as u32,
+                        total: 0,
+                    },
+                );
                 if let Ok(mut cache) = state.scan_cache.lock() {
                     cache.status.current_console = Some(console_name.clone());
                 }
             }
 
-            let roms = scan_console_dir(&console_path, &console_name);
-            all_roms.extend(roms);
-        }
-    }
-
-    Ok(all_roms)
-}
-
-fn scan_console_dir(console_path: &Path, console: &str) -> Vec<RomFile> {
-    WalkDir::new(console_path)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|entry| {
-            let path = entry.path();
-            let meta = entry.metadata().ok()?;
-            let filesize = meta.len();
             let mtime = meta
                 .modified()
                 .ok()
@@ -189,14 +185,13 @@ fn scan_console_dir(console_path: &Path, console: &str) -> Vec<RomFile> {
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
 
-            // Skip placeholder (OneDrive offline) files
-            if filesize == 0 {
-                return None;
+            if let Some(rom) = parser::parse_file(path, &console_name, meta.len(), mtime) {
+                all_roms.push(rom);
             }
+        }
+    }
 
-            parser::parse_file(path, console, filesize, mtime)
-        })
-        .collect()
+    Ok(all_roms)
 }
 
 // ── Stats computation ─────────────────────────────────────────────────────────

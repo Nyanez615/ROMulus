@@ -130,6 +130,8 @@ pub struct AppSettings {
     pub onedrive_acknowledged: bool,
     pub terms_accepted: bool,
     pub crash_reporting_enabled: bool,
+    #[serde(default)]
+    pub allow_permanent_delete: bool,
     pub theme: String,
 }
 
@@ -142,6 +144,7 @@ impl Default for AppSettings {
             onedrive_acknowledged: false,
             terms_accepted: false,
             crash_reporting_enabled: false,
+            allow_permanent_delete: false,
             theme: "dark".into(),
         }
     }

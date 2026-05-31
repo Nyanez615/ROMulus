@@ -34,7 +34,7 @@ export function Sidebar() {
     return (
       <aside className="flex flex-col w-10 shrink-0 border-r border-border bg-card overflow-hidden">
         {/* Expand button — same height as the open header */}
-        <div className="flex items-center justify-center py-[18px] border-b border-border">
+        <div className="flex items-center justify-center h-14 border-b border-border">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
@@ -72,7 +72,7 @@ export function Sidebar() {
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-border bg-card overflow-hidden">
       {/* Header: ROMulus wordmark + collapse toggle */}
-      <div className="flex items-center px-4 py-4 border-b border-border">
+      <div className="flex items-center h-14 px-4 border-b border-border">
         <span className="font-bold text-lg tracking-tight text-foreground flex-1">ROMulus</span>
         <button
           onClick={() => setSidebarOpen(false)}

@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
+  allow_permanent_delete: false,
   theme: "dark",
 };
 

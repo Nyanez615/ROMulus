@@ -67,7 +67,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border">
+      <div className="h-14 flex items-center px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground">Dashboard</h1>
       </div>
       <div className="flex-1 overflow-auto p-6 space-y-6">

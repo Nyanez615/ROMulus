@@ -36,7 +36,7 @@ export default function History() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border flex items-center">
+      <div className="h-14 flex items-center px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground">History</h1>
         <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} total actions</span>
       </div>
