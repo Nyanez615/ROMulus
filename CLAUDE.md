@@ -11,7 +11,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Phase 2** ✅ Tauri bindings layer (`src/lib/tauri.ts`), 4 Zustand stores, shadcn/ui, Layout + Sidebar, onboarding wizard, Settings page
 - **Phase 3** ✅ All 9 tabs (Dashboard, Consoles, Games, Hacks, System Files, Duplicates, Prune, History, Settings) + all browse/prune/history Rust commands
 - **Phase 4** ✅ IGDB metadata enrichment (OAuth2, Keychain, background + on-demand + bulk), SteamGridDB thumbnails (asset:// cache), OS notifications, No-Intro DAT import + CRC32 verification + completeness tracking
-- **Phase 5** ▶️ **next**: console SVG icons (Simple Icons), keyboard shortcuts (`⌘K`, `⌘F`, etc.), WCAG accessibility, auto-updater + release pipeline, `v0.1.0` tag
+- **Phase 5** ✅ Console SVG icons, keyboard shortcuts, WCAG accessibility, auto-updater + release pipeline, `v0.1.0` published
 
 ## Dev setup
 
