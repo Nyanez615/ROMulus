@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { getConsoles } from "@/lib/tauri";
-import { ConsoleIcon, ManufacturerBadge } from "@/components/ConsoleIcon";
+import { ConsoleIcon, PlatformBadge } from "@/components/ConsoleIcon";
 import { useScanStore } from "@/store/scan";
 import { useUIStore } from "@/store/ui";
 import { formatBytes } from "@/lib/tauri";
@@ -28,7 +28,7 @@ export default function Consoles() {
       {Object.entries(grouped).map(([mfr, list]) => (
         <div key={mfr}>
           <div className="flex items-center gap-2 mb-3">
-            <ManufacturerBadge consoleName={list[0].name} />
+            <PlatformBadge consoleName={list[0].name} />
             <span className="text-xs text-muted-foreground">({list.length} systems)</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

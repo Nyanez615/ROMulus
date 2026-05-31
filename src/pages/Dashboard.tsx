@@ -16,6 +16,7 @@ import type { DatFile } from "@/lib/bindings/DatFile";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import { useScanStore } from "@/store/scan";
 import { useUIStore } from "@/store/ui";
+import { getCanonicalConsoleName, getShortConsoleName } from "@/lib/consoleUtils";
 
 export default function Dashboard() {
   const { consoles, setConsoles, status, setStatus } = useScanStore();
@@ -96,16 +97,33 @@ export default function Dashboard() {
           accent={healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-red-400"} />
       </div>
 
-      {consoles.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Consoles</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {consoles.map((c) => (
-              <ConsoleRow key={c.name} console={c} onClick={() => setActiveTab("consoles")} />
-            ))}
+      {consoles.length > 0 && (() => {
+        // Group consoles by canonical name (strips variant suffixes like "(FDS)", "(Multiboot)", etc.)
+        const canonicalMap = new Map<string, ConsoleStats[]>();
+        for (const c of consoles) {
+          const key = getCanonicalConsoleName(c.name);
+          canonicalMap.set(key, [...(canonicalMap.get(key) ?? []), c]);
+        }
+        // Sort canonical groups alphabetically by short name
+        const sortedGroups = Array.from(canonicalMap.entries()).sort(([a], [b]) =>
+          (getShortConsoleName(a)).localeCompare(getShortConsoleName(b))
+        );
+        return (
+          <div>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Consoles</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {sortedGroups.map(([canonical, variants]) => (
+                <CanonicalConsoleCard
+                  key={canonical}
+                  canonicalName={canonical}
+                  variants={variants}
+                  onClick={() => setActiveTab("consoles")}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {consoles.length === 0 && !status.scanning && (
         <div className="text-center py-16 space-y-3">
@@ -198,14 +216,41 @@ function StatCard({ icon: Icon, label, value, sub, accent }: {
   );
 }
 
-function ConsoleRow({ console: c, onClick }: { console: ConsoleStats; onClick: () => void }) {
-  const healthPct = c.total_files > 0 ? Math.round((c.preferred_count / c.total_files) * 100) : 0;
-  const shortName = c.name.split(" - ")[1] ?? c.name;
+function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
+  canonicalName: string;
+  variants: ConsoleStats[];
+  onClick: () => void;
+}) {
+  const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
+  const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
+  const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
+  const shortName = getShortConsoleName(canonicalName);
+
   return (
-    <button onClick={onClick} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full">
+    <button
+      onClick={onClick}
+      title={variants.length > 1 ? variants.map((v) => getShortConsoleName(v.name)).join(", ") : canonicalName}
+      className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full"
+    >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{shortName}</div>
-        <div className="text-xs text-muted-foreground">{c.total_files.toLocaleString()} ROMs</div>
+        <div className="text-xs text-muted-foreground">{totalFiles.toLocaleString()} ROMs</div>
+        {variants.length > 1 && (
+          <div className="flex gap-1 mt-1 flex-wrap">
+            {variants.map((v) => {
+              const suffix = v.name.slice(canonicalName.length).trim();
+              return suffix ? (
+                <span key={v.name} className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                  {suffix} {v.total_files.toLocaleString()}
+                </span>
+              ) : (
+                <span key={v.name} className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                  base {v.total_files.toLocaleString()}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div className="text-right shrink-0">
         <div className={`text-sm font-semibold ${healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-muted-foreground"}`}>{healthPct}%</div>
