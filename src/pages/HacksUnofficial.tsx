@@ -29,10 +29,15 @@ export default function HacksUnofficial() {
     return () => clearTimeout(t);
   }, [selectedConsole, search]);
 
+  const [platform, consolePart] = (selectedConsole ?? "").split(" - ");
+  const pageTitle = selectedConsole
+    ? `${platform} — ${consolePart} — Hacks & Unofficial`
+    : "Hacks & Unofficial";
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">Hacks &amp; Unofficial</h1>
+        <h1 className="text-base font-semibold text-foreground">{pageTitle}</h1>
       </div>
       <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
         <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs h-8 text-sm" />
