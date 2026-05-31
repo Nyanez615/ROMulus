@@ -1,11 +1,13 @@
+import { useState, useMemo } from "react";
 import {
   LayoutDashboard, Server, Gamepad2, Skull, Cpu,
-  CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft,
+  CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon, getConsoleColor } from "./ConsoleIcon";
 import { useUIStore, type TabId } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
+import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 
 interface NavItem {
   id: TabId;
@@ -28,6 +30,33 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();
   const { consoles, selectedConsole, setSelectedConsole, status } = useScanStore();
+  const [collapsedPlatforms, setCollapsedPlatforms] = useState<Set<string>>(new Set());
+
+  // Group consoles by platform (the part before " - ")
+  const platformGroups = useMemo(() => {
+    const map = new Map<string, ConsoleStats[]>();
+    for (const c of consoles) {
+      const platform = c.name.split(" - ")[0] ?? "Other";
+      const arr = map.get(platform) ?? [];
+      arr.push(c);
+      map.set(platform, arr);
+    }
+    return map;
+  }, [consoles]);
+
+  function togglePlatform(platform: string) {
+    setCollapsedPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(platform)) next.delete(platform); else next.add(platform);
+      return next;
+    });
+  }
+
+  function handleConsoleClick(consoleName: string) {
+    setSelectedConsole(selectedConsole === consoleName ? null : consoleName);
+    const consoleAwareTabs: TabId[] = ["roms", "hacks", "system", "duplicates"];
+    if (!consoleAwareTabs.includes(activeTab)) setActiveTab("roms");
+  }
 
   // ── Collapsed icon rail ───────────────────────────────────────────────────
   if (!sidebarOpen) {
@@ -104,40 +133,93 @@ export function Sidebar() {
           ))}
         </ul>
 
-        {/* Console list */}
+        {/* Platform groups + console list */}
         {consoles.length > 0 && (
           <div className="mt-4 px-2">
             <div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {status.scanning ? "Scanning…" : `${consoles.length} Consoles`}
+              {status.scanning ? "Scanning…" : `${platformGroups.size} Platform${platformGroups.size !== 1 ? "s" : ""}`}
             </div>
+
+            {/* "All ROMs" — deselects console filter */}
             <ul className="mt-1 space-y-0.5">
-              {consoles.map((c) => (
-                <li key={c.name}>
+              <li>
+                <button
+                  onClick={() => { setSelectedConsole(null); setActiveTab("roms"); }}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                    selectedConsole === null
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                  )}
+                  title="Show ROMs from all consoles"
+                >
+                  <span className="flex-1 text-left">All ROMs</span>
+                  <span className="text-muted-foreground/60 tabular-nums">
+                    {consoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()}
+                  </span>
+                </button>
+              </li>
+            </ul>
+
+            {/* Per-platform collapsible groups */}
+            {Array.from(platformGroups.entries()).map(([platform, platformConsoles]) => {
+              const isCollapsed = collapsedPlatforms.has(platform);
+              const platformTotal = platformConsoles.reduce((s, c) => s + c.total_files, 0);
+              const platformColor = getConsoleColor(platformConsoles[0].name);
+
+              return (
+                <div key={platform} className="mt-2">
+                  {/* Platform header */}
                   <button
-                    onClick={() => {
-                      setSelectedConsole(selectedConsole === c.name ? null : c.name);
-                      const consoleAwareTabs: TabId[] = ["roms", "hacks", "system", "duplicates"];
-                      if (!consoleAwareTabs.includes(activeTab)) setActiveTab("roms");
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
-                      selectedConsole === c.name
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                    )}
-                    style={selectedConsole === c.name ? { borderLeft: `2px solid ${getConsoleColor(c.name)}` } : undefined}
+                    onClick={() => togglePlatform(platform)}
+                    className="w-full flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-muted/40 transition-colors"
+                    title={`${platform} — ${platformConsoles.length} console${platformConsoles.length !== 1 ? "s" : ""}`}
                   >
-                    <ConsoleIcon consoleName={c.name} size="sm" />
-                    <span className="flex-1 truncate text-left">
-                      {c.name.split(" - ")[1] ?? c.name}
+                    <ChevronRight
+                      className={cn(
+                        "w-3 h-3 text-muted-foreground transition-transform shrink-0",
+                        !isCollapsed && "rotate-90",
+                      )}
+                    />
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: platformColor }}>
+                      {platform}
                     </span>
-                    <span className="text-muted-foreground/60 tabular-nums">
-                      {c.total_files.toLocaleString()}
+                    <span className="ml-auto text-xs text-muted-foreground/60 tabular-nums shrink-0">
+                      {platformTotal.toLocaleString()}
                     </span>
                   </button>
-                </li>
-              ))}
-            </ul>
+
+                  {/* Console list under platform */}
+                  {!isCollapsed && (
+                    <ul className="mt-0.5 space-y-0.5 pl-2">
+                      {platformConsoles.map((c) => (
+                        <li key={c.name}>
+                          <button
+                            onClick={() => handleConsoleClick(c.name)}
+                            title={c.name}
+                            className={cn(
+                              "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                              selectedConsole === c.name
+                                ? "bg-muted text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                            )}
+                            style={selectedConsole === c.name ? { borderLeft: `2px solid ${getConsoleColor(c.name)}` } : undefined}
+                          >
+                            <ConsoleIcon consoleName={c.name} size="sm" />
+                            <span className="flex-1 truncate text-left">
+                              {c.name.split(" - ")[1] ?? c.name}
+                            </span>
+                            <span className="text-muted-foreground/60 tabular-nums">
+                              {c.total_files.toLocaleString()}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </nav>
@@ -146,7 +228,7 @@ export function Sidebar() {
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{status.scanned.toLocaleString()} ROMs</div>
-          <div className="text-muted-foreground/70">across {consoles.length} consoles</div>
+          <div className="text-muted-foreground/70">across {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (
