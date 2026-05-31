@@ -21,7 +21,7 @@ export default function Consoles() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border flex items-center gap-3">
+      <div className="h-14 flex items-center gap-3 px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground shrink-0">Consoles</h1>
       </div>
       <div className="flex-1 overflow-auto p-6 space-y-8">

@@ -1,6 +1,19 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -23,6 +36,40 @@ const COMMON_LANGUAGES = ["En", "Ja", "Fr", "De", "Es", "It", "Pt", "Zh", "Ko", 
 const COMMON_REGIONS = ["USA", "World", "Europe", "Japan", "Australia", "United Kingdom",
   "Germany", "France", "Spain", "Italy", "Korea", "Brazil", "Taiwan", "China"];
 
+// ── Sortable region row ───────────────────────────────────────────────────────
+
+function SortableRegion({ region, index, onRemove }: { region: string; index: number; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: region });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={[
+        "flex items-center gap-2 px-3 py-2 rounded-md border text-sm",
+        isDragging ? "opacity-50 bg-muted border-border" : "bg-card border-border hover:bg-muted/40",
+      ].join(" ")}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing text-muted-foreground touch-none"
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </button>
+      <span className="flex-1 text-foreground">{region}</span>
+      <span className="text-xs text-muted-foreground">#{index + 1}</span>
+      <button onClick={onRemove} className="text-muted-foreground hover:text-destructive">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function Settings() {
   const { theme, setTheme } = useUIStore();
   const { setPreferences } = usePreferencesStore();
@@ -36,7 +83,8 @@ export default function Settings() {
   const [sgdbKey, setSgdbKey] = useState("");
   const [datFiles, setDatFiles] = useState<DatFile[]>([]);
   const [enriching, setEnriching] = useState(false);
-  const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   useEffect(() => {
     getSettings().then(setSettings).catch(console.error);
@@ -83,6 +131,15 @@ export default function Settings() {
     save({ ...settings, preferences: { ...settings.preferences, preferred_regions: next } });
   }
 
+  function handleRegionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !settings) return;
+    const regions = settings.preferences.preferred_regions;
+    const oldIdx = regions.indexOf(active.id as string);
+    const newIdx = regions.indexOf(over.id as string);
+    if (oldIdx !== -1 && newIdx !== -1) moveRegion(oldIdx, newIdx);
+  }
+
   function addRegion(region: string) {
     if (!settings || settings.preferences.preferred_regions.includes(region)) return;
     save({ ...settings, preferences: { ...settings.preferences, preferred_regions: [...settings.preferences.preferred_regions, region] } });
@@ -96,7 +153,7 @@ export default function Settings() {
   if (!settings) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-6 py-4 border-b border-border">
+        <div className="h-14 flex items-center px-6 border-b border-border">
           <h1 className="text-base font-semibold text-foreground">Settings</h1>
         </div>
         <div className="p-8 text-muted-foreground text-sm">Loading settings…</div>
@@ -110,91 +167,14 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border flex items-center">
+      <div className="h-14 flex items-center px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground">Settings</h1>
         {saved && <span className="text-xs text-green-400 ml-auto">Saved ✓</span>}
       </div>
       <div className="flex-1 overflow-auto">
       <div className="max-w-2xl mx-auto p-8 space-y-8">
 
-      {/* Language & Region */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Languages className="w-4 h-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Language &amp; Region</h2>
-        </div>
-
-        <div>
-          <Label className="text-sm text-muted-foreground mb-2 block">Preferred languages</Label>
-          <div className="flex flex-wrap gap-2">
-            {COMMON_LANGUAGES.map((lang) => (
-              <button
-                key={lang}
-                onClick={() => toggleLang(lang)}
-                className={[
-                  "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors",
-                  settings.preferences.preferred_languages.includes(lang)
-                    ? "bg-primary/20 border-primary/60 text-primary"
-                    : "bg-muted border-border text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
-                {lang}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-sm text-muted-foreground mb-1 block">Region priority (drag to reorder)</Label>
-          <div className="space-y-1.5">
-            {settings.preferences.preferred_regions.map((region, i) => (
-              <div
-                key={region}
-                draggable
-                onDragStart={() => setDraggingIdx(i)}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (draggingIdx !== null && draggingIdx !== i) {
-                    moveRegion(draggingIdx, i);
-                    setDraggingIdx(i);
-                  }
-                }}
-                onDragEnd={() => setDraggingIdx(null)}
-                className={[
-                  "flex items-center gap-2 px-3 py-2 rounded-md border text-sm cursor-grab active:cursor-grabbing",
-                  draggingIdx === i
-                    ? "opacity-50 bg-muted border-border"
-                    : "bg-card border-border hover:bg-muted/40",
-                ].join(" ")}
-              >
-                <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="flex-1 text-foreground">{region}</span>
-                <span className="text-xs text-muted-foreground">#{i + 1}</span>
-                <button onClick={() => removeRegion(region)} className="text-muted-foreground hover:text-destructive">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-            {unaddedRegions.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {unaddedRegions.map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => addRegion(r)}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground border border-dashed border-border hover:text-foreground"
-                  >
-                    <Plus className="w-3 h-3" /> {r}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <Separator />
-
-      {/* ROM Roots */}
+      {/* ROM Libraries — first section */}
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <FolderOpen className="w-4 h-4 text-primary" />
@@ -227,9 +207,73 @@ export default function Settings() {
 
       <Separator />
 
+      {/* Language & Region */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Languages className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Language &amp; Region</h2>
+        </div>
+
+        <div>
+          <Label className="text-sm text-muted-foreground mb-2 block">Preferred languages</Label>
+          <div className="flex flex-wrap gap-2">
+            {COMMON_LANGUAGES.map((lang) => (
+              <button
+                key={lang}
+                onClick={() => toggleLang(lang)}
+                className={[
+                  "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors",
+                  settings.preferences.preferred_languages.includes(lang)
+                    ? "bg-primary/20 border-primary/60 text-primary"
+                    : "bg-muted border-border text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {lang}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-sm text-muted-foreground mb-1 block">Region priority (drag to reorder)</Label>
+          <DndContext sensors={sensors} onDragEnd={handleRegionDragEnd}>
+            <SortableContext items={settings.preferences.preferred_regions} strategy={verticalListSortingStrategy}>
+              <div className="space-y-1.5">
+                {settings.preferences.preferred_regions.map((region, i) => (
+                  <SortableRegion
+                    key={region}
+                    region={region}
+                    index={i}
+                    onRemove={() => removeRegion(region)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+          {unaddedRegions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-2">
+              {unaddedRegions.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => addRegion(r)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground border border-dashed border-border hover:text-foreground"
+                >
+                  <Plus className="w-3 h-3" /> {r}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <Separator />
+
       {/* Appearance */}
       <section className="space-y-4">
-        <h2 className="font-semibold text-foreground">Appearance</h2>
+        <div className="flex items-center gap-2">
+          <Monitor className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Appearance</h2>
+        </div>
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-sm text-foreground">Dark mode</Label>
@@ -248,9 +292,12 @@ export default function Settings() {
 
       <Separator />
 
-      {/* Crash reporting */}
+      {/* Privacy */}
       <section className="space-y-4">
-        <h2 className="font-semibold text-foreground">Privacy</h2>
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Privacy</h2>
+        </div>
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-sm text-foreground">Crash reporting</Label>
@@ -265,7 +312,7 @@ export default function Settings() {
 
       <Separator />
 
-      {/* Format Wizard */}
+      {/* Format Pairs */}
       {formatPairs.length > 0 && (
         <section className="space-y-4">
           <div className="flex items-center gap-2">
@@ -316,7 +363,7 @@ export default function Settings() {
         </section>
       )}
 
-      <Separator />
+      {formatPairs.length > 0 && <Separator />}
 
       {/* IGDB Metadata */}
       <section className="space-y-4">
@@ -413,9 +460,12 @@ export default function Settings() {
 
       <Separator />
 
-      {/* Danger zone */}
+      {/* Danger Zone */}
       <section className="space-y-4">
-        <h2 className="font-semibold text-destructive">Danger Zone</h2>
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-destructive" />
+          <h2 className="font-semibold text-destructive">Danger Zone</h2>
+        </div>
         <Alert className="border-destructive/40 bg-destructive/10">
           <AlertTriangle className="w-4 h-4 text-destructive" />
           <AlertDescription className="text-sm text-destructive/80">
@@ -428,9 +478,9 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">Files will be deleted immediately, not moved to Trash</p>
           </div>
           <Switch
-            checked={false}
-            disabled
-            onCheckedChange={() => {}}
+            checked={settings.allow_permanent_delete}
+            onCheckedChange={(v) => save({ ...settings, allow_permanent_delete: v })}
+            className="data-[state=checked]:bg-destructive"
           />
         </div>
       </section>

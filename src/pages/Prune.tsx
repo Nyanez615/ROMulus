@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Download, Trash2, Eye } from "lucide-react";
+import { AlertTriangle, Download, Trash2, Eye, EyeOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -29,6 +29,7 @@ export default function Prune() {
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
   const [hasOneDrive, setHasOneDrive] = useState(false);
+  const [allowPermanentDelete, setAllowPermanentDelete] = useState(false);
 
   async function preview() {
     setLoading(true);
@@ -38,6 +39,7 @@ export default function Prune() {
       setPlan(p);
       const settings = await getSettings();
       setHasOneDrive(settings.rom_roots.some(isOneDrivePath));
+      setAllowPermanentDelete(settings.allow_permanent_delete ?? false);
     } finally {
       setLoading(false);
     }
@@ -45,7 +47,6 @@ export default function Prune() {
 
   async function doExportCsv() {
     if (!plan) return;
-    // Prompt user for save location via file dialog
     const { save } = await import("@tauri-apps/plugin-dialog");
     const now = new Date().toISOString().slice(0, 10);
     const filePath = await save({ defaultPath: `romulus-prune-${now}.csv`, filters: [{ name: "CSV", extensions: ["csv"] }] });
@@ -57,7 +58,8 @@ export default function Prune() {
     if (!plan) return;
     setExecuting(true);
     try {
-      const res = await executePrune(plan.to_delete, "trash", onedriveAcknowledged);
+      const mode = allowPermanentDelete ? "permanent" : "trash";
+      const res = await executePrune(plan.to_delete, mode, onedriveAcknowledged);
       setResult({ success: res.success_count, failed: res.failed.length });
       setPlan(null);
     } finally {
@@ -73,7 +75,7 @@ export default function Prune() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border">
+      <div className="h-14 flex items-center px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground">Prune</h1>
       </div>
 
@@ -124,6 +126,9 @@ export default function Prune() {
                 <Button size="sm" variant="ghost" onClick={doExportCsv} className="text-xs gap-1.5">
                   <Download className="w-3.5 h-3.5" /> Export CSV
                 </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPlan(null)} className="text-xs gap-1 text-muted-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
             <div className="px-4 py-3 grid grid-cols-3 gap-4 text-center border-b border-border">
@@ -152,27 +157,36 @@ export default function Prune() {
 
         {/* Actions */}
         <div className="flex gap-3">
-          <Button onClick={preview} disabled={loading} variant="outline" className="gap-2">
-            <Eye className="w-4 h-4" />{loading ? "Computing…" : "Preview"}
+          <Button
+            onClick={plan ? () => setPlan(null) : preview}
+            disabled={loading}
+            variant="outline"
+            className="gap-2"
+          >
+            {plan ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {loading ? "Computing…" : plan ? "Hide preview" : "Preview"}
           </Button>
           {plan && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button disabled={executing || (hasOneDrive && !onedriveAcknowledged)} variant="destructive" className="gap-2">
-                  <Trash2 className="w-4 h-4" />{executing ? "Moving to Trash…" : `Move ${plan.to_delete.length.toLocaleString()} files to Trash`}
+                  <Trash2 className="w-4 h-4" />{executing ? (allowPermanentDelete ? "Deleting…" : "Moving to Trash…") : `${allowPermanentDelete ? "Delete" : "Move"} ${plan.to_delete.length.toLocaleString()} files ${allowPermanentDelete ? "permanently" : "to Trash"}`}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {plan.to_delete.length.toLocaleString()} files will be moved to the Trash ({formatBytes(plan.total_bytes_freed)} freed).
-                    This action can be undone from the Trash.
+                    {allowPermanentDelete
+                      ? `${plan.to_delete.length.toLocaleString()} files will be permanently deleted (${formatBytes(plan.total_bytes_freed)} freed). This cannot be undone.`
+                      : `${plan.to_delete.length.toLocaleString()} files will be moved to the Trash (${formatBytes(plan.total_bytes_freed)} freed). This action can be undone from the Trash.`}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={doExecute} className="bg-destructive hover:bg-destructive/90">Move to Trash</AlertDialogAction>
+                  <AlertDialogAction onClick={doExecute} className="bg-destructive hover:bg-destructive/90">
+                    {allowPermanentDelete ? "Delete permanently" : "Move to Trash"}
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -193,7 +207,11 @@ function FilterRow({ label, sub, checked, onToggle, destructive }: {
         <Label className={`text-sm ${destructive ? "text-red-400" : "text-foreground"}`}>{label}</Label>
         {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
-      <Switch checked={checked} onCheckedChange={onToggle} className="shrink-0 mt-0.5" />
+      <Switch
+        checked={checked}
+        onCheckedChange={onToggle}
+        className={`shrink-0 mt-0.5${destructive ? " data-[state=checked]:bg-destructive" : ""}`}
+      />
     </div>
   );
 }

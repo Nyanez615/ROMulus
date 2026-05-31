@@ -71,7 +71,7 @@ export default function Games() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-border">
+      <div className="h-14 flex items-center px-6 border-b border-border">
         <h1 className="text-base font-semibold text-foreground">
           Games{selectedConsole ? ` — ${selectedConsole.split(" - ")[1] ?? selectedConsole}` : ""}
         </h1>

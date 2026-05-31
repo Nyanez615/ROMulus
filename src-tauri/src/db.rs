@@ -35,6 +35,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/001_initial.sql")),
         M::up(include_str!("../migrations/002_metadata.sql")),
         M::up(include_str!("../migrations/003_onboarding.sql")),
+        M::up(include_str!("../migrations/004_permanent_delete.sql")),
     ])
 }
 
