@@ -62,7 +62,7 @@ fn build_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
 
 fn chrono_year() -> u32 {
     // Safe constant — update when the year rolls over
-    2025
+    2026
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
