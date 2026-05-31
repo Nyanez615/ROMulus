@@ -6,16 +6,30 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-31
+
 ### Added
 - Collapsible sidebar icon rail: collapse to a `w-10` icon strip with tooltip labels and active-tab highlight; expand/collapse via `PanelLeftClose` / `PanelLeft` buttons; `sidebarOpen` state in `ui.ts` store
 - Settings page footer: version, author, GitHub link, and license line
 - `__APP_VERSION__` Vite define injected from `package.json`; typed in `vite-env.d.ts`
 - Games tab: "No games found" empty state (was missing)
 - `scripts/generate_icon.py`: canonical icon generator (dark navy-indigo gradient cartridge, ROMulus wordmark ROM=white/ulus=gold, "Collection Hub" subtitle)
+- **Allow permanent delete** — full-stack opt-in: `AppSettings.allow_permanent_delete`, migration `004_permanent_delete.sql`, `save_settings` persists the flag, red `data-[state=checked]:bg-destructive` Switch in Settings → Danger Zone, wired in Prune's execute flow with matching dialog label
+- Settings: icons added to Appearance (`Monitor`), Privacy (`ShieldCheck`), and Danger Zone (`AlertTriangle`) section titles for visual consistency
+- Prune: "Hide preview" toggle (EyeOff icon) and `×` close button in preview pane header so the plan can be dismissed without re-running filters
+- Test suite: Vitest configured with jsdom + `@testing-library/react`; 15 Settings tests, 14 Prune tests; 5 new Rust unit tests for settings persistence (65 Rust total, 29 frontend)
+
+### Fixed
+- **ROM root persistence** (critical): `save_settings` now syncs the `rom_roots` table (DELETE + re-INSERT) — folders no longer vanished on navigation
+- **Recursive scanner**: replaced two-step scan (`scan_all_roots` + `scan_console_dir`) with a single `WalkDir` recursive walk; console name = immediate parent directory of each ROM file; supports any nesting depth below the root (flat, one-level, multi-level all work)
+- Region priority reorder in Settings now uses `@dnd-kit/core` PointerSensor + SortableContext — replaced broken native HTML5 drag that did not fire in WKWebView
+- All 9 tab headers use `h-14 flex items-center` (56 px) for a pixel-exact divider match with the sidebar header at every resolution
 
 ### Changed
 - **App icon redesigned** — dark navy-indigo gradient cartridge fills the canvas; inline wordmark with ROM=white and ulus=gold; "Collection Hub" subtitle; underline rule below text; all platform sizes regenerated
-- **Canonical tab layout** applied to all 9 tabs: fixed `px-6 py-4 border-b` title bar with a text-only `<h1>`; optional secondary toolbar row (`py-2 border-b border-border/50`) for search/count; scrollable content below. No buttons or icons in the title bar.
+- Settings: ROM Libraries section promoted to first position
+- Settings: "Allow permanent delete" and Prune's "Delete ALL unofficial" Switches both use `data-[state=checked]:bg-destructive` red styling
+- Prune: execute confirm dialog and button label now reflect trash vs. permanent delete mode
 - Dashboard "Rescan collection" button moved into scrollable content (below title bar)
 - Search bars for Games and Hacks & Unofficial moved to secondary toolbar row
 - Settings and Prune content centered with `max-w-2xl mx-auto`
