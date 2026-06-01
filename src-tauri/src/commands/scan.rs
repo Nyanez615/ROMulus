@@ -4,9 +4,9 @@ use std::time::UNIX_EPOCH;
 use tauri::{AppHandle, Emitter, State};
 use walkdir::WalkDir;
 
-use crate::commands::group::group_roms;
+use crate::commands::group::{group_roms, merge_format_pairs};
 use crate::db::AppState;
-use crate::deduper::{detect_format_pairs, mark_format_pairs};
+use crate::deduper::detect_format_pairs;
 use crate::models::FormatPair;
 use tauri_plugin_notification::NotificationExt;
 use crate::models::{ConsoleStats, RomFile, ScanProgress, ScanStatus};
@@ -54,10 +54,10 @@ pub async fn scan_roots(
         upsert_known_tags(&conn, &roms).map_err(|e| e.to_string())?;
     }
 
-    // Group + score variants, detect format pairs
-    let mut groups = group_roms(roms.clone(), &prefs);
+    // Group + score variants, detect format pairs, merge cross-console groups
+    let groups = group_roms(roms.clone(), &prefs);
     let format_pairs = detect_format_pairs(&roms);
-    mark_format_pairs(&mut groups, &format_pairs);
+    let groups = merge_format_pairs(groups, &format_pairs, &prefs);
 
     let mut cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
     cache.roms = roms;

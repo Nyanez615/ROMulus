@@ -11,6 +11,7 @@ import { DiscBadge } from "@/components/DiscBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
+import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,11 @@ const ALL_GROUPS = 9999;
 export default function Roms() {
   const { selectedConsoles } = useScanStore();
   const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
+  const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt", "Unl"];
+  const sortedStatus = [
+    ...STATUS_PRIORITY.filter((t) => knownStatus.includes(t)),
+    ...knownStatus.filter((t) => !STATUS_PRIORITY.includes(t)),
+  ];
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("az");
@@ -143,8 +149,8 @@ export default function Roms() {
             {r}
           </button>
         ))}
-        {/* Status chips */}
-        {knownStatus.map((s) => (
+        {/* Status chips — priority order: Beta/Proto/Demo/Sample/Kiosk/Promo/Alt/Unl first */}
+        {sortedStatus.map((s) => (
           <button key={s} onClick={() => toggleChip(activeStatus, s, setActiveStatus)}
             className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeStatus.includes(s) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
             {s}
@@ -191,6 +197,11 @@ export default function Roms() {
                     <RomThumbnail title={preferred.title} consoleName={g.console} />
                   )}
                   <span className="flex-1 font-medium text-foreground truncate" title={displayTitle}>{displayTitle}</span>
+                  {selectedConsoles === null && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
+                      {getConsoleDisplayName(g.console, true)}
+                    </span>
+                  )}
                   {preferred && (
                     <TagList regions={preferred.regions} statusFlags={preferred.status_flags} max={2} />
                   )}
@@ -200,9 +211,27 @@ export default function Roms() {
                   )}
                   <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variant{g.variants.length !== 1 ? "s" : ""}</span>
                 </div>
-                {isOpen && g.variants.map((v, vi) => (
-                  <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} />
-                ))}
+                {isOpen && (() => {
+                  const uniqueConsoles = [...new Set(g.variants.map((v) => v.console))];
+                  if (g.is_format_pair && uniqueConsoles.length > 1) {
+                    return uniqueConsoles.map((console_) => {
+                      const consoleVariants = g.variants.filter((v) => v.console === console_);
+                      const short = getShortConsoleName(console_);
+                      const label = short.match(/\(([^)]+)\)$/)?.[1] ?? short;
+                      return (
+                        <div key={console_}>
+                          <div className="px-6 py-1 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider bg-muted/5 border-b border-border/20">{label}</div>
+                          {consoleVariants.map((v, vi) => (
+                            <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === g.variants.indexOf(v)} />
+                          ))}
+                        </div>
+                      );
+                    });
+                  }
+                  return g.variants.map((v, vi) => (
+                    <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} />
+                  ));
+                })()}
               </div>
             );
           })}

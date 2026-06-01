@@ -213,9 +213,9 @@ describe("getConsoleDisplayName", () => {
 // ── ABBREV coverage — Sega and Sony ──────────────────────────────────────────
 
 describe("ABBREV — Sega and Sony coverage", () => {
-  it("Master System → MS", () => {
-    expect(ABBREV["Master System"]).toBe("MS");
-    expect(ABBREV["Master System - Mark III"]).toBe("MS");
+  it("Master System → SMS", () => {
+    expect(ABBREV["Master System"]).toBe("SMS");
+    expect(ABBREV["Master System - Mark III"]).toBe("SMS");
   });
 
   it("Game Gear → GG", () => {
@@ -243,8 +243,8 @@ describe("ABBREV — Sega and Sony coverage", () => {
     expect(ABBREV["Dreamcast"]).toBe("DC");
   });
 
-  it("PlayStation → PS1", () => {
-    expect(ABBREV["PlayStation"]).toBe("PS1");
+  it("PlayStation → PSX", () => {
+    expect(ABBREV["PlayStation"]).toBe("PSX");
   });
 
   it("PlayStation 2 → PS2", () => {
@@ -255,7 +255,7 @@ describe("ABBREV — Sega and Sony coverage", () => {
     expect(ABBREV["PlayStation Portable"]).toBe("PSP");
   });
 
-  it("PlayStation Vita → Vita", () => {
-    expect(ABBREV["PlayStation Vita"]).toBe("Vita");
+  it("PlayStation Vita → PSV", () => {
+    expect(ABBREV["PlayStation Vita"]).toBe("PSV");
   });
 });

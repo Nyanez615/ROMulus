@@ -1,6 +1,7 @@
 use std::io::Write;
 use tauri::State;
 
+use crate::commands::group::group_matches_consoles;
 use crate::db::AppState;
 use crate::models::{
     ConsoleStats, DeletionPlan, FileCategory, FilterSettings, RomFile,
@@ -18,8 +19,8 @@ pub fn apply_filters(
     let groups = {
         let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
         let all = cache.groups.clone();
-        if let Some(ref cs) = consoles {
-            all.into_iter().filter(|g| cs.contains(&g.console)).collect()
+        if consoles.is_some() {
+            all.into_iter().filter(|g| group_matches_consoles(g, &consoles)).collect()
         } else {
             all
         }
