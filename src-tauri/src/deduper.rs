@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::models::{FormatPair, RomFile, RomGroup};
+use crate::models::{FormatPair, RomFile};
 
 /// Detect console folder pairs that contain the same games in different formats.
 /// Returns pairs where >80% of normalized titles overlap.
@@ -73,20 +73,6 @@ fn derive_group_name(folder: &str) -> String {
     strip_last_paren(folder).to_string()
 }
 
-/// Mark groups that span a known format pair (retained as utility; merging is handled by merge_format_pairs).
-#[allow(dead_code)]
-pub fn mark_format_pairs(groups: &mut [RomGroup], pairs: &[FormatPair]) {
-    let pair_consoles: HashSet<&str> = pairs
-        .iter()
-        .flat_map(|p| [p.folder_a.as_str(), p.folder_b.as_str()])
-        .collect();
-
-    for group in groups.iter_mut() {
-        if pair_consoles.contains(group.console.as_str()) {
-            group.is_format_pair = true;
-        }
-    }
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

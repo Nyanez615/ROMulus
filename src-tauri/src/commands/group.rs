@@ -195,7 +195,6 @@ pub(crate) fn group_matches_consoles(g: &RomGroup, filter: &Option<Vec<String>>)
 /// `RomGroup` whose `variants` span both folders. `is_format_pair = true` is set
 /// on every group that lives in a paired-console folder, merged or not.
 ///
-/// This replaces the need to call `mark_format_pairs` separately.
 pub fn merge_format_pairs(
     groups: Vec<RomGroup>,
     pairs: &[FormatPair],

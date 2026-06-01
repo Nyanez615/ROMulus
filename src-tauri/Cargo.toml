@@ -1,6 +1,6 @@
 [package]
 name = "romulus"
-version = "0.1.1"
+version = "0.2.0"
 description = "ROMulus — ROM collection management hub"
 authors = ["Nicolas Yanez"]
 edition = "2021"
