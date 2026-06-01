@@ -39,8 +39,9 @@ function RomThumbnail({ title, consoleName }: { title: string; consoleName: stri
 
 type SortKey = "az" | "za" | "variants";
 
-// Load all groups for client-side sort/filter
-const ALL_GROUPS = 9999;
+// Load all groups for client-side sort/filter. Must exceed the largest realistic
+// collection — 100k covers any local library; SQLite returns this quickly.
+const ALL_GROUPS = 100_000;
 
 export default function Roms() {
   const { selectedConsoles } = useScanStore();
