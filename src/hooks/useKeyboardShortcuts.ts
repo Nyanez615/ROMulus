@@ -11,7 +11,7 @@ import { useUIStore } from "@/store/ui";
  * ⌘Z           — (reserved for undo — wired in Phase 5+)
  */
 const TABS = [
-  "dashboard", "consoles", "roms", "hacks",
+  "dashboard", "roms", "hacks",
   "system", "duplicates", "prune", "history", "settings",
 ] as const;
 

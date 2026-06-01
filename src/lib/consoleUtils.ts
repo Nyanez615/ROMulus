@@ -83,10 +83,10 @@ export const ABBREV: Record<string, string> = {
   "Family Computer Disk System (FDS)":           "FDS",
   "Family Computer Disk System (QD)":            "FDS",
   "Virtual Boy":                                 "VB",
-  "Pokémon Mini":                                "PM",
+  "Pokemon Mini":                                "PM",
   // Sega
-  "Master System - Mark III":                    "MS",
-  "Master System":                               "MS",
+  "Master System - Mark III":                    "SMS",
+  "Master System":                               "SMS",
   "Game Gear":                                   "GG",
   "Mega Drive - Genesis":                        "MD",
   "Mega Drive":                                  "MD",
@@ -96,10 +96,10 @@ export const ABBREV: Record<string, string> = {
   "Saturn":                                      "SAT",
   "Dreamcast":                                   "DC",
   // Sony
-  "PlayStation":                                 "PS1",
+  "PlayStation":                                 "PSX",
   "PlayStation 2":                               "PS2",
   "PlayStation Portable":                        "PSP",
-  "PlayStation Vita":                            "Vita",
+  "PlayStation Vita":                            "PSV",
 };
 
 export function getAbbrev(consoleName: string): string {

@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -37,6 +40,9 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false);
   const [enrichment, setEnrichment] = useState<EnrichmentStatus | null>(null);
   const [completeness, setCompleteness] = useState<Completeness[]>([]);
+  const [consoleSearch, setConsoleSearch] = useState("");
+  const [consoleSort, setConsoleSort] = useState<"alpha" | "count">("alpha");
+  const [collapsedPlatforms, setCollapsedPlatforms] = useState<Set<string>>(new Set());;
 
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
@@ -75,37 +81,65 @@ export default function Dashboard() {
     }
   }
 
-  // F3: Group consoles by platform using getConsoleParts for proper deduplication
-  const platformStats = (() => {
+  // Platform summary stats (for stat tiles — unfiltered)
+  const platformStats = useMemo(() => {
     const map = new Map<string, { consoles: Set<string>; roms: number; bytes: number }>();
     for (const c of consoles) {
-      const { platform } = getConsoleParts(c.name);
+      const { platform, canonical } = getConsoleParts(c.name);
       const entry = map.get(platform) ?? { consoles: new Set(), roms: 0, bytes: 0 };
-      entry.consoles.add(getConsoleParts(c.name).canonical);
+      entry.consoles.add(canonical);
       entry.roms += c.total_files;
       entry.bytes += c.total_bytes;
       map.set(platform, entry);
     }
     return map;
-  })();
+  }, [consoles]);
 
-  // Build canonical console groups for the cards
-  const canonicalGroups = (() => {
-    const map = new Map<string, ConsoleStats[]>();
-    for (const c of consoles) {
-      const { canonical } = getConsoleParts(c.name);
-      map.set(canonical, [...(map.get(canonical) ?? []), c]);
-    }
-    // Group by platform for rendering
-    const byPlatform = new Map<string, Map<string, ConsoleStats[]>>();
+  // Canonical console groups for cards — filtered by search, sorted, grouped by platform
+  const canonicalGroups = useMemo(() => {
+    const byPlatform = new Map<string, [string, ConsoleStats[]][]>();
+    const interim = new Map<string, Map<string, ConsoleStats[]>>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
-      if (!byPlatform.has(platform)) byPlatform.set(platform, new Map());
-      const pm = byPlatform.get(platform)!;
+      if (!interim.has(platform)) interim.set(platform, new Map());
+      const pm = interim.get(platform)!;
       pm.set(canonical, [...(pm.get(canonical) ?? []), c]);
     }
+    for (const [platform, canonicalMap] of interim.entries()) {
+      let entries = Array.from(canonicalMap.entries());
+      // Apply search filter
+      if (consoleSearch) {
+        const q = consoleSearch.toLowerCase();
+        entries = entries.filter(([canonical]) => canonical.toLowerCase().includes(q));
+      }
+      if (entries.length === 0) continue;
+      // Apply sort
+      if (consoleSort === "count") {
+        entries.sort(([, av], [, bv]) => {
+          const a = av.reduce((s, v) => s + v.total_files, 0);
+          const b = bv.reduce((s, v) => s + v.total_files, 0);
+          return b - a;
+        });
+      } else {
+        entries.sort(([a], [b]) => a.localeCompare(b));
+      }
+      byPlatform.set(platform, entries);
+    }
     return byPlatform;
-  })();
+  }, [consoles, consoleSearch, consoleSort]);
+
+  const totalCanonicals = useMemo(
+    () => Array.from(platformStats.values()).reduce((s, p) => s + p.consoles.size, 0),
+    [platformStats],
+  );
+
+  function togglePlatform(platform: string) {
+    setCollapsedPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(platform)) next.delete(platform); else next.add(platform);
+      return next;
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -129,9 +163,10 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard icon={Gamepad2} label="Total ROMs" value={totalRoms.toLocaleString()} />
-        <StatCard icon={Server} label="Consoles" value={consoles.length.toString()} />
+        <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
+        <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
         {/* F1: Use total_bytes for collection size */}
         <StatCard icon={HardDrive} label="Collection size" value={totalBytes > 0 ? formatBytes(totalBytes) : "—"} />
         {/* F2: Renamed from "Collection health" to "Language Match" with tooltip */}
@@ -156,17 +191,46 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* F3: Platform-level summary headers + console cards */}
+      {/* Consoles section — replaces standalone Consoles tab */}
       {consoles.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Consoles</h2>
-          {Array.from(canonicalGroups.entries()).map(([platform, canonicalMap]) => {
+          {/* Section header with search + sort controls */}
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Consoles</h2>
+            <Input
+              placeholder="Search consoles…"
+              value={consoleSearch}
+              onChange={(e) => setConsoleSearch(e.target.value)}
+              className="max-w-xs h-7 text-xs"
+            />
+            <span className="text-xs text-muted-foreground ml-auto shrink-0">{totalCanonicals} consoles</span>
+            <Select value={consoleSort} onValueChange={(v) => setConsoleSort(v as "alpha" | "count")}>
+              <SelectTrigger className="h-7 text-xs w-28 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alpha">A–Z</SelectItem>
+                <SelectItem value="count">ROM count</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {canonicalGroups.size === 0 && consoleSearch && (
+            <p className="text-xs text-muted-foreground py-4">No consoles match "{consoleSearch}".</p>
+          )}
+
+          {Array.from(canonicalGroups.entries()).map(([platform, entries]) => {
             const pStats = platformStats.get(platform);
             const platformColor = getConsoleColor(consoles.find((c) => getPlatform(c.name) === platform)?.name ?? "");
+            const isCollapsed = collapsedPlatforms.has(platform);
             return (
               <div key={platform} className="mb-6">
-                {/* Platform header row */}
-                <div className="flex items-center gap-2 mb-3 px-1">
+                {/* Collapsible platform header */}
+                <button
+                  onClick={() => togglePlatform(platform)}
+                  className="w-full flex items-center gap-2 mb-3 px-1 group"
+                >
+                  <ChevronRight className={cn("w-3 h-3 text-muted-foreground transition-transform shrink-0", !isCollapsed && "rotate-90")} />
                   <span className="text-sm font-semibold" style={{ color: platformColor }}>
                     {PLATFORMS[platform.toLowerCase() as keyof typeof PLATFORMS]?.name ?? platform}
                   </span>
@@ -175,21 +239,22 @@ export default function Dashboard() {
                     · {(pStats?.roms ?? 0).toLocaleString()} ROMs
                     · {pStats && pStats.bytes > 0 ? formatBytes(pStats.bytes) : "—"}
                   </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {Array.from(canonicalMap.entries()).map(([canonical, variants]) => (
-                    <CanonicalConsoleCard
-                      key={canonical}
-                      canonicalName={canonical}
-                      variants={variants}
-                      // F4: navigate to ROMs with all variants selected
-                      onClick={() => {
-                        setSelectedConsoles(resolveConsoleVariants(canonical, consoles));
-                        setActiveTab("roms");
-                      }}
-                    />
-                  ))}
-                </div>
+                </button>
+                {!isCollapsed && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {entries.map(([canonical, variants]) => (
+                      <CanonicalConsoleCard
+                        key={canonical}
+                        canonicalName={canonical}
+                        variants={variants}
+                        onClick={() => {
+                          setSelectedConsoles(resolveConsoleVariants(canonical, consoles));
+                          setActiveTab("roms");
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -296,7 +361,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
-  const displayName = variants[0] ? getConsoleDisplayName(variants[0].name, useShort) : canonicalName;
+  const displayName = getConsoleDisplayName(canonicalName, useShort);
 
   return (
     <button

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import {
-  LayoutDashboard, Server, Gamepad2, Skull, Cpu,
+  LayoutDashboard, Gamepad2, Skull, Cpu,
   CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,10 +22,8 @@ interface NavItem {
   icon: React.ElementType;
 }
 
-// A2: Duplicates moved between Hacks & Unofficial and System Files
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard",  label: "Dashboard",          icon: LayoutDashboard },
-  { id: "consoles",   label: "Consoles",            icon: Server          },
   { id: "roms",       label: "ROMs",                icon: Gamepad2        },
   { id: "hacks",      label: "Hacks & Unofficial",  icon: Skull           },
   { id: "duplicates", label: "Duplicates",          icon: CopyX           },
@@ -227,7 +225,7 @@ export function Sidebar() {
                           <li key={canonical}>
                             <button
                               onClick={() => handleConsoleClick(canonical)}
-                              title={representativeName}
+                              title={canonical}
                               className={cn(
                                 "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
                                 selected
@@ -238,7 +236,7 @@ export function Sidebar() {
                             >
                               <ConsoleIcon consoleName={representativeName} size="sm" />
                               <span className="flex-1 truncate text-left">
-                                {getConsoleDisplayName(representativeName, useShort)}
+                                {getConsoleDisplayName(canonical, useShort)}
                               </span>
                               <span className="text-muted-foreground/60 tabular-nums">
                                 {rowTotal.toLocaleString()}

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tauri::State;
 
 use crate::db::AppState;
-use crate::models::{FileCategory, PagedGroups, RomFile, RomGroup, UserPreferences};
+use crate::models::{FileCategory, FormatPair, PagedGroups, RomFile, RomGroup, UserPreferences};
 use crate::parser::region_default_languages;
 
 // ── Preference matching ───────────────────────────────────────────────────────
@@ -174,14 +174,86 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     }
 }
 
-// ── Console filter helper ─────────────────────────────────────────────────────
+// ── Console filter helpers ────────────────────────────────────────────────────
 
-/// Returns true when `console` is in the optional filter list (or no filter set).
-fn console_matches(console: &str, filter: &Option<Vec<String>>) -> bool {
+/// Returns true when ANY variant in the group belongs to the selected console list.
+/// This handles cross-console merged groups (is_format_pair) correctly — the
+/// primary `g.console` may differ from what the user selected.
+pub(crate) fn group_matches_consoles(g: &RomGroup, filter: &Option<Vec<String>>) -> bool {
     match filter {
         None => true,
-        Some(cs) => cs.iter().any(|c| c == console),
+        Some(cs) => g.variants.iter().any(|v| cs.contains(&v.console)),
     }
+}
+
+// ── Format-pair merging ───────────────────────────────────────────────────────
+
+/// Merge groups that share the same `title_normalized` across format-paired
+/// console folders (e.g. FDS + QD, Headered + Headerless).
+///
+/// Groups whose title exists in both paired consoles are collapsed into a single
+/// `RomGroup` whose `variants` span both folders. `is_format_pair = true` is set
+/// on every group that lives in a paired-console folder, merged or not.
+///
+/// This replaces the need to call `mark_format_pairs` separately.
+pub fn merge_format_pairs(
+    groups: Vec<RomGroup>,
+    pairs: &[FormatPair],
+    prefs: &UserPreferences,
+) -> Vec<RomGroup> {
+    if pairs.is_empty() {
+        return groups;
+    }
+
+    // Map every paired console → the pair's stable key (folder_a).
+    // Both folder_a and folder_b map to folder_a so they share a bucket key.
+    let mut console_to_key: HashMap<&str, &str> = HashMap::new();
+    for p in pairs {
+        console_to_key
+            .entry(p.folder_a.as_str())
+            .or_insert(p.folder_a.as_str());
+        console_to_key
+            .entry(p.folder_b.as_str())
+            .or_insert(p.folder_a.as_str());
+    }
+
+    let (paired, mut result): (Vec<RomGroup>, Vec<RomGroup>) = groups
+        .into_iter()
+        .partition(|g| console_to_key.contains_key(g.console.as_str()));
+
+    // Bucket: (pair_key, title_normalized) → groups sharing that title across formats
+    let mut by_title: HashMap<(String, String), Vec<RomGroup>> = HashMap::new();
+    for g in paired {
+        let key = console_to_key[g.console.as_str()].to_string();
+        by_title
+            .entry((key, g.title_normalized.clone()))
+            .or_default()
+            .push(g);
+    }
+
+    for (_, mut title_groups) in by_title {
+        if title_groups.len() == 1 {
+            let mut g = title_groups.remove(0);
+            g.is_format_pair = true;
+            result.push(g);
+        } else {
+            // Sort so folder_a always wins as the primary console (stable key)
+            title_groups.sort_by(|a, b| a.console.cmp(&b.console));
+            let title_normalized = title_groups[0].title_normalized.clone();
+            let primary_console = title_groups[0].console.clone();
+            let all_variants: Vec<RomFile> = title_groups
+                .into_iter()
+                .flat_map(|g| g.variants)
+                .collect();
+            let mut merged = build_group(all_variants, prefs);
+            merged.title_normalized = title_normalized;
+            merged.console = primary_console;
+            merged.is_format_pair = true;
+            result.push(merged);
+        }
+    }
+
+    result
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -205,7 +277,7 @@ pub fn get_roms(
             if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game)) {
                 return false;
             }
-            if !console_matches(&g.console, &consoles) { return false; }
+            if !group_matches_consoles(g, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -236,7 +308,7 @@ pub fn get_unofficial(
             if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Unofficial)) {
                 return false;
             }
-            if !console_matches(&g.console, &consoles) { return false; }
+            if !group_matches_consoles(g, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -273,7 +345,7 @@ pub fn get_system_files(
             }) {
                 return false;
             }
-            if !console_matches(&g.console, &consoles) { return false; }
+            if !group_matches_consoles(g, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -306,7 +378,7 @@ pub fn get_duplicates(
                 .count();
             eligible_count > 1
         })
-        .filter(|g| console_matches(&g.console, &consoles))
+        .filter(|g| group_matches_consoles(g, &consoles))
         .cloned()
         .collect();
 
@@ -436,29 +508,101 @@ mod tests {
         assert!(!groups[0].has_preferred_version);
     }
 
+    fn group_with_console(console: &str) -> RomGroup {
+        let mut r = rom("game", &["USA"], &[], &[]);
+        r.console = console.into();
+        RomGroup {
+            title_normalized: "game".into(),
+            console: console.into(),
+            variants: vec![r],
+            preferred_idx: None,
+            has_preferred_version: false,
+            is_format_pair: false,
+            disc_count: 1,
+        }
+    }
+
     #[test]
     fn console_filter_none_returns_all() {
-        assert!(console_matches("GBA", &None));
-        assert!(console_matches("SNES", &None));
+        assert!(group_matches_consoles(&group_with_console("GBA"), &None));
+        assert!(group_matches_consoles(&group_with_console("SNES"), &None));
     }
 
     #[test]
     fn console_filter_some_matches_included() {
         let filter = Some(vec!["GBA".to_string(), "SNES".to_string()]);
-        assert!(console_matches("GBA", &filter));
-        assert!(console_matches("SNES", &filter));
+        assert!(group_matches_consoles(&group_with_console("GBA"), &filter));
+        assert!(group_matches_consoles(&group_with_console("SNES"), &filter));
     }
 
     #[test]
     fn console_filter_some_excludes_others() {
         let filter = Some(vec!["GBA".to_string()]);
-        assert!(!console_matches("SNES", &filter));
-        assert!(!console_matches("N64", &filter));
+        assert!(!group_matches_consoles(&group_with_console("SNES"), &filter));
+        assert!(!group_matches_consoles(&group_with_console("N64"), &filter));
     }
 
     #[test]
     fn console_filter_empty_vec_matches_nothing() {
         let filter: Option<Vec<String>> = Some(vec![]);
-        assert!(!console_matches("GBA", &filter));
+        assert!(!group_matches_consoles(&group_with_console("GBA"), &filter));
+    }
+
+    #[test]
+    fn merge_format_pairs_collapses_shared_titles() {
+        use crate::models::{FileCategory, FileFormat, FormatPair};
+
+        let fds = "Nintendo - Family Computer Disk System (FDS)";
+        let qd  = "Nintendo - Family Computer Disk System (QD)";
+        let pair = FormatPair {
+            console_group: "Nintendo - Family Computer Disk System".into(),
+            folder_a: fds.into(),
+            folder_b: qd.into(),
+            overlap_percent: 1.0,
+        };
+
+        let make = |console: &str, title: &str| -> RomFile {
+            RomFile {
+                path: format!("/roms/{title}.zip"),
+                filename: format!("{title}.zip"),
+                console: console.into(),
+                title: title.into(),
+                title_normalized: title.to_lowercase(),
+                regions: vec!["Japan".into()],
+                languages: vec![],
+                status_flags: vec![],
+                extra_tags: vec![],
+                bad_dump: false,
+                revision: 0,
+                disc_number: None,
+                version: None,
+                is_bios: false,
+                file_format: FileFormat::Zip,
+                file_category: FileCategory::Game,
+                filesize: 1024,
+                matches_preferred_language: false,
+                matches_preferred_region: false,
+                is_unofficial_preferred_fallback: false,
+            }
+        };
+
+        let groups = vec![
+            build_group(vec![make(fds, "adian no tsue")], &en_prefs()),
+            build_group(vec![make(qd,  "adian no tsue")], &en_prefs()),
+            build_group(vec![make(fds, "unique fds title")], &en_prefs()),
+        ];
+
+        let merged = merge_format_pairs(groups, &[pair], &en_prefs());
+
+        // "adian no tsue" should be merged into 1 group with 2 variants
+        let shared: Vec<_> = merged.iter().filter(|g| g.title_normalized == "adian no tsue").collect();
+        assert_eq!(shared.len(), 1, "shared title should produce exactly one merged group");
+        assert_eq!(shared[0].variants.len(), 2);
+        assert!(shared[0].is_format_pair);
+
+        // "unique fds title" stays as a single-console group
+        let unique: Vec<_> = merged.iter().filter(|g| g.title_normalized == "unique fds title").collect();
+        assert_eq!(unique.len(), 1);
+        assert!(unique[0].is_format_pair);
     }
 }

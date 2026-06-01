@@ -9,7 +9,6 @@ import { isTauri } from "@/lib/env";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import Dashboard from "@/pages/Dashboard";
-import Consoles from "@/pages/Consoles";
 import Roms from "@/pages/Roms";
 import HacksUnofficial from "@/pages/HacksUnofficial";
 import SystemFiles from "@/pages/SystemFiles";
@@ -20,7 +19,6 @@ import Settings from "@/pages/Settings";
 
 const PAGES: Record<string, React.ComponentType> = {
   dashboard: Dashboard,
-  consoles: Consoles,
   roms: Roms,
   hacks: HacksUnofficial,
   system: SystemFiles,

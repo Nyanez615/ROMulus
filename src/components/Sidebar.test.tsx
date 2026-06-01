@@ -52,24 +52,24 @@ describe("Sidebar console deduplication", () => {
   it("shows one row for 'Game Boy Advance' even with multiple variants", () => {
     useScanStore.setState({ consoles: GBA_CONSOLES });
     render(<Sidebar />);
-    // The canonical row button has title = first variant's full name
-    const gbaRow = screen.getByTitle("Nintendo - Game Boy Advance");
+    // The canonical row button now has title = canonical short name (C1 fix)
+    const gbaRow = screen.getByTitle("Game Boy Advance");
     expect(gbaRow).toBeInTheDocument();
     // Only one button with that title
-    expect(screen.getAllByTitle("Nintendo - Game Boy Advance")).toHaveLength(1);
+    expect(screen.getAllByTitle("Game Boy Advance")).toHaveLength(1);
   });
 
   it("shows ROM count as sum of all variants (100+5+3=108)", () => {
     useScanStore.setState({ consoles: GBA_CONSOLES });
     render(<Sidebar />);
-    const gbaRow = screen.getByTitle("Nintendo - Game Boy Advance");
+    const gbaRow = screen.getByTitle("Game Boy Advance");
     expect(within(gbaRow).getByText("108")).toBeInTheDocument();
   });
 
   it("click on canonical row sets selectedConsoles to all variant names", () => {
     useScanStore.setState({ consoles: GBA_CONSOLES });
     render(<Sidebar />);
-    fireEvent.click(screen.getByTitle("Nintendo - Game Boy Advance"));
+    fireEvent.click(screen.getByTitle("Game Boy Advance"));
     const { selectedConsoles } = useScanStore.getState();
     expect(selectedConsoles).toContain("Nintendo - Game Boy Advance");
     expect(selectedConsoles).toContain("Nintendo - Game Boy Advance (Multiboot)");

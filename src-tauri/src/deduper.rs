@@ -73,7 +73,8 @@ fn derive_group_name(folder: &str) -> String {
     strip_last_paren(folder).to_string()
 }
 
-/// Mark groups that span a known format pair.
+/// Mark groups that span a known format pair (retained as utility; merging is handled by merge_format_pairs).
+#[allow(dead_code)]
 pub fn mark_format_pairs(groups: &mut [RomGroup], pairs: &[FormatPair]) {
     let pair_consoles: HashSet<&str> = pairs
         .iter()

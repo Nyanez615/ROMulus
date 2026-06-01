@@ -2,7 +2,6 @@ import { create } from "zustand";
 
 export type TabId =
   | "dashboard"
-  | "consoles"
   | "roms"
   | "hacks"
   | "system"
