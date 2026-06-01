@@ -4,7 +4,14 @@ import {
   CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ConsoleIcon, getConsoleColor } from "./ConsoleIcon";
+import { ConsoleIcon } from "./ConsoleIcon";
+import {
+  getConsoleParts,
+  getConsoleColor,
+  getConsoleDisplayName,
+  resolveConsoleVariants,
+} from "@/lib/consoleUtils";
+import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore, type TabId } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
@@ -15,31 +22,37 @@ interface NavItem {
   icon: React.ElementType;
 }
 
+// A2: Duplicates moved between Hacks & Unofficial and System Files
 const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard",  label: "Dashboard",     icon: LayoutDashboard },
-  { id: "consoles",   label: "Consoles",       icon: Server          },
-  { id: "roms",       label: "ROMs",           icon: Gamepad2        },
-  { id: "hacks",      label: "Hacks & Unofficial", icon: Skull       },
-  { id: "system",     label: "System Files",   icon: Cpu             },
-  { id: "duplicates", label: "Duplicates",     icon: CopyX           },
-  { id: "prune",      label: "Prune",          icon: Scissors        },
-  { id: "history",    label: "History",        icon: History         },
-  { id: "settings",   label: "Settings",       icon: Settings        },
+  { id: "dashboard",  label: "Dashboard",          icon: LayoutDashboard },
+  { id: "consoles",   label: "Consoles",            icon: Server          },
+  { id: "roms",       label: "ROMs",                icon: Gamepad2        },
+  { id: "hacks",      label: "Hacks & Unofficial",  icon: Skull           },
+  { id: "duplicates", label: "Duplicates",          icon: CopyX           },
+  { id: "system",     label: "System Files",        icon: Cpu             },
+  { id: "prune",      label: "Prune",               icon: Scissors        },
+  { id: "history",    label: "History",             icon: History         },
+  { id: "settings",   label: "Settings",            icon: Settings        },
 ];
+
+const CONSOLE_AWARE_TABS: TabId[] = ["roms", "hacks", "system", "duplicates", "prune", "history"];
 
 export function Sidebar() {
   const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();
-  const { consoles, selectedConsole, setSelectedConsole, status } = useScanStore();
+  const { consoles, selectedConsoles, setSelectedConsoles, status } = useScanStore();
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const [collapsedPlatforms, setCollapsedPlatforms] = useState<Set<string>>(new Set());
 
-  // Group consoles by platform (the part before " - ")
+  // A1c: Two-level deduplication — platform → canonical short name → variants[]
   const platformGroups = useMemo(() => {
-    const map = new Map<string, ConsoleStats[]>();
+    const map = new Map<string, Map<string, ConsoleStats[]>>();
     for (const c of consoles) {
-      const platform = c.name.split(" - ")[0] ?? "Other";
-      const arr = map.get(platform) ?? [];
+      const { platform, canonical } = getConsoleParts(c.name);
+      if (!map.has(platform)) map.set(platform, new Map());
+      const canonMap = map.get(platform)!;
+      const arr = canonMap.get(canonical) ?? [];
       arr.push(c);
-      map.set(platform, arr);
+      canonMap.set(canonical, arr);
     }
     return map;
   }, [consoles]);
@@ -52,17 +65,30 @@ export function Sidebar() {
     });
   }
 
-  function handleConsoleClick(consoleName: string) {
-    setSelectedConsole(selectedConsole === consoleName ? null : consoleName);
-    const consoleAwareTabs: TabId[] = ["roms", "hacks", "system", "duplicates"];
-    if (!consoleAwareTabs.includes(activeTab)) setActiveTab("roms");
+  function handleConsoleClick(canonical: string) {
+    const variants = resolveConsoleVariants(canonical, consoles);
+    const isAlreadySelected =
+      selectedConsoles !== null &&
+      variants.length === selectedConsoles.length &&
+      variants.every((v) => selectedConsoles.includes(v));
+    setSelectedConsoles(isAlreadySelected ? null : variants);
+    if (!CONSOLE_AWARE_TABS.includes(activeTab)) setActiveTab("roms");
+  }
+
+  function handleAllRomsClick() {
+    setSelectedConsoles(null);
+    if (!CONSOLE_AWARE_TABS.includes(activeTab)) setActiveTab("roms");
+  }
+
+  function isCanonicalSelected(variants: ConsoleStats[]): boolean {
+    if (!selectedConsoles) return false;
+    return variants.some((v) => selectedConsoles.includes(v.name));
   }
 
   // ── Collapsed icon rail ───────────────────────────────────────────────────
   if (!sidebarOpen) {
     return (
       <aside className="flex flex-col w-10 shrink-0 border-r border-border bg-card overflow-hidden">
-        {/* Expand button — same height as the open header */}
         <div className="flex items-center justify-center h-14 border-b border-border">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -72,7 +98,6 @@ export function Sidebar() {
             <PanelLeft className="w-4 h-4" />
           </button>
         </div>
-        {/* Nav icons */}
         <nav className="flex-1 overflow-y-auto py-2">
           <ul className="space-y-0.5 px-1">
             {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
@@ -133,7 +158,7 @@ export function Sidebar() {
           ))}
         </ul>
 
-        {/* Platform groups + console list */}
+        {/* Platform groups + deduplicated console list */}
         {consoles.length > 0 && (
           <div className="mt-4 px-2">
             <div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -144,10 +169,10 @@ export function Sidebar() {
             <ul className="mt-1 space-y-0.5">
               <li>
                 <button
-                  onClick={() => { setSelectedConsole(null); setActiveTab("roms"); }}
+                  onClick={handleAllRomsClick}
                   className={cn(
                     "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
-                    selectedConsole === null
+                    selectedConsoles === null
                       ? "bg-muted text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
                   )}
@@ -162,10 +187,11 @@ export function Sidebar() {
             </ul>
 
             {/* Per-platform collapsible groups */}
-            {Array.from(platformGroups.entries()).map(([platform, platformConsoles]) => {
+            {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.has(platform);
-              const platformTotal = platformConsoles.reduce((s, c) => s + c.total_files, 0);
-              const platformColor = getConsoleColor(platformConsoles[0].name);
+              const allVariants = Array.from(canonicalMap.values()).flat();
+              const platformTotal = allVariants.reduce((s, c) => s + c.total_files, 0);
+              const platformColor = getConsoleColor(allVariants[0]?.name ?? "");
 
               return (
                 <div key={platform} className="mt-2">
@@ -173,7 +199,7 @@ export function Sidebar() {
                   <button
                     onClick={() => togglePlatform(platform)}
                     className="w-full flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-muted/40 transition-colors"
-                    title={`${platform} — ${platformConsoles.length} console${platformConsoles.length !== 1 ? "s" : ""}`}
+                    title={`${platform} — ${canonicalMap.size} console${canonicalMap.size !== 1 ? "s" : ""}`}
                   >
                     <ChevronRight
                       className={cn(
@@ -189,32 +215,38 @@ export function Sidebar() {
                     </span>
                   </button>
 
-                  {/* Console list under platform */}
+                  {/* Deduplicated console list under platform */}
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
-                      {platformConsoles.map((c) => (
-                        <li key={c.name}>
-                          <button
-                            onClick={() => handleConsoleClick(c.name)}
-                            title={c.name}
-                            className={cn(
-                              "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
-                              selectedConsole === c.name
-                                ? "bg-muted text-foreground"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                            )}
-                            style={selectedConsole === c.name ? { borderLeft: `2px solid ${getConsoleColor(c.name)}` } : undefined}
-                          >
-                            <ConsoleIcon consoleName={c.name} size="sm" />
-                            <span className="flex-1 truncate text-left">
-                              {c.name.split(" - ")[1] ?? c.name}
-                            </span>
-                            <span className="text-muted-foreground/60 tabular-nums">
-                              {c.total_files.toLocaleString()}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                      {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
+                        const rowTotal = variants.reduce((s, v) => s + v.total_files, 0);
+                        const selected = isCanonicalSelected(variants);
+                        const representativeName = variants[0]?.name ?? "";
+                        const accentColor = getConsoleColor(representativeName);
+                        return (
+                          <li key={canonical}>
+                            <button
+                              onClick={() => handleConsoleClick(canonical)}
+                              title={representativeName}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                                selected
+                                  ? "bg-muted text-foreground"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                              )}
+                              style={selected ? { borderLeft: `2px solid ${accentColor}` } : undefined}
+                            >
+                              <ConsoleIcon consoleName={representativeName} size="sm" />
+                              <span className="flex-1 truncate text-left">
+                                {getConsoleDisplayName(representativeName, useShort)}
+                              </span>
+                              <span className="text-muted-foreground/60 tabular-nums">
+                                {rowTotal.toLocaleString()}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

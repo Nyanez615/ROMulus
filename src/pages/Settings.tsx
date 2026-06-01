@@ -316,6 +316,18 @@ export default function Settings() {
             }}
           />
         </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm text-foreground">Short console names</Label>
+            <p className="text-xs text-muted-foreground">Show abbreviations (GBA, NES) instead of full names</p>
+          </div>
+          <Switch
+            checked={settings.preferences.short_console_names}
+            onCheckedChange={(v) =>
+              save({ ...settings, preferences: { ...settings.preferences, short_console_names: v } })
+            }
+          />
+        </div>
       </section>
 
       <Separator />

@@ -48,6 +48,12 @@ pub async fn scan_roots(
         load_preferences(&conn)?
     };
 
+    // Upsert all tag values discovered in this scan
+    {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        upsert_known_tags(&conn, &roms).map_err(|e| e.to_string())?;
+    }
+
     // Group + score variants, detect format pairs
     let mut groups = group_roms(roms.clone(), &prefs);
     let format_pairs = detect_format_pairs(&roms);
@@ -110,7 +116,7 @@ pub fn load_preferences(conn: &rusqlite::Connection) -> Result<crate::models::Us
         .map_err(|e| e.to_string())?
         .and_then(|v| serde_json::from_str(&v).ok())
         .unwrap_or_default();
-    Ok(crate::models::UserPreferences { preferred_languages: langs, preferred_regions: regions })
+    Ok(crate::models::UserPreferences { preferred_languages: langs, preferred_regions: regions, short_console_names: false })
 }
 
 // ── Scanner implementation ────────────────────────────────────────────────────
@@ -194,6 +200,83 @@ fn scan_all_roots(
     Ok(all_roms)
 }
 
+// ── Known tags ────────────────────────────────────────────────────────────────
+
+const CATEGORY_FLAGS: &[&str] = &["Pirate", "Unl", "Aftermarket", "Hack"];
+
+fn upsert_known_tags(conn: &rusqlite::Connection, roms: &[RomFile]) -> rusqlite::Result<()> {
+    use std::collections::HashSet;
+
+    let mut tags: HashSet<(&str, String)> = HashSet::new();
+    for rom in roms {
+        for r in &rom.regions       { tags.insert(("region",        r.clone())); }
+        for l in &rom.languages     { tags.insert(("language",      l.clone())); }
+        for f in &rom.status_flags  {
+            if CATEGORY_FLAGS.contains(&f.as_str()) {
+                tags.insert(("category", f.clone()));
+            } else {
+                tags.insert(("status",   f.clone()));
+            }
+        }
+        let fc = file_category_str(rom);
+        if !fc.is_empty() {
+            tags.insert(("file_category", fc.to_string()));
+        }
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    for (tag_type, value) in &tags {
+        tx.execute(
+            "INSERT OR IGNORE INTO known_tags (tag_type, value) VALUES (?1, ?2)",
+            rusqlite::params![tag_type, value],
+        )?;
+    }
+    tx.commit()
+}
+
+fn file_category_str(rom: &RomFile) -> &'static str {
+    use crate::models::FileCategory;
+    match rom.file_category {
+        FileCategory::Bios     => "bios",
+        FileCategory::Utility  => "utility",
+        FileCategory::Demo     => "demo",
+        FileCategory::Video    => "video",
+        FileCategory::EReader  => "e_reader",
+        FileCategory::Game | FileCategory::Unofficial => "",
+    }
+}
+
+/// Returns all known tag values for a given tag type, or all values if tag_type is None.
+#[tauri::command]
+pub fn get_known_tags(
+    state: State<'_, AppState>,
+    tag_type: Option<String>,
+) -> Result<Vec<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let values: Vec<String> = if let Some(ref tt) = tag_type {
+        let mut stmt = conn
+            .prepare("SELECT value FROM known_tags WHERE tag_type = ?1 ORDER BY value")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query([tt]).map_err(|e| e.to_string())?;
+        let mut out = vec![];
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            out.push(row.get(0).map_err(|e| e.to_string())?);
+        }
+        out
+    } else {
+        let mut stmt = conn
+            .prepare("SELECT value FROM known_tags ORDER BY tag_type, value")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        let mut out = vec![];
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            out.push(row.get(0).map_err(|e| e.to_string())?);
+        }
+        out
+    };
+    Ok(values)
+}
+
 // ── Stats computation ─────────────────────────────────────────────────────────
 
 pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
@@ -208,8 +291,10 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             preferred_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
+            total_bytes: 0,
         });
         stats.total_files += 1;
+        stats.total_bytes += rom.filesize;
         if rom.matches_preferred_language {
             stats.preferred_count += 1;
         }
@@ -225,6 +310,7 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
 
     fn make_rom(console: &str, preferred: bool) -> RomFile {
         RomFile {
@@ -251,6 +337,57 @@ mod tests {
         }
     }
 
+    fn make_rich_rom(regions: &[&str], langs: &[&str], flags: &[&str], cat: crate::models::FileCategory) -> RomFile {
+        RomFile {
+            path: "/roms/test/game.zip".into(),
+            filename: "game.zip".into(),
+            console: "Test".into(),
+            title: "Game".into(),
+            title_normalized: "game".into(),
+            regions: regions.iter().map(|s| s.to_string()).collect(),
+            languages: langs.iter().map(|s| s.to_string()).collect(),
+            status_flags: flags.iter().map(|s| s.to_string()).collect(),
+            extra_tags: vec![],
+            bad_dump: false,
+            revision: 0,
+            disc_number: None,
+            version: None,
+            is_bios: cat == crate::models::FileCategory::Bios,
+            file_format: crate::models::FileFormat::Zip,
+            file_category: cat,
+            filesize: 1024,
+            matches_preferred_language: true,
+            matches_preferred_region: true,
+            is_unofficial_preferred_fallback: false,
+        }
+    }
+
+    #[test]
+    fn total_bytes_equals_sum_of_rom_filesizes() {
+        let roms = vec![
+            {
+                let mut r = make_rom("GBA", true);
+                r.filesize = 1024;
+                r
+            },
+            {
+                let mut r = make_rom("GBA", false);
+                r.filesize = 2048;
+                r
+            },
+            {
+                let mut r = make_rom("SNES", true);
+                r.filesize = 512;
+                r
+            },
+        ];
+        let stats = compute_console_stats(&roms);
+        let gba = stats.iter().find(|s| s.name == "GBA").unwrap();
+        assert_eq!(gba.total_bytes, 1024 + 2048);
+        let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
+        assert_eq!(snes.total_bytes, 512);
+    }
+
     #[test]
     fn console_stats_counts() {
         let roms = vec![
@@ -265,5 +402,82 @@ mod tests {
         assert_eq!(gba.preferred_count, 2);
         let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
         assert_eq!(snes.total_files, 1);
+    }
+
+    #[test]
+    fn upsert_known_tags_inserts_regions_and_langs() {
+        let conn = db::open_in_memory();
+        let roms = vec![
+            make_rich_rom(&["USA", "Europe"], &["En", "Fr"], &["Beta"], crate::models::FileCategory::Game),
+        ];
+        upsert_known_tags(&conn, &roms).unwrap();
+
+        let regions: Vec<String> = conn
+            .prepare("SELECT value FROM known_tags WHERE tag_type='region' ORDER BY value")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(regions, vec!["Europe", "USA"]);
+
+        let langs: Vec<String> = conn
+            .prepare("SELECT value FROM known_tags WHERE tag_type='language' ORDER BY value")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(langs, vec!["En", "Fr"]);
+    }
+
+    #[test]
+    fn upsert_known_tags_categorizes_flags_correctly() {
+        let conn = db::open_in_memory();
+        let roms = vec![
+            make_rich_rom(&[], &[], &["Pirate", "Beta"], crate::models::FileCategory::Unofficial),
+        ];
+        upsert_known_tags(&conn, &roms).unwrap();
+
+        let cats: Vec<String> = conn
+            .prepare("SELECT value FROM known_tags WHERE tag_type='category'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(cats.contains(&"Pirate".to_string()));
+
+        let statuses: Vec<String> = conn
+            .prepare("SELECT value FROM known_tags WHERE tag_type='status'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(statuses.contains(&"Beta".to_string()));
+    }
+
+    #[test]
+    fn upsert_known_tags_is_idempotent() {
+        let conn = db::open_in_memory();
+        let roms = vec![make_rich_rom(&["USA"], &[], &[], crate::models::FileCategory::Game)];
+        upsert_known_tags(&conn, &roms).unwrap();
+        upsert_known_tags(&conn, &roms).unwrap(); // second scan — no duplicate
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM known_tags WHERE tag_type='region' AND value='USA'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn upsert_known_tags_inserts_file_category() {
+        let conn = db::open_in_memory();
+        let roms = vec![make_rich_rom(&[], &[], &[], crate::models::FileCategory::Bios)];
+        upsert_known_tags(&conn, &roms).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM known_tags WHERE tag_type='file_category' AND value='bios'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

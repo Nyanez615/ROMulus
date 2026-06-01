@@ -4,14 +4,19 @@ import { Button } from "@/components/ui/button";
 import { getHistory } from "@/lib/tauri";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import type { ActionType } from "@/lib/bindings/ActionType";
+import type { HistoryFilter } from "@/lib/bindings/HistoryFilter";
+import { useScanStore } from "@/store/scan";
+import { ConsolePageTitle } from "@/components/ConsolePageTitle";
+import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { cn } from "@/lib/utils";
 
 const ACTION_ICONS: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-  moved_to_trash: { icon: Trash2, color: "text-red-400", label: "Trashed" },
-  deleted: { icon: Trash2, color: "text-red-500", label: "Deleted" },
-  kept: { icon: Check, color: "text-green-400", label: "Kept" },
-  skipped: { icon: SkipForward, color: "text-muted-foreground", label: "Skipped" },
-  deferred: { icon: Clock, color: "text-yellow-400", label: "Deferred" },
-  pending: { icon: AlertTriangle, color: "text-amber-400", label: "Pending" },
+  moved_to_trash: { icon: Trash2,        color: "text-red-400",          label: "Trashed" },
+  deleted:        { icon: Trash2,        color: "text-red-500",          label: "Deleted" },
+  kept:           { icon: Check,         color: "text-green-400",        label: "Kept" },
+  skipped:        { icon: SkipForward,   color: "text-muted-foreground", label: "Skipped" },
+  deferred:       { icon: Clock,         color: "text-yellow-400",       label: "Deferred" },
+  pending:        { icon: AlertTriangle, color: "text-amber-400",        label: "Pending" },
 };
 
 function getActionMeta(action: ActionType) {
@@ -19,31 +24,113 @@ function getActionMeta(action: ActionType) {
   return ACTION_ICONS[key] ?? ACTION_ICONS.kept;
 }
 
+const ACTION_CHIP_GROUPS = [
+  { label: "Deleted",   actions: ["moved_to_trash", "deleted"] },
+  { label: "Kept",      actions: ["kept"] },
+  { label: "Skipped",   actions: ["skipped"] },
+  { label: "Deferred",  actions: ["deferred", "pending"] },
+];
+
+const DATE_OPTIONS: { label: string; days: number | undefined }[] = [
+  { label: "All time",    days: undefined },
+  { label: "Today",       days: 1 },
+  { label: "Last 7 days", days: 7 },
+];
+
 const PER_PAGE = 50;
 
+interface HistoryState {
+  page: number;
+  activeGroups: string[];
+  dateDays: number | undefined;
+}
+
 export default function History() {
+  const { selectedConsoles } = useScanStore();
   const [entries, setEntries] = useState<ActionLogEntry[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [hs, setHs] = useState<HistoryState>({ page: 1, activeGroups: [], dateDays: undefined });
 
   useEffect(() => {
-    getHistory(page, PER_PAGE)
+    const actions =
+      hs.activeGroups.length > 0
+        ? hs.activeGroups.flatMap((label) => ACTION_CHIP_GROUPS.find((g) => g.label === label)?.actions ?? [])
+        : null;
+    const filter: HistoryFilter | null =
+      actions || hs.dateDays !== undefined
+        ? { actions, since_days: hs.dateDays ?? null }
+        : null;
+    getHistory(selectedConsoles, filter, hs.page, PER_PAGE)
       .then((h) => { setEntries(h.entries); setTotal(h.total); })
       .catch(console.error);
-  }, [page]);
+  }, [selectedConsoles, hs]);
+
+  // Derive filter for display-state only (chips active indicator)
+  const activeGroups = hs.activeGroups;
 
   const totalPages = Math.ceil(total / PER_PAGE);
+
+  function toggleActionGroup(label: string) {
+    setHs((prev) => ({
+      page: 1,
+      activeGroups: prev.activeGroups.includes(label)
+        ? prev.activeGroups.filter((l) => l !== label)
+        : [...prev.activeGroups, label],
+      dateDays: prev.dateDays,
+    }));
+  }
+
+  function changeDateDays(days: number | undefined) {
+    setHs((prev) => ({ ...prev, dateDays: days, page: 1 }));
+  }
 
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">History</h1>
+        <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="History" />
         <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} total actions</span>
+      </div>
+
+      {/* Secondary toolbar: action chips + date filter */}
+      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-2 flex-wrap">
+        {ACTION_CHIP_GROUPS.map(({ label }) => (
+          <button
+            key={label}
+            onClick={() => toggleActionGroup(label)}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs border transition-colors",
+              activeGroups.includes(label)
+                ? "bg-primary/20 border-primary/60 text-primary"
+                : "bg-muted border-border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+
+        <div className="ml-2 flex gap-1">
+          {DATE_OPTIONS.map(({ label, days }) => (
+            <button
+              key={label}
+              onClick={() => changeDateDays(days)}
+              className={cn(
+                "px-2.5 py-1 rounded-full text-xs border transition-colors",
+                hs.dateDays === days
+                  ? "bg-primary/20 border-primary/60 text-primary"
+                  : "bg-muted border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
         {entries.length === 0 && (
-          <div className="px-6 pt-16 text-center text-sm text-muted-foreground">No actions recorded yet.</div>
+          <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="history entries">
+            <div className="px-6 pt-16 text-center text-sm text-muted-foreground">No actions recorded yet.</div>
+          </ConsoleEmptyState>
         )}
         <div className="divide-y divide-border/60">
           {entries.map((entry) => {
@@ -68,9 +155,11 @@ export default function History() {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-3 px-6 py-3 border-t border-border">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>←</Button>
-          <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>→</Button>
+          <Button size="sm" variant="outline" disabled={hs.page <= 1}
+            onClick={() => setHs((prev) => ({ ...prev, page: prev.page - 1 }))}>←</Button>
+          <span className="text-xs text-muted-foreground">Page {hs.page} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={hs.page >= totalPages}
+            onClick={() => setHs((prev) => ({ ...prev, page: prev.page + 1 }))}>→</Button>
         </div>
       )}
     </div>

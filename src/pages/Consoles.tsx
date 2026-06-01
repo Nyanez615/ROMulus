@@ -10,12 +10,14 @@ import { useScanStore } from "@/store/scan";
 import { useUIStore } from "@/store/ui";
 import { formatBytes } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import { getCanonicalConsoleName, getShortConsoleName } from "@/lib/consoleUtils";
+import { getCanonicalConsoleName, getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
+import { usePreferencesStore } from "@/store/preferences";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 
 export default function Consoles() {
-  const { consoles, setConsoles, setSelectedConsole } = useScanStore();
+  const { consoles, setConsoles, setSelectedConsoles } = useScanStore();
   const { setActiveTab } = useUIStore();
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
 
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"alpha" | "count">("alpha");
@@ -155,7 +157,7 @@ export default function Consoles() {
                       <button
                         key={canonical}
                         onClick={() => {
-                          setSelectedConsole(variants[0].name);
+                          setSelectedConsoles(variants.map((v) => v.name));
                           setActiveTab("roms");
                         }}
                         title={variants.length > 1
@@ -165,7 +167,7 @@ export default function Consoles() {
                       >
                         <ConsoleIcon consoleName={canonical} size="md" />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-foreground truncate">{shortName}</div>
+                          <div className="text-sm font-medium text-foreground truncate">{getConsoleDisplayName(variants[0].name, useShort)}</div>
                           <div className="text-xs text-muted-foreground">{totalFiles.toLocaleString()} ROMs</div>
                           {variants.length > 1 && (
                             <div className="text-xs text-muted-foreground/60">{variants.length} formats</div>

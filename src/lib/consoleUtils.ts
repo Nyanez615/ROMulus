@@ -1,10 +1,15 @@
 /**
- * Console grouping utilities.
+ * Console grouping utilities — single source of truth for all console data/logic.
  *
- * No-Intro folder names follow the pattern "Platform - Console Name (Variant)".
- * These helpers extract the semantic parts and strip known format-variant
- * suffixes so variant consoles can be grouped under one canonical name.
+ * No-Intro folder names follow "Platform - Console Name (Variant)".
+ * These helpers extract semantic parts, strip variant suffixes, resolve aliases,
+ * and provide display-name formatting used across all tabs.
  */
+
+import { siSega, siSony, siAtari, siPlaystation } from "simple-icons";
+import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
+
+// ── Variant suffix list ───────────────────────────────────────────────────────
 
 const VARIANT_SUFFIXES = [
   " (FDS)",
@@ -18,24 +23,100 @@ const VARIANT_SUFFIXES = [
   " (Headerless)",
 ] as const;
 
-/**
- * Returns the canonical console name with known format-variant suffixes removed.
- *
- * @example
- * getCanonicalConsoleName("Nintendo - Game Boy Advance (Multiboot)")
- * // → "Nintendo - Game Boy Advance"
- *
- * getCanonicalConsoleName("Nintendo - Game Boy")
- * // → "Nintendo - Game Boy"  (no change)
- */
-export function getCanonicalConsoleName(name: string): string {
-  for (const suffix of VARIANT_SUFFIXES) {
-    if (name.endsWith(suffix)) {
-      return name.slice(0, name.length - suffix.length);
-    }
-  }
-  return name;
+// ── Alias map: separate products grouped under one canonical console ──────────
+// Distinct from VARIANT_SUFFIXES: aliases are separate hardware (N64DD has
+// different games) but we group them for browsing.
+
+const CONSOLE_ALIASES: Record<string, string> = {
+  "Nintendo 64DD": "Nintendo 64",
+};
+
+// ── Platform metadata ─────────────────────────────────────────────────────────
+
+export interface PlatformInfo {
+  name: string;
+  color: string;
+  siIcon?: { path: string; hex: string };
 }
+
+export const PLATFORMS: Record<string, PlatformInfo> = {
+  nintendo:    { name: "Nintendo",    color: "#E4000F" },
+  sega:        { name: "Sega",        color: "#0066B3", siIcon: siSega },
+  sony:        { name: "Sony",        color: "#003087", siIcon: siSony },
+  playstation: { name: "PlayStation", color: "#003791", siIcon: siPlaystation },
+  atari:       { name: "Atari",       color: "#FF6600", siIcon: siAtari },
+  snk:         { name: "SNK",         color: "#C8102E" },
+  microsoft:   { name: "Microsoft",   color: "#00A4EF" },
+  other:       { name: "Other",       color: "#6B7280" },
+};
+
+export function detectPlatform(folder: string): keyof typeof PLATFORMS {
+  const l = folder.toLowerCase();
+  if (l.startsWith("nintendo"))  return "nintendo";
+  if (l.startsWith("sega"))      return "sega";
+  if (l.startsWith("sony"))      return l.includes("playstation") ? "playstation" : "sony";
+  if (l.startsWith("atari"))     return "atari";
+  if (l.startsWith("snk"))       return "snk";
+  if (l.startsWith("microsoft")) return "microsoft";
+  return "other";
+}
+
+// ── Console abbreviation map ──────────────────────────────────────────────────
+
+export const ABBREV: Record<string, string> = {
+  // Nintendo
+  "Game Boy":                                    "GB",
+  "Game Boy Color":                              "GBC",
+  "Game Boy Advance":                            "GBA",
+  "Game Boy Advance (Multiboot)":                "GBA",
+  "Game Boy Advance (Video)":                    "GBA",
+  "Game Boy Advance (e-Reader)":                 "GBA",
+  "Nintendo Entertainment System":               "NES",
+  "Nintendo Entertainment System (Headered)":    "NES",
+  "Nintendo Entertainment System (Headerless)":  "NES",
+  "Super Nintendo Entertainment System":         "SNES",
+  "Nintendo 64":                                 "N64",
+  "Nintendo 64 (BigEndian)":                     "N64",
+  "Nintendo 64 (ByteSwapped)":                   "N64",
+  "Nintendo 64DD":                               "64DD",
+  "Family Computer Disk System":                 "FDS",
+  "Family Computer Disk System (FDS)":           "FDS",
+  "Family Computer Disk System (QD)":            "FDS",
+  "Virtual Boy":                                 "VB",
+  "Pokémon Mini":                                "PM",
+  // Sega
+  "Master System - Mark III":                    "MS",
+  "Master System":                               "MS",
+  "Game Gear":                                   "GG",
+  "Mega Drive - Genesis":                        "MD",
+  "Mega Drive":                                  "MD",
+  "Mega-CD":                                     "MCD",
+  "Mega-CD 32X":                                 "MCD32",
+  "32X":                                         "32X",
+  "Saturn":                                      "SAT",
+  "Dreamcast":                                   "DC",
+  // Sony
+  "PlayStation":                                 "PS1",
+  "PlayStation 2":                               "PS2",
+  "PlayStation Portable":                        "PSP",
+  "PlayStation Vita":                            "Vita",
+};
+
+export function getAbbrev(consoleName: string): string {
+  const short = consoleName.split(" - ")[1] ?? consoleName;
+  return ABBREV[short] ?? short.slice(0, 4).toUpperCase();
+}
+
+export function getShortLabel(folder: string): string {
+  return folder.split(" - ")[1] ?? folder;
+}
+
+/** Returns the accent hex color for a console folder name. */
+export function getConsoleColor(consoleName: string): string {
+  return PLATFORMS[detectPlatform(consoleName)].color;
+}
+
+// ── Name extraction helpers ───────────────────────────────────────────────────
 
 /**
  * Returns the platform name — the part before " - " in a console folder name.
@@ -57,4 +138,73 @@ export function getPlatform(name: string): string {
  */
 export function getShortConsoleName(name: string): string {
   return name.split(" - ")[1] ?? name;
+}
+
+/**
+ * Returns the canonical console name with known variant suffixes stripped and
+ * console aliases resolved (works on both short names and full folder names).
+ *
+ * When called via getConsoleParts the input is the short name (after " - ").
+ * When called directly with a full folder name, suffixes are still stripped.
+ *
+ * @example
+ * getCanonicalConsoleName("Game Boy Advance (Multiboot)")  // → "Game Boy Advance"
+ * getCanonicalConsoleName("Nintendo 64DD")                 // → "Nintendo 64"  (alias)
+ * getCanonicalConsoleName("Nintendo - Game Boy Advance (Multiboot)")  // → "Nintendo - Game Boy Advance"
+ */
+export function getCanonicalConsoleName(name: string): string {
+  if (CONSOLE_ALIASES[name]) return CONSOLE_ALIASES[name]!;
+  for (const suffix of VARIANT_SUFFIXES) {
+    if (name.endsWith(suffix)) return name.slice(0, name.length - suffix.length);
+  }
+  return name;
+}
+
+/**
+ * Splits a full No-Intro folder name into platform + canonical console name.
+ *
+ * @example
+ * getConsoleParts("Nintendo - Game Boy Advance (Multiboot)")
+ * // → { platform: "Nintendo", canonical: "Game Boy Advance" }
+ *
+ * getConsoleParts("Nintendo - Nintendo 64DD")
+ * // → { platform: "Nintendo", canonical: "Nintendo 64" }  (via CONSOLE_ALIASES)
+ */
+export function getConsoleParts(fullName: string): { platform: string; canonical: string } {
+  const idx = fullName.indexOf(" - ");
+  if (idx === -1) {
+    return { platform: fullName, canonical: getCanonicalConsoleName(fullName) };
+  }
+  const platformPart = fullName.slice(0, idx);
+  const consolePart  = fullName.slice(idx + 3);
+  return {
+    platform: platformPart,
+    canonical: getCanonicalConsoleName(consolePart),
+  };
+}
+
+/**
+ * Returns all raw variant names for a given canonical console name.
+ * e.g. "Game Boy Advance" → ["Nintendo - Game Boy Advance",
+ *                            "Nintendo - Game Boy Advance (Multiboot)", …]
+ * Used by Sidebar, Dashboard, and Consoles tab click handlers.
+ */
+export function resolveConsoleVariants(canonical: string, allConsoles: ConsoleStats[]): string[] {
+  return allConsoles
+    .filter((c) => getConsoleParts(c.name).canonical === canonical)
+    .map((c) => c.name);
+}
+
+/**
+ * Returns the display name for a console — full short name or abbreviation
+ * depending on the toggle.  fullName is a raw No-Intro folder name.
+ *
+ * @example
+ * getConsoleDisplayName("Nintendo - Game Boy Advance", false)  // → "Game Boy Advance"
+ * getConsoleDisplayName("Nintendo - Game Boy Advance", true)   // → "GBA"
+ */
+export function getConsoleDisplayName(fullName: string, useShort: boolean): string {
+  const shortName = getShortConsoleName(fullName);
+  if (!useShort) return shortName;
+  return ABBREV[shortName] ?? shortName.slice(0, 4).toUpperCase();
 }

@@ -95,6 +95,9 @@ pub struct UserPreferences {
     pub preferred_languages: Vec<String>,
     /// Ordered priority list; user drag-reorders in Settings
     pub preferred_regions: Vec<String>,
+    /// Show abbreviated console names (GBA, NES) instead of full names
+    #[serde(default)]
+    pub short_console_names: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -172,6 +175,8 @@ pub struct ConsoleStats {
     pub marked_for_deletion: u32,
     #[ts(type = "number")]
     pub bytes_to_free: u64,
+    #[ts(type = "number")]
+    pub total_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -271,6 +276,19 @@ pub struct FormatPair {
     pub folder_a: String,
     pub folder_b: String,
     pub overlap_percent: f32,
+}
+
+// ── History filter ───────────────────────────────────────────────────────────
+
+/// Optional filter applied to get_history queries.
+/// action values are the snake_case DB strings: "moved_to_trash", "deleted", etc.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistoryFilter {
+    /// Restrict to entries whose action is one of these values.
+    pub actions: Option<Vec<String>>,
+    /// Restrict to entries within the last N days.
+    pub since_days: Option<u32>,
 }
 
 // ── Pagination ───────────────────────────────────────────────────────────────
@@ -380,5 +398,6 @@ mod tests {
         DatFile::export_all_to(out).unwrap();
         Completeness::export_all_to(out).unwrap();
         VerificationStatus::export_all_to(out).unwrap();
+        HistoryFilter::export_all_to(out).unwrap();
     }
 }

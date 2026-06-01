@@ -8,4 +8,8 @@ preferred_languages: Array<string>,
 /**
  * Ordered priority list; user drag-reorders in Settings
  */
-preferred_regions: Array<string>, };
+preferred_regions: Array<string>, 
+/**
+ * Show abbreviated console names (GBA, NES) instead of full names
+ */
+short_console_names: boolean, };

@@ -37,9 +37,9 @@ export function PreferencesStep() {
       const settings = await getSettings();
       await saveSettings({
         ...settings,
-        preferences: { preferred_languages: langs, preferred_regions: regions },
+        preferences: { preferred_languages: langs, preferred_regions: regions, short_console_names: settings.preferences.short_console_names },
       });
-      setPreferences({ preferred_languages: langs, preferred_regions: regions });
+      setPreferences({ preferred_languages: langs, preferred_regions: regions, short_console_names: settings.preferences.short_console_names });
       setConfigured(true);
       const updated = await completeOnboardingStep(2);
       setState(updated);

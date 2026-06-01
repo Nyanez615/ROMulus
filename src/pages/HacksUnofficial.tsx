@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { getUnofficial } from "@/lib/tauri";
@@ -6,49 +6,114 @@ import type { RomGroup } from "@/lib/bindings/RomGroup";
 import { TagList } from "@/components/TagBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
+import { useTagStore } from "@/store/tag";
+import { ConsolePageTitle } from "@/components/ConsolePageTitle";
+import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { cn } from "@/lib/utils";
 
 const CATEGORY_COLORS: Record<string, string> = {
-  pirate: "bg-red-600/20 text-red-300 border-red-600/40",
-  unl: "bg-orange-600/20 text-orange-300 border-orange-600/40",
+  pirate:      "bg-red-600/20 text-red-300 border-red-600/40",
+  unl:         "bg-orange-600/20 text-orange-300 border-orange-600/40",
   aftermarket: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
-  hack: "bg-purple-600/20 text-purple-300 border-purple-600/40",
+  hack:        "bg-purple-600/20 text-purple-300 border-purple-600/40",
 };
 
+type SortKey = "az" | "za";
+
 export default function HacksUnofficial() {
-  const { selectedConsole } = useScanStore();
+  const { selectedConsoles } = useScanStore();
+  const { category: knownCategories, region: knownRegions, language: knownLanguages } = useTagStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
-  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("az");
+  const [activeCategories, setActiveCategories] = useState<string[]>([]);
+  const [activeRegions, setActiveRegions] = useState<string[]>([]);
+  const [activeLangs, setActiveLangs] = useState<string[]>([]);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      getUnofficial({ console: selectedConsole ?? undefined, search, page: 1, perPage: 200 })
-        .then((r) => { setGroups(r.groups); setTotal(r.total_groups); })
+      getUnofficial({ consoles: selectedConsoles ?? undefined, search, page: 1, perPage: 9999 })
+        .then((r) => setGroups(r.groups))
         .catch(console.error);
     }, 200);
     return () => clearTimeout(t);
-  }, [selectedConsole, search]);
+  }, [selectedConsoles, search]);
 
-  const [platform, consolePart] = (selectedConsole ?? "").split(" - ");
-  const pageTitle = selectedConsole
-    ? `${platform} — ${consolePart} — Hacks & Unofficial`
-    : "Hacks & Unofficial";
+  function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
+    set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
+  }
+
+  const displayGroups = useMemo(() => {
+    let result = groups;
+
+    if (activeCategories.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) =>
+          v.status_flags.some((f) => activeCategories.map((c) => c.toLowerCase()).includes(f.toLowerCase())),
+        ),
+      );
+    }
+    if (activeRegions.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => v.regions.some((r) => activeRegions.includes(r))),
+      );
+    }
+    if (activeLangs.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => v.languages.some((l) => activeLangs.includes(l))),
+      );
+    }
+
+    const sorted = [...result];
+    if (sort === "za") sorted.sort((a, b) => b.title_normalized.localeCompare(a.title_normalized));
+    else               sorted.sort((a, b) => a.title_normalized.localeCompare(b.title_normalized));
+    return sorted;
+  }, [groups, sort, activeCategories, activeRegions, activeLangs]);
 
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">{pageTitle}</h1>
+        <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="Hacks & Unofficial" />
       </div>
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
+
+      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
         <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs h-8 text-sm" />
-        <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} titles</span>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
+        >
+          <option value="az">Name A–Z</option>
+          <option value="za">Name Z–A</option>
+        </select>
+        {knownCategories.map((c) => (
+          <button key={c} onClick={() => toggleChip(activeCategories, c, setActiveCategories)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeCategories.includes(c) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {c}
+          </button>
+        ))}
+        {knownRegions.map((r) => (
+          <button key={r} onClick={() => toggleChip(activeRegions, r, setActiveRegions)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeRegions.includes(r) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {r}
+          </button>
+        ))}
+        {knownLanguages.map((l) => (
+          <button key={l} onClick={() => toggleChip(activeLangs, l, setActiveLangs)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeLangs.includes(l) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {l}
+          </button>
+        ))}
+        <span className="text-xs text-muted-foreground ml-auto">{displayGroups.length.toLocaleString()} titles</span>
       </div>
 
       <div className="flex-1 overflow-auto">
-        {groups.length === 0 && (
-          <div className="text-center py-16 text-muted-foreground text-sm">No unofficial ROMs found.</div>
+        {displayGroups.length === 0 && (
+          <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="hacks or unofficial ROMs">
+            <div className="text-center py-16 text-muted-foreground text-sm">No unofficial ROMs found.</div>
+          </ConsoleEmptyState>
         )}
-        {groups.map((g) => (
+        {displayGroups.map((g) => (
           <div key={`${g.console}::${g.title_normalized}`} className="border-b border-border/40">
             {g.variants.map((v, vi) => {
               const flag = v.status_flags.find((f) => ["Pirate", "Unl", "Aftermarket", "Hack"].includes(f))?.toLowerCase() ?? "unl";

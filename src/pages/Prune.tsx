@@ -11,6 +11,9 @@ import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore } from "@/store/ui";
+import { useScanStore } from "@/store/scan";
+import { ConsolePageTitle } from "@/components/ConsolePageTitle";
+import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 
 const DEFAULT_FILTERS: FilterSettings = {
   keep_preferred_only: true,
@@ -24,6 +27,7 @@ const DEFAULT_FILTERS: FilterSettings = {
 export default function Prune() {
   const { filterSettings, setFilterSettings } = usePreferencesStore();
   const { setOnedriveAcknowledged, onedriveAcknowledged } = useUIStore();
+  const { selectedConsoles } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -35,7 +39,7 @@ export default function Prune() {
     setLoading(true);
     setPlan(null);
     try {
-      const p = await applyFilters(filterSettings);
+      const p = await applyFilters(filterSettings, selectedConsoles ?? undefined);
       setPlan(p);
       const settings = await getSettings();
       setHasOneDrive(settings.rom_roots.some(isOneDrivePath));
@@ -76,11 +80,17 @@ export default function Prune() {
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">Prune</h1>
+        <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="Prune" />
       </div>
 
       <div className="flex-1 overflow-auto">
       <div className="max-w-2xl mx-auto p-6 space-y-6">
+        {!plan && !result && !loading && (
+          <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="pending deletions">
+            <div className="text-sm text-muted-foreground text-center py-4">Nothing to prune — click Preview to check for deletions.</div>
+          </ConsoleEmptyState>
+        )}
+
         {result && (
           <Alert className="border-green-500/40 bg-green-500/10">
             <AlertDescription className="text-green-300 text-sm">

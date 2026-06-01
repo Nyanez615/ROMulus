@@ -21,7 +21,7 @@ const defaultFilter: FilterSettings = {
 };
 
 export const usePreferencesStore = create<PreferencesStore>((set) => ({
-  preferences: { preferred_languages: [], preferred_regions: [] },
+  preferences: { preferred_languages: [], preferred_regions: [], short_console_names: false },
   filterSettings: defaultFilter,
   isConfigured: false,
   setPreferences: (preferences) => set({ preferences }),
