@@ -14,7 +14,7 @@ import { useTagStore } from "@/store/tag";
 import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
-import { cn } from "@/lib/utils";
+import { FilterBar } from "@/components/FilterBar";
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -123,49 +123,54 @@ export default function Roms() {
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="ROMs" />
       </div>
 
-      {/* Secondary toolbar */}
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
-        <Input
-          placeholder="Search…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs h-8 text-sm"
-        />
-        {/* Sort select */}
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-          className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
-        >
-          <option value="az">Name A–Z</option>
-          <option value="za">Name Z–A</option>
-          <option value="variants">Most variants</option>
-        </select>
-
-        {/* Region chips */}
-        {knownRegions.map((r) => (
-          <button key={r} onClick={() => toggleChip(activeRegions, r, setActiveRegions)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeRegions.includes(r) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {r}
-          </button>
-        ))}
-        {/* Status chips — priority order: Beta/Proto/Demo/Sample/Kiosk/Promo/Alt/Unl first */}
-        {sortedStatus.map((s) => (
-          <button key={s} onClick={() => toggleChip(activeStatus, s, setActiveStatus)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeStatus.includes(s) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {s}
-          </button>
-        ))}
-        {/* Language chips */}
-        {knownLanguages.map((l) => (
-          <button key={l} onClick={() => toggleChip(activeLangs, l, setActiveLangs)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeLangs.includes(l) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {l}
-          </button>
-        ))}
-
-        <span className="text-xs text-muted-foreground ml-auto">{displayGroups.length.toLocaleString()} titles</span>
-      </div>
+      <FilterBar
+        groups={[
+          {
+            key: "region",
+            label: "Region",
+            items: knownRegions,
+            active: activeRegions,
+            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
+            onClear: () => setActiveRegions([]),
+          },
+          {
+            key: "status",
+            label: "Status",
+            items: sortedStatus,
+            active: activeStatus,
+            onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus),
+            onClear: () => setActiveStatus([]),
+          },
+          {
+            key: "language",
+            label: "Language",
+            items: knownLanguages,
+            active: activeLangs,
+            onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs),
+            onClear: () => setActiveLangs([]),
+          },
+        ]}
+        leading={
+          <>
+            <Input
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="max-w-xs h-8 text-sm"
+            />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
+            >
+              <option value="az">Name A–Z</option>
+              <option value="za">Name Z–A</option>
+              <option value="variants">Most variants</option>
+            </select>
+          </>
+        }
+        trailing={<span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>}
+      />
 
       <div ref={containerRef} className="flex-1 overflow-auto">
         {displayGroups.length === 0 && (

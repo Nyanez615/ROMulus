@@ -9,7 +9,7 @@ import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
-import { cn } from "@/lib/utils";
+import { FilterBar } from "@/components/FilterBar";
 
 const CATEGORY_COLORS: Record<string, string> = {
   pirate:      "bg-red-600/20 text-red-300 border-red-600/40",
@@ -76,36 +76,48 @@ export default function HacksUnofficial() {
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="Hacks & Unofficial" />
       </div>
 
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
-        <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs h-8 text-sm" />
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-          className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
-        >
-          <option value="az">Name A–Z</option>
-          <option value="za">Name Z–A</option>
-        </select>
-        {knownCategories.map((c) => (
-          <button key={c} onClick={() => toggleChip(activeCategories, c, setActiveCategories)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeCategories.includes(c) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {c}
-          </button>
-        ))}
-        {knownRegions.map((r) => (
-          <button key={r} onClick={() => toggleChip(activeRegions, r, setActiveRegions)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeRegions.includes(r) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {r}
-          </button>
-        ))}
-        {knownLanguages.map((l) => (
-          <button key={l} onClick={() => toggleChip(activeLangs, l, setActiveLangs)}
-            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeLangs.includes(l) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
-            {l}
-          </button>
-        ))}
-        <span className="text-xs text-muted-foreground ml-auto">{displayGroups.length.toLocaleString()} titles</span>
-      </div>
+      <FilterBar
+        groups={[
+          {
+            key: "category",
+            label: "Category",
+            items: knownCategories,
+            active: activeCategories,
+            onToggle: (v) => toggleChip(activeCategories, v, setActiveCategories),
+            onClear: () => setActiveCategories([]),
+          },
+          {
+            key: "region",
+            label: "Region",
+            items: knownRegions,
+            active: activeRegions,
+            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
+            onClear: () => setActiveRegions([]),
+          },
+          {
+            key: "language",
+            label: "Language",
+            items: knownLanguages,
+            active: activeLangs,
+            onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs),
+            onClear: () => setActiveLangs([]),
+          },
+        ]}
+        leading={
+          <>
+            <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs h-8 text-sm" />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
+            >
+              <option value="az">Name A–Z</option>
+              <option value="za">Name Z–A</option>
+            </select>
+          </>
+        }
+        trailing={<span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>}
+      />
 
       <div className="flex-1 overflow-auto">
         {displayGroups.length === 0 && (

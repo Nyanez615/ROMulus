@@ -99,6 +99,8 @@ describe("ROMs sort", () => {
 describe("ROMs region filter (ANY within type)", () => {
   it("USA chip shows only groups with a USA variant (2 of 3)", async () => {
     render(<Roms />);
+    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
     // Zelda (USA) and Castlevania (Europe+USA) match; Metroid (Japan) doesn't
@@ -107,6 +109,8 @@ describe("ROMs region filter (ANY within type)", () => {
 
   it("USA+Japan chips show all 3 groups (ANY logic)", async () => {
     render(<Roms />);
+    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
     await waitFor(() => expect(countText()).toBe("2 titles"));
@@ -117,8 +121,15 @@ describe("ROMs region filter (ANY within type)", () => {
 
   it("region AND status chips use AND logic (0 groups match USA ∧ Beta)", async () => {
     render(<Roms />);
+    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    // Select USA from Region panel
+    fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
-    fireEvent.click(screen.getByText("USA"));  // 2 groups
+    fireEvent.click(screen.getByText("USA"));
+    await waitFor(() => expect(countText()).toBe("2 titles"));
+    // Switch to Status panel and select Beta
+    fireEvent.click(screen.getByRole("button", { name: /Status/i }));
+    await waitFor(() => screen.getByText("Beta"));
     fireEvent.click(screen.getByText("Beta")); // Only Metroid has Beta, but Metroid has no USA variant
     await waitFor(() => expect(countText()).toBe("0 titles"));
   });
@@ -127,6 +138,8 @@ describe("ROMs region filter (ANY within type)", () => {
 describe("ROMs chip population from useTagStore", () => {
   it("renders region chips from the tag store", async () => {
     render(<Roms />);
+    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => {
       expect(screen.getByText("USA")).toBeInTheDocument();
       expect(screen.getByText("Japan")).toBeInTheDocument();
