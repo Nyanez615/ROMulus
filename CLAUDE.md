@@ -9,9 +9,10 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Phase 0** ✅ Scaffold, all deps, dark gaming theme, GitHub Actions CI, public repo
 - **Phase 1** ✅ SQL migrations, 60 Rust models + TS bindings, No-Intro parser (19 tests), scanner, grouper, executor, watcher
 - **Phase 2** ✅ Tauri bindings layer (`src/lib/tauri.ts`), 4 Zustand stores, shadcn/ui, Layout + Sidebar, onboarding wizard, Settings page
-- **Phase 3** ✅ All 9 tabs (Dashboard, Consoles, Games, Hacks, System Files, Duplicates, Prune, History, Settings) + all browse/prune/history Rust commands
+- **Phase 3** ✅ All 8 tabs (Dashboard, ROMs, Hacks & Unofficial, System Files, Duplicates, Prune, History, Settings) + all browse/prune/history Rust commands
 - **Phase 4** ✅ IGDB metadata enrichment (OAuth2, Keychain, background + on-demand + bulk), SteamGridDB thumbnails (asset:// cache), OS notifications, No-Intro DAT import + CRC32 verification + completeness tracking
-- **Phase 5** ✅ Console SVG icons, keyboard shortcuts, WCAG accessibility, auto-updater + release pipeline, `v0.1.0` published
+- **Phase 5** ✅ Console icons, keyboard shortcuts, WCAG accessibility, auto-updater + release pipeline, `v0.1.0` published
+- **Dogfood Round 2** ✅ Dashboard overhaul, cross-console title merging, collapsible FilterBar, platform multi-select, short console names toggle, `v0.2.0` published
 
 ## Dev setup
 
@@ -23,7 +24,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 60 unit tests + regenerates src/lib/bindings/
+cargo test                    # 86 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -40,7 +41,10 @@ npm run test:run       # Vitest
 src/                             React frontend (Vite root)
   components/
     ui/                          shadcn/ui copied components (you own this code)
-    ConsoleIcon.tsx              Manufacturer/console icon + accent color
+    ConsoleIcon.tsx              Manufacturer/console icon + accent color (wraps consoleUtils.ts)
+    ConsolePageTitle.tsx         Colored console heading shared by all console-filtered tabs
+    ConsoleEmptyState.tsx        Empty state for console-filtered views with no results
+    FilterBar.tsx                Collapsible Region/Status/Language filter panel (ROMs + Hacks tabs)
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -48,10 +52,11 @@ src/                             React frontend (Vite root)
     Sidebar.tsx                  Nav tabs, console list, scan status footer
   lib/
     bindings/                    Auto-generated TS types from Rust structs (never edit)
+    consoleUtils.ts              SINGLE SOURCE OF TRUTH for all console data/logic — never import colors or abbreviations from ConsoleIcon.tsx in new code
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
-  pages/                         One component per tab (Dashboard.tsx … Settings.tsx)
+  pages/                         One component per tab (Dashboard.tsx, Roms.tsx, HacksUnofficial.tsx, SystemFiles.tsx, Duplicates.tsx, Prune.tsx, History.tsx, Settings.tsx)
   store/                         scan.ts · preferences.ts · onboarding.ts · ui.ts
   onboarding/                    4-step wizard (Terms → Prefs → Roots → Scan)
 
@@ -60,12 +65,12 @@ src-tauri/
     lib.rs                       Tauri builder, plugin init, all command registrations
     models.rs                    ALL shared types — edit here, run `cargo test` for TS output
     parser.rs                    No-Intro filename → RomFile (format/disc/BIOS aware)
-    deduper.rs                   Format-pair detection, mark_format_pairs
+    deduper.rs                   Format-pair detection (detect_format_pairs)
     db.rs                        AppState (Arc<Mutex<>> for db+scan_cache), migrations, helpers
     watcher.rs                   notify-based FS watcher, 200ms debounce, kept in AppState
     commands/
       scan.rs          scan_roots, get_scan_status, get_consoles, get_format_pairs
-      group.rs         get_games, get_unofficial, get_system_files, get_duplicates
+      group.rs         get_roms, get_unofficial, get_system_files, get_duplicates, merge_format_pairs
       prune.rs         apply_filters, export_csv
       execute.rs       execute_prune (atomic + backup manifest), get_interrupted_session
       history.rs       get_history
@@ -75,6 +80,7 @@ src-tauri/
       dat.rs           import_dat, get_dat_files, remove_dat, verify_roms,
                        get_verification_status, get_completeness
   migrations/          001_initial.sql · 002_metadata.sql · 003_onboarding.sql
+                       004_permanent_delete.sql · 005_known_tags.sql · 006_short_console_names.sql
   capabilities/        Tauri v2 permissions (fs, shell, dialog, notification, shortcuts)
   tauri.conf.json      Bundle ID: com.romulus.app · assetProtocol enabled
   Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip
@@ -94,6 +100,10 @@ src-tauri/
 - **Crash recovery** — `has_pending_actions()` checked on launch; banner shown in Dashboard.
 - **`isTauri()`** — all Tauri API calls guarded so the Vite browser preview works without errors.
 - **Watcher must stay alive** — stored in `AppState.watcher: Mutex<Option<RecommendedWatcher>>` to prevent immediate drop.
+- **`consoleUtils.ts` is the single source of truth** — all console abbreviations, colors, platform detection, and display-name logic live here. Never import these from `ConsoleIcon.tsx` in new code.
+- **`selectedConsoles: string[] | null`** (plural) in the scan store. `null` = All ROMs mode; array = one or more consoles selected.
+- **All Rust browse commands take `consoles: Option<Vec<String>>`** — use `group_matches_consoles()` (not the old `console_matches()`) so cross-console merged groups are handled correctly.
+- **`FilterBar` component** — takes `groups`, `leading`, and `trailing` ReactNode props. Renders collapsible Region/Status/Language chip panels with active-count badges.
 
 ## Database
 SQLite at `~/Library/Application Support/com.romulus.app/romulus.db` (macOS).
@@ -145,6 +155,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 60 tests, in-memory SQLite only
-- Frontend: `npm run test:run` (Vitest + jsdom) — test files in `src/**/*.test.tsx`
+- Rust: `cargo test` in `src-tauri/` — 86 tests, in-memory SQLite only
+- Frontend: `npm run test:run` (Vitest + jsdom) — 115 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

@@ -6,6 +6,27 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-01
+
+### Added
+- **Dashboard overhaul** — 5 stat tiles: Total ROMs, Consoles (aggregated canonical count), Platforms (new), Collection Size, Language Match; all tiles are linked and navigate to the relevant filtered view
+- **Cross-console title merging** — `merge_format_pairs()` in `group.rs` collapses same-title groups across paired console folders (FDS + QD, Headered + Headerless, BigEndian + ByteSwapped) into one `RomGroup`; expanded view shows per-format sub-headers (e.g. FDS / QD)
+- **Console abbreviation badge in All-ROMs mode** — ROMs tab shows a short console badge (N64, GBA…) on each row when no console is selected, so same-title entries from different consoles are distinguishable
+- **Collapsible FilterBar component** — `src/components/FilterBar.tsx` replaces flat chip rows on the ROMs and Hacks & Unofficial tabs; three buttons (Region ▾ / Status ▾ / Language ▾) open inline chip panels with active-count badges and per-panel Clear action
+- **Status filter priority order** — Beta → Proto → Demo → Sample → Kiosk → Promo → Alt → Unl, then alphabetical, matching No-Intro release-quality convention
+- **System Files per-category toggle** — "Show all / Show fewer" toggle per category; pagination cap raised so all entries are reachable
+- **Dashboard CONSOLES section** — collapsible platform headers with per-console stat cards; replaces the removed Consoles tab
+
+### Changed
+- **Consoles tab removed** — its browse, search, sort, and collapse UI merged into the Dashboard CONSOLES section; tab count is now 8
+- **Console display names** — sidebar tooltips and card headings now show canonical names without variant suffixes (e.g. "Family Computer Disk System" not "Family Computer Disk System (FDS)")
+- **`group_matches_consoles()` replaces `console_matches()`** across all 5 Rust browse commands (`get_roms`, `get_unofficial`, `get_system_files`, `get_duplicates`, `apply_filters` in prune.rs) so merged cross-console groups are filtered correctly
+- **ROM browsing cap raised** — `ALL_GROUPS` limit raised from 9,999 → 100,000 in both `Roms.tsx` and `HacksUnofficial.tsx`; System Files `perPage` raised to 9,999
+
+### Fixed
+- **Abbreviation corrections** — Pokémon Mini (é vs e encoding mismatch) now correctly resolves to "PM"; Master System → SMS; PlayStation → PSX; PlayStation Vita → PSV
+- **GBA BIOS visibility** — `perPage` cap that hid the GBA BIOS entry in System Files is resolved by the raised limit above
+
 ## [0.1.1] - 2026-05-31
 
 ### Added
