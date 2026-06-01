@@ -3,7 +3,8 @@ import { Sidebar } from "./Sidebar";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
-import { getConsoles, onScanProgress, onNewRom } from "@/lib/tauri";
+import { useTagStore } from "@/store/tag";
+import { getConsoles, onScanProgress, onNewRom, getKnownTags } from "@/lib/tauri";
 import { isTauri } from "@/lib/env";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
@@ -29,27 +30,36 @@ const PAGES: Record<string, React.ComponentType> = {
   settings: Settings,
 };
 
+/** Load all tag types from DB and populate the tag store. Called at startup and after scan. */
+export function refreshTagStore() {
+  const { setRegion, setStatus, setLanguage, setCategory, setFileCategory } = useTagStore.getState();
+  getKnownTags("region").then(setRegion).catch(console.error);
+  getKnownTags("status").then(setStatus).catch(console.error);
+  getKnownTags("language").then(setLanguage).catch(console.error);
+  getKnownTags("category").then(setCategory).catch(console.error);
+  getKnownTags("file_category").then(setFileCategory).catch(console.error);
+}
+
 export function Layout() {
   const { activeTab } = useUIStore();
   const { setConsoles, setProgress, setStatus } = useScanStore();
   useKeyboardShortcuts();
 
-  // Load consoles on mount and subscribe to scan/watcher events
+  // Load consoles + tags on mount; subscribe to scan/watcher events
   useEffect(() => {
     if (!isTauri()) return;
     getConsoles().then(setConsoles).catch(console.error);
+    refreshTagStore();
 
     let unlistenScan: (() => void) | null = null;
     let unlistenWatcher: (() => void) | null = null;
 
-    if (!isTauri()) return;
     onScanProgress((p) => {
       setProgress(p);
       setStatus({ scanning: true, scanned: p.scanned, total_estimate: p.total, current_console: p.console, cached: false });
     }).then((fn) => { unlistenScan = fn; });
 
     onNewRom(() => {
-      // Refresh console list when new ROM detected by watcher
       getConsoles().then(setConsoles).catch(console.error);
     }).then((fn) => { unlistenWatcher = fn; });
 

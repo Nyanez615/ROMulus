@@ -36,6 +36,8 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/002_metadata.sql")),
         M::up(include_str!("../migrations/003_onboarding.sql")),
         M::up(include_str!("../migrations/004_permanent_delete.sql")),
+        M::up(include_str!("../migrations/005_known_tags.sql")),
+        M::up(include_str!("../migrations/006_short_console_names.sql")),
     ])
 }
 
@@ -162,11 +164,35 @@ mod tests {
     }
 
     #[test]
+    fn migration_006_short_console_names_column_exists() {
+        let conn = open_in_memory();
+        // The ALTER TABLE in migration 006 should succeed; query the column to confirm.
+        let val: i64 = conn
+            .query_row("SELECT short_console_names FROM user_preferences WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 0); // default is false
+    }
+
+    #[test]
     fn settings_round_trip() {
         let conn = open_in_memory();
         set_setting(&conn, "theme", "dark").unwrap();
         let val = get_setting(&conn, "theme").unwrap();
         assert_eq!(val, Some("dark".to_string()));
+    }
+
+    #[test]
+    fn migration_005_known_tags_table_exists() {
+        let conn = open_in_memory();
+        // Verify known_tags table was created by migration 005
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='known_tags'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

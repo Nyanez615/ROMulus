@@ -1,70 +1,14 @@
-import { siSega, siSony, siAtari, siPlaystation } from "simple-icons";
 import { cn } from "@/lib/utils";
+import {
+  PLATFORMS,
+  ABBREV,
+  detectPlatform,
+  getAbbrev,
+  getShortLabel,
+} from "@/lib/consoleUtils";
 
-// ── Platform metadata ─────────────────────────────────────────────────────────
-
-interface PlatformInfo {
-  name: string;
-  color: string;
-  /** Simple Icons data, when available. Nintendo/Microsoft not in simple-icons. */
-  siIcon?: { path: string; hex: string };
-}
-
-const PLATFORMS: Record<string, PlatformInfo> = {
-  nintendo:    { name: "Nintendo",    color: "#E4000F" },
-  sega:        { name: "Sega",        color: "#0066B3", siIcon: siSega },
-  sony:        { name: "Sony",        color: "#003087", siIcon: siSony },
-  // PlayStation-branded systems use the PS icon
-  playstation: { name: "PlayStation", color: "#003791", siIcon: siPlaystation },
-  atari:       { name: "Atari",       color: "#FF6600", siIcon: siAtari },
-  snk:         { name: "SNK",         color: "#C8102E" },
-  microsoft:   { name: "Microsoft",   color: "#00A4EF" },
-  other:       { name: "Other",       color: "#6B7280" },
-};
-
-function detectPlatform(folder: string): keyof typeof PLATFORMS {
-  const l = folder.toLowerCase();
-  if (l.startsWith("nintendo"))  return "nintendo";
-  if (l.startsWith("sega"))      return "sega";
-  if (l.startsWith("sony"))      return l.includes("playstation") ? "playstation" : "sony";
-  if (l.startsWith("atari"))     return "atari";
-  if (l.startsWith("snk"))       return "snk";
-  if (l.startsWith("microsoft")) return "microsoft";
-  return "other";
-}
-
-function getShortLabel(folder: string): string {
-  return folder.split(" - ")[1] ?? folder;
-}
-
-// ── Console abbreviation map ──────────────────────────────────────────────────
-
-const ABBREV: Record<string, string> = {
-  "Game Boy":                                    "GB",
-  "Game Boy Color":                              "GBC",
-  "Game Boy Advance":                            "GBA",
-  "Game Boy Advance (Multiboot)":                "GBA",
-  "Game Boy Advance (Video)":                    "GBA",
-  "Game Boy Advance (e-Reader)":                 "GBA",
-  "Nintendo Entertainment System":               "NES",
-  "Nintendo Entertainment System (Headered)":    "NES",
-  "Nintendo Entertainment System (Headerless)":  "NES",
-  "Super Nintendo Entertainment System":         "SNES",
-  "Nintendo 64":                                 "N64",
-  "Nintendo 64 (BigEndian)":                     "N64",
-  "Nintendo 64 (ByteSwapped)":                   "N64",
-  "Nintendo 64DD":                               "64DD",
-  "Family Computer Disk System":                 "FDS",
-  "Family Computer Disk System (FDS)":           "FDS",
-  "Family Computer Disk System (QD)":            "FDS",
-  "Virtual Boy":                                 "VB",
-  "Pokémon Mini":                                "PM",
-};
-
-function getAbbrev(consoleName: string): string {
-  const short = consoleName.split(" - ")[1] ?? consoleName;
-  return ABBREV[short] ?? short.slice(0, 4).toUpperCase();
-}
+export type { PlatformInfo } from "@/lib/consoleUtils";
+export { getConsoleColor } from "@/lib/consoleUtils";
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -147,13 +91,11 @@ export function PlatformBadge({ consoleName, className }: { consoleName: string;
   );
 }
 
-/** Returns the accent hex color for a console folder name. */
-export function getConsoleColor(consoleName: string): string {
-  return PLATFORMS[detectPlatform(consoleName)].color;
-}
-
-// ── Backwards-compatibility aliases (remove after all callsites updated) ──────
+// ── Backwards-compatibility aliases ──────────────────────────────────────────
 /** @deprecated Use PlatformIcon */
 export const ManufacturerIcon = PlatformIcon;
 /** @deprecated Use PlatformBadge */
 export const ManufacturerBadge = PlatformBadge;
+
+// Re-export ABBREV for any legacy consumers
+export { ABBREV };

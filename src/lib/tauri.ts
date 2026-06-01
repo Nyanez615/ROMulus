@@ -24,6 +24,7 @@ import type { RomFile } from "./bindings/RomFile";
 import type { ScanProgress } from "./bindings/ScanProgress";
 import type { ScanStatus } from "./bindings/ScanStatus";
 import type { FormatPair } from "./bindings/FormatPair";
+import type { HistoryFilter } from "./bindings/HistoryFilter";
 
 // ── Defaults for browser-preview mode ────────────────────────────────────────
 
@@ -47,7 +48,7 @@ const DEFAULT_SCAN_STATUS: ScanStatus = {
 const DEFAULT_SETTINGS: AppSettings = {
   rom_roots: [],
   format_preferences: {},
-  preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"] },
+  preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"], short_console_names: false },
   onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
@@ -69,7 +70,7 @@ export const scanRoots = (roots: string[]): Promise<ScanStatus> =>
 // ── Games / groups ────────────────────────────────────────────────────────────
 
 export interface GetGamesParams {
-  console?: string;
+  consoles?: string[];
   search?: string;
   page: number;
   perPage: number;
@@ -78,7 +79,7 @@ export interface GetGamesParams {
 export const getRoms = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
     ? invoke("get_roms", {
-        console: params.console ?? null,
+        consoles: params.consoles ?? null,
         search: params.search ?? null,
         page: params.page,
         perPage: params.perPage,
@@ -99,9 +100,9 @@ export const executePrune = (
 export const getInterruptedSession = (): Promise<boolean> =>
   isTauri() ? invoke("get_interrupted_session") : Promise.resolve(false);
 
-export const applyFilters = (settings: FilterSettings): Promise<DeletionPlan> =>
+export const applyFilters = (settings: FilterSettings, consoles?: string[]): Promise<DeletionPlan> =>
   isTauri()
-    ? invoke("apply_filters", { settings })
+    ? invoke("apply_filters", { settings, consoles: consoles ?? null })
     : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
 export const exportCsv = (toDelete: RomFile[], path: string): Promise<void> =>
@@ -109,26 +110,36 @@ export const exportCsv = (toDelete: RomFile[], path: string): Promise<void> =>
 
 export const getUnofficial = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
-    ? invoke("get_unofficial", { console: params.console ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
+    ? invoke("get_unofficial", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
     : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
 
 export const getSystemFiles = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
-    ? invoke("get_system_files", { console: params.console ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
+    ? invoke("get_system_files", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
     : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
 
-export const getDuplicates = (console?: string): Promise<RomGroup[]> =>
+export const getDuplicates = (consoles?: string[]): Promise<RomGroup[]> =>
   isTauri()
-    ? invoke("get_duplicates", { console: console ?? null })
+    ? invoke("get_duplicates", { consoles: consoles ?? null })
     : Promise.resolve([]);
 
 export const getFormatPairs = (): Promise<FormatPair[]> =>
   isTauri() ? invoke("get_format_pairs") : Promise.resolve([]);
 
-export const getHistory = (page: number, perPage: number): Promise<PagedHistory> =>
+export const getHistory = (
+  consoles: string[] | null,
+  filter: HistoryFilter | null,
+  page: number,
+  perPage: number,
+): Promise<PagedHistory> =>
   isTauri()
-    ? invoke("get_history", { page, perPage })
+    ? invoke("get_history", { consoles, filter, page, perPage })
     : Promise.resolve({ total: 0, page: 1, per_page: 50, entries: [] });
+
+export const getKnownTags = (tagType?: string): Promise<string[]> =>
+  isTauri()
+    ? invoke("get_known_tags", { tagType: tagType ?? null })
+    : Promise.resolve([]);
 
 // ── Phase 4: Metadata, Thumbnails, DAT ───────────────────────────────────────
 

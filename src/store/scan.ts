@@ -10,17 +10,17 @@ interface ScanStore {
   setStatus: (s: ScanStatus) => void;
   setConsoles: (c: ConsoleStats[]) => void;
   setProgress: (p: ScanProgress | null) => void;
-  selectedConsole: string | null;
-  setSelectedConsole: (c: string | null) => void;
+  selectedConsoles: string[] | null;
+  setSelectedConsoles: (c: string[] | null) => void;
 }
 
 export const useScanStore = create<ScanStore>((set) => ({
   status: { scanning: false, scanned: 0, total_estimate: 0, current_console: null, cached: false },
   consoles: [],
   progress: null,
-  selectedConsole: null,
+  selectedConsoles: null,
   setStatus: (status) => set({ status }),
   setConsoles: (consoles) => set({ consoles }),
   setProgress: (progress) => set({ progress }),
-  setSelectedConsole: (selectedConsole) => set({ selectedConsole }),
+  setSelectedConsoles: (selectedConsoles) => set({ selectedConsoles }),
 }));

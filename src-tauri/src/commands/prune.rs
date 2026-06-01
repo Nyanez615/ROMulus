@@ -8,15 +8,21 @@ use crate::models::{
 
 // ── Filter application ────────────────────────────────────────────────────────
 
-/// Apply filter settings to all groups and produce a deletion plan.
+/// Apply filter settings to all groups (optionally scoped to a console list) and produce a deletion plan.
 #[tauri::command]
 pub fn apply_filters(
     state: State<'_, AppState>,
     settings: FilterSettings,
+    consoles: Option<Vec<String>>,
 ) -> Result<DeletionPlan, String> {
     let groups = {
         let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
-        cache.groups.clone()
+        let all = cache.groups.clone();
+        if let Some(ref cs) = consoles {
+            all.into_iter().filter(|g| cs.contains(&g.console)).collect()
+        } else {
+            all
+        }
     };
 
     let mut to_delete: Vec<RomFile> = vec![];
@@ -110,6 +116,7 @@ pub fn apply_filters(
             preferred_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
+            total_bytes: 0,
         });
         e.marked_for_deletion += 1;
         e.bytes_to_free += rom.filesize;
@@ -121,6 +128,7 @@ pub fn apply_filters(
             preferred_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
+            total_bytes: 0,
         });
         e.total_files += 1;
     }

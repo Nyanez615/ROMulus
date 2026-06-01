@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -10,6 +10,10 @@ import { TagList } from "@/components/TagBadge";
 import { DiscBadge } from "@/components/DiscBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
+import { useTagStore } from "@/store/tag";
+import { ConsolePageTitle } from "@/components/ConsolePageTitle";
+import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { cn } from "@/lib/utils";
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -32,30 +36,67 @@ function RomThumbnail({ title, consoleName }: { title: string; consoleName: stri
   return <img src={src} alt={title} className="w-10 h-10 rounded object-cover shrink-0" />;
 }
 
-const PER_PAGE = 200;
+type SortKey = "az" | "za" | "variants";
+
+// Load all groups for client-side sort/filter
+const ALL_GROUPS = 9999;
 
 export default function Roms() {
-  const { selectedConsole } = useScanStore();
+  const { selectedConsoles } = useScanStore();
+  const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
-  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("az");
+  const [activeRegions, setActiveRegions] = useState<string[]>([]);
+  const [activeStatus, setActiveStatus] = useState<string[]>([]);
+  const [activeLangs, setActiveLangs] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [page] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     clearTimeout(debouncedRef.current);
     debouncedRef.current = setTimeout(() => {
-      getRoms({ console: selectedConsole ?? undefined, search, page, perPage: PER_PAGE })
-        .then((r) => { setGroups(r.groups); setTotal(r.total_groups); })
+      getRoms({ consoles: selectedConsoles ?? undefined, search, page: 1, perPage: ALL_GROUPS })
+        .then((r) => setGroups(r.groups))
         .catch(console.error);
     }, 200);
-  }, [selectedConsole, search, page]);
+  }, [selectedConsoles, search]);
+
+  function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
+    set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
+  }
+
+  // Client-side sort + filter
+  const displayGroups = useMemo(() => {
+    let result = groups;
+
+    if (activeRegions.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => v.regions.some((r) => activeRegions.includes(r))),
+      );
+    }
+    if (activeStatus.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => v.status_flags.some((s) => activeStatus.includes(s))),
+      );
+    }
+    if (activeLangs.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => v.languages.some((l) => activeLangs.includes(l))),
+      );
+    }
+
+    const sorted = [...result];
+    if (sort === "za")       sorted.sort((a, b) => b.title_normalized.localeCompare(a.title_normalized));
+    else if (sort === "variants") sorted.sort((a, b) => b.variants.length - a.variants.length);
+    else                     sorted.sort((a, b) => a.title_normalized.localeCompare(b.title_normalized));
+    return sorted;
+  }, [groups, sort, activeRegions, activeStatus, activeLangs]);
 
   // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer from @tanstack/react-virtual is intentional
   const virtualizer = useVirtualizer({
-    count: groups.length,
+    count: displayGroups.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => 52,
     overscan: 10,
@@ -70,32 +111,65 @@ export default function Roms() {
     });
   }
 
-  // Build page title: "Platform — Console Name — ROMs" or plain "ROMs"
-  const [platform, consolePart] = (selectedConsole ?? "").split(" - ");
-  const pageTitle = selectedConsole ? `${platform} — ${consolePart} — ROMs` : "ROMs";
-
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
-        <h1 className="text-base font-semibold text-foreground">{pageTitle}</h1>
+        <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="ROMs" />
       </div>
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
+
+      {/* Secondary toolbar */}
+      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
         <Input
           placeholder="Search…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs h-8 text-sm"
         />
-        <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} titles</span>
+        {/* Sort select */}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
+        >
+          <option value="az">Name A–Z</option>
+          <option value="za">Name Z–A</option>
+          <option value="variants">Most variants</option>
+        </select>
+
+        {/* Region chips */}
+        {knownRegions.map((r) => (
+          <button key={r} onClick={() => toggleChip(activeRegions, r, setActiveRegions)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeRegions.includes(r) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {r}
+          </button>
+        ))}
+        {/* Status chips */}
+        {knownStatus.map((s) => (
+          <button key={s} onClick={() => toggleChip(activeStatus, s, setActiveStatus)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeStatus.includes(s) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {s}
+          </button>
+        ))}
+        {/* Language chips */}
+        {knownLanguages.map((l) => (
+          <button key={l} onClick={() => toggleChip(activeLangs, l, setActiveLangs)}
+            className={cn("px-2 py-0.5 rounded-full text-xs border transition-colors", activeLangs.includes(l) ? "bg-primary/20 border-primary/60 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}>
+            {l}
+          </button>
+        ))}
+
+        <span className="text-xs text-muted-foreground ml-auto">{displayGroups.length.toLocaleString()} titles</span>
       </div>
 
       <div ref={containerRef} className="flex-1 overflow-auto">
-        {groups.length === 0 && (
-          <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
+        {displayGroups.length === 0 && (
+          <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="ROMs">
+            <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
+          </ConsoleEmptyState>
         )}
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((vItem) => {
-            const g = groups[vItem.index];
+            const g = displayGroups[vItem.index];
             const key = `${g.console}::${g.title_normalized}`;
             const isOpen = expanded.has(key);
             const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
@@ -116,12 +190,7 @@ export default function Roms() {
                   {isOpen && preferred && (
                     <RomThumbnail title={preferred.title} consoleName={g.console} />
                   )}
-                  <span
-                    className="flex-1 font-medium text-foreground truncate"
-                    title={displayTitle}
-                  >
-                    {displayTitle}
-                  </span>
+                  <span className="flex-1 font-medium text-foreground truncate" title={displayTitle}>{displayTitle}</span>
                   {preferred && (
                     <TagList regions={preferred.regions} statusFlags={preferred.status_flags} max={2} />
                   )}
@@ -144,12 +213,7 @@ export default function Roms() {
 }
 
 function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; isPreferred: boolean; verificationStatus?: string }) {
-  const statusColor = rom.is_bios
-    ? "border-l-orange-400"
-    : isPreferred
-    ? "border-l-green-500"
-    : "border-l-transparent";
-
+  const statusColor = rom.is_bios ? "border-l-orange-400" : isPreferred ? "border-l-green-500" : "border-l-transparent";
   return (
     <div className={`flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`}>
       <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>

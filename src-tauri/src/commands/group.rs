@@ -174,13 +174,23 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     }
 }
 
+// ── Console filter helper ─────────────────────────────────────────────────────
+
+/// Returns true when `console` is in the optional filter list (or no filter set).
+fn console_matches(console: &str, filter: &Option<Vec<String>>) -> bool {
+    match filter {
+        None => true,
+        Some(cs) => cs.iter().any(|c| c == console),
+    }
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 /// Returns official ROM groups (FileCategory::Game variants only).
 #[tauri::command]
 pub fn get_roms(
     state: State<'_, AppState>,
-    console: Option<String>,
+    consoles: Option<Vec<String>>,
     search: Option<String>,
     page: u32,
     per_page: u32,
@@ -192,13 +202,10 @@ pub fn get_roms(
         .groups
         .iter()
         .filter(|g| {
-            // Only groups that contain at least one official game variant
             if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game)) {
                 return false;
             }
-            if let Some(ref c) = console {
-                if &g.console != c { return false; }
-            }
+            if !console_matches(&g.console, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -214,7 +221,7 @@ pub fn get_roms(
 #[tauri::command]
 pub fn get_unofficial(
     state: State<'_, AppState>,
-    console: Option<String>,
+    consoles: Option<Vec<String>>,
     search: Option<String>,
     page: u32,
     per_page: u32,
@@ -229,9 +236,7 @@ pub fn get_unofficial(
             if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Unofficial)) {
                 return false;
             }
-            if let Some(ref c) = console {
-                if &g.console != c { return false; }
-            }
+            if !console_matches(&g.console, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -247,7 +252,7 @@ pub fn get_unofficial(
 #[tauri::command]
 pub fn get_system_files(
     state: State<'_, AppState>,
-    console: Option<String>,
+    consoles: Option<Vec<String>>,
     search: Option<String>,
     page: u32,
     per_page: u32,
@@ -268,9 +273,7 @@ pub fn get_system_files(
             }) {
                 return false;
             }
-            if let Some(ref c) = console {
-                if &g.console != c { return false; }
-            }
+            if !console_matches(&g.console, &consoles) { return false; }
             if let Some(ref q) = search_lower {
                 if !g.title_normalized.contains(q.as_str()) { return false; }
             }
@@ -286,7 +289,7 @@ pub fn get_system_files(
 #[tauri::command]
 pub fn get_duplicates(
     state: State<'_, AppState>,
-    console: Option<String>,
+    consoles: Option<Vec<String>>,
 ) -> Vec<RomGroup> {
     let cache = state.scan_cache.lock().unwrap();
 
@@ -294,8 +297,6 @@ pub fn get_duplicates(
         .groups
         .iter()
         .filter(|g| {
-            // Duplicate = more than one variant that matches preferred language,
-            // OR a format-pair group
             if g.is_format_pair { return true; }
             let eligible_count = g.variants.iter()
                 .filter(|v| v.matches_preferred_language && !v.bad_dump
@@ -305,7 +306,7 @@ pub fn get_duplicates(
                 .count();
             eligible_count > 1
         })
-        .filter(|g| console.as_ref().is_none_or(|c| &g.console == c))
+        .filter(|g| console_matches(&g.console, &consoles))
         .cloned()
         .collect();
 
@@ -361,6 +362,7 @@ mod tests {
         UserPreferences {
             preferred_languages: vec!["En".into()],
             preferred_regions: vec!["USA".into(), "World".into(), "Europe".into()],
+            short_console_names: false,
         }
     }
 
@@ -408,7 +410,6 @@ mod tests {
 
     #[test]
     fn grouper_picks_usa_as_preferred() {
-        // Titles are the parsed title only (no region tags) — as the parser produces
         let roms = vec![
             rom("Castlevania", &["USA"], &[], &[]),
             rom("Castlevania", &["Japan"], &[], &[]),
@@ -416,11 +417,9 @@ mod tests {
         ];
         let prefs = en_prefs();
         let groups = group_roms(roms, &prefs);
-        // Should produce one group (same normalized title)
         assert_eq!(groups.len(), 1);
         let g = &groups[0];
         assert!(g.has_preferred_version);
-        // Preferred variant should be USA
         let preferred = &g.variants[g.preferred_idx.unwrap()];
         assert!(preferred.regions.contains(&"USA".to_string()));
     }
@@ -435,5 +434,31 @@ mod tests {
         let groups = group_roms(roms, &prefs);
         assert_eq!(groups[0].preferred_idx, None);
         assert!(!groups[0].has_preferred_version);
+    }
+
+    #[test]
+    fn console_filter_none_returns_all() {
+        assert!(console_matches("GBA", &None));
+        assert!(console_matches("SNES", &None));
+    }
+
+    #[test]
+    fn console_filter_some_matches_included() {
+        let filter = Some(vec!["GBA".to_string(), "SNES".to_string()]);
+        assert!(console_matches("GBA", &filter));
+        assert!(console_matches("SNES", &filter));
+    }
+
+    #[test]
+    fn console_filter_some_excludes_others() {
+        let filter = Some(vec!["GBA".to_string()]);
+        assert!(!console_matches("SNES", &filter));
+        assert!(!console_matches("N64", &filter));
+    }
+
+    #[test]
+    fn console_filter_empty_vec_matches_nothing() {
+        let filter: Option<Vec<String>> = Some(vec![]);
+        assert!(!console_matches("GBA", &filter));
     }
 }

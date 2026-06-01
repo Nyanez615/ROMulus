@@ -34,7 +34,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: () => mockOpen() }));
 const baseSettings: AppSettings = {
   rom_roots: [],
   format_preferences: {},
-  preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"] },
+  preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"], short_console_names: false },
   onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
@@ -111,7 +111,7 @@ describe("ROM Libraries", () => {
 describe("Language section", () => {
   it("deselects a language chip when already selected", async () => {
     // Use En+Ja so removing En doesn't hit the empty-list guard
-    await renderSettings({ preferences: { preferred_languages: ["En", "Ja"], preferred_regions: ["USA", "World", "Europe"] } });
+    await renderSettings({ preferences: { preferred_languages: ["En", "Ja"], preferred_regions: ["USA", "World", "Europe"], short_console_names: false } });
     fireEvent.click(screen.getByText("En"));
     await waitFor(() => {
       expect(mockSaveSettings).toHaveBeenCalledWith(

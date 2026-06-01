@@ -48,12 +48,18 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
         roots
     };
 
+    let short_console_names = db::get_setting(conn, "short_console_names")
+        .map_err(|e| e.to_string())?
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     Ok(AppSettings {
         rom_roots,
         format_preferences: std::collections::HashMap::new(),
         preferences: UserPreferences {
             preferred_languages,
             preferred_regions,
+            short_console_names,
         },
         onedrive_acknowledged,
         terms_accepted: true,
@@ -91,6 +97,13 @@ pub(crate) fn save_settings_inner(conn: &Connection, settings: &AppSettings) -> 
     let regions = serde_json::to_string(&settings.preferences.preferred_regions)
         .map_err(|e| e.to_string())?;
     db::set_setting(conn, "preferred_regions", &regions).map_err(|e| e.to_string())?;
+
+    db::set_setting(
+        conn,
+        "short_console_names",
+        if settings.preferences.short_console_names { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())?;
 
     // Sync rom_roots: full replace so removes are reflected immediately.
     conn.execute("DELETE FROM rom_roots", [])
@@ -186,6 +199,7 @@ mod tests {
             preferences: UserPreferences {
                 preferred_languages: vec!["En".into()],
                 preferred_regions: vec!["USA".into()],
+                short_console_names: false,
             },
             onedrive_acknowledged: false,
             terms_accepted: true,

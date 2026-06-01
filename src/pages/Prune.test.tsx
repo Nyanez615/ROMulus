@@ -29,7 +29,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ save: () => mockDialogSave() }));
 const baseSettings: AppSettings = {
   rom_roots: [],
   format_preferences: {},
-  preferences: { preferred_languages: ["En"], preferred_regions: ["USA"] },
+  preferences: { preferred_languages: ["En"], preferred_regions: ["USA"], short_console_names: false },
   onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,

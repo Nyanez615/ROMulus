@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   getConsoles, getInterruptedSession, getHistory,
   scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
@@ -16,10 +17,20 @@ import type { DatFile } from "@/lib/bindings/DatFile";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import { useScanStore } from "@/store/scan";
 import { useUIStore } from "@/store/ui";
-import { getCanonicalConsoleName, getShortConsoleName } from "@/lib/consoleUtils";
+import {
+  getConsoleParts,
+  getConsoleColor,
+  getConsoleDisplayName,
+  resolveConsoleVariants,
+  getPlatform,
+  getShortConsoleName,
+  PLATFORMS,
+} from "@/lib/consoleUtils";
+import { usePreferencesStore } from "@/store/preferences";
+import { refreshTagStore } from "@/components/Layout";
 
 export default function Dashboard() {
-  const { consoles, setConsoles, status, setStatus } = useScanStore();
+  const { consoles, setConsoles, status, setStatus, setSelectedConsoles } = useScanStore();
   const { setActiveTab } = useUIStore();
   const [interrupted, setInterrupted] = useState(false);
   const [recentActions, setRecentActions] = useState<ActionLogEntry[]>([]);
@@ -30,16 +41,12 @@ export default function Dashboard() {
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
     getInterruptedSession().then(setInterrupted).catch(console.error);
-    getHistory(1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
+    getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
     getEnrichmentStatus().then((s) => { if (s.total > 0) setEnrichment(s); }).catch(console.error);
-
-    // Load completeness for any imported DATs
     getDatFiles().then((dats) => {
       Promise.all(dats.map((d: DatFile) => getCompleteness(d.console)))
         .then(setCompleteness).catch(console.error);
     }).catch(console.error);
-
-    // Subscribe to enrichment events
     let unlistenProgress: (() => void) | null = null;
     let unlistenComplete: (() => void) | null = null;
     onEnrichProgress((s) => setEnrichment(s)).then((fn) => { unlistenProgress = fn; });
@@ -48,7 +55,8 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  const totalBytes = consoles.reduce((s, c) => s + c.bytes_to_free, 0);
+  // F1: Use total_bytes (actual file sizes) instead of bytes_to_free
+  const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
   const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
   const healthPct = totalRoms > 0 ? Math.round((preferredCount / totalRoms) * 100) : 0;
 
@@ -61,10 +69,43 @@ export default function Dashboard() {
       setStatus(s);
       const updated = await getConsoles();
       setConsoles(updated);
+      refreshTagStore();
     } finally {
       setScanning(false);
     }
   }
+
+  // F3: Group consoles by platform using getConsoleParts for proper deduplication
+  const platformStats = (() => {
+    const map = new Map<string, { consoles: Set<string>; roms: number; bytes: number }>();
+    for (const c of consoles) {
+      const { platform } = getConsoleParts(c.name);
+      const entry = map.get(platform) ?? { consoles: new Set(), roms: 0, bytes: 0 };
+      entry.consoles.add(getConsoleParts(c.name).canonical);
+      entry.roms += c.total_files;
+      entry.bytes += c.total_bytes;
+      map.set(platform, entry);
+    }
+    return map;
+  })();
+
+  // Build canonical console groups for the cards
+  const canonicalGroups = (() => {
+    const map = new Map<string, ConsoleStats[]>();
+    for (const c of consoles) {
+      const { canonical } = getConsoleParts(c.name);
+      map.set(canonical, [...(map.get(canonical) ?? []), c]);
+    }
+    // Group by platform for rendering
+    const byPlatform = new Map<string, Map<string, ConsoleStats[]>>();
+    for (const c of consoles) {
+      const { platform, canonical } = getConsoleParts(c.name);
+      if (!byPlatform.has(platform)) byPlatform.set(platform, new Map());
+      const pm = byPlatform.get(platform)!;
+      pm.set(canonical, [...(pm.get(canonical) ?? []), c]);
+    }
+    return byPlatform;
+  })();
 
   return (
     <div className="flex flex-col h-full">
@@ -91,39 +132,69 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Gamepad2} label="Total ROMs" value={totalRoms.toLocaleString()} />
         <StatCard icon={Server} label="Consoles" value={consoles.length.toString()} />
+        {/* F1: Use total_bytes for collection size */}
         <StatCard icon={HardDrive} label="Collection size" value={totalBytes > 0 ? formatBytes(totalBytes) : "—"} />
-        <StatCard icon={Zap} label="Collection health" value={totalRoms > 0 ? `${healthPct}%` : "—"}
+        {/* F2: Renamed from "Collection health" to "Language Match" with tooltip */}
+        <StatCard
+          icon={Zap}
+          label="Language Match"
+          labelSuffix={
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Percentage of your ROMs matching your preferred language/region setting.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          }
+          value={totalRoms > 0 ? `${healthPct}%` : "—"}
           sub={totalRoms > 0 ? "preferred language" : "Scan to see"}
-          accent={healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-red-400"} />
+          accent={healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-red-400"}
+        />
       </div>
 
-      {consoles.length > 0 && (() => {
-        // Group consoles by canonical name (strips variant suffixes like "(FDS)", "(Multiboot)", etc.)
-        const canonicalMap = new Map<string, ConsoleStats[]>();
-        for (const c of consoles) {
-          const key = getCanonicalConsoleName(c.name);
-          canonicalMap.set(key, [...(canonicalMap.get(key) ?? []), c]);
-        }
-        // Sort canonical groups alphabetically by short name
-        const sortedGroups = Array.from(canonicalMap.entries()).sort(([a], [b]) =>
-          (getShortConsoleName(a)).localeCompare(getShortConsoleName(b))
-        );
-        return (
-          <div>
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Consoles</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {sortedGroups.map(([canonical, variants]) => (
-                <CanonicalConsoleCard
-                  key={canonical}
-                  canonicalName={canonical}
-                  variants={variants}
-                  onClick={() => setActiveTab("consoles")}
-                />
-              ))}
-            </div>
-          </div>
-        );
-      })()}
+      {/* F3: Platform-level summary headers + console cards */}
+      {consoles.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Consoles</h2>
+          {Array.from(canonicalGroups.entries()).map(([platform, canonicalMap]) => {
+            const pStats = platformStats.get(platform);
+            const platformColor = getConsoleColor(consoles.find((c) => getPlatform(c.name) === platform)?.name ?? "");
+            return (
+              <div key={platform} className="mb-6">
+                {/* Platform header row */}
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <span className="text-sm font-semibold" style={{ color: platformColor }}>
+                    {PLATFORMS[platform.toLowerCase() as keyof typeof PLATFORMS]?.name ?? platform}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    · {pStats?.consoles.size ?? 0} console{(pStats?.consoles.size ?? 0) !== 1 ? "s" : ""}
+                    · {(pStats?.roms ?? 0).toLocaleString()} ROMs
+                    · {pStats && pStats.bytes > 0 ? formatBytes(pStats.bytes) : "—"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Array.from(canonicalMap.entries()).map(([canonical, variants]) => (
+                    <CanonicalConsoleCard
+                      key={canonical}
+                      canonicalName={canonical}
+                      variants={variants}
+                      // F4: navigate to ROMs with all variants selected
+                      onClick={() => {
+                        setSelectedConsoles(resolveConsoleVariants(canonical, consoles));
+                        setActiveTab("roms");
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {consoles.length === 0 && !status.scanning && (
         <div className="text-center py-16 space-y-3">
@@ -133,7 +204,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Enrichment progress */}
       {enrichment && enrichment.total > 0 && (
         <div className="border border-border rounded-xl p-4 space-y-2">
           <div className="flex items-center gap-2">
@@ -150,7 +220,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* DAT Completeness */}
       {completeness.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -162,7 +231,7 @@ export default function Dashboard() {
               <div key={c.console} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-foreground truncate">{c.console.split(" - ")[1] ?? c.console}</span>
+                    <span className="text-sm text-foreground truncate">{getShortConsoleName(c.console)}</span>
                     <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.have.toLocaleString()} / {c.total.toLocaleString()}</span>
                   </div>
                   <Progress value={c.percent} className="h-1" />
@@ -198,14 +267,16 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, sub, accent }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; accent?: string;
+function StatCard({ icon: Icon, label, labelSuffix, value, sub, accent }: {
+  icon: React.ElementType; label: string; labelSuffix?: React.ReactNode;
+  value: string; sub?: string; accent?: string;
 }) {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-2 pt-4 px-4">
         <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
           <Icon className="w-3.5 h-3.5" />{label}
+          {labelSuffix}
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
@@ -221,10 +292,11 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   variants: ConsoleStats[];
   onClick: () => void;
 }) {
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
-  const shortName = getShortConsoleName(canonicalName);
+  const displayName = variants[0] ? getConsoleDisplayName(variants[0].name, useShort) : canonicalName;
 
   return (
     <button
@@ -233,12 +305,12 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
       className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full"
     >
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-foreground truncate">{shortName}</div>
+        <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
         <div className="text-xs text-muted-foreground">{totalFiles.toLocaleString()} ROMs</div>
         {variants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {
-              const suffix = v.name.slice(canonicalName.length).trim();
+              const suffix = v.name.slice(v.name.indexOf(canonicalName) + canonicalName.length).trim();
               return suffix ? (
                 <span key={v.name} className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
                   {suffix} {v.total_files.toLocaleString()}
