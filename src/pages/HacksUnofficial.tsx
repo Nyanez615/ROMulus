@@ -32,7 +32,7 @@ export default function HacksUnofficial() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      getUnofficial({ consoles: selectedConsoles ?? undefined, search, page: 1, perPage: 9999 })
+      getUnofficial({ consoles: selectedConsoles ?? undefined, search, page: 1, perPage: 100_000 })
         .then((r) => setGroups(r.groups))
         .catch(console.error);
     }, 200);
