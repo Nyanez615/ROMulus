@@ -32,7 +32,7 @@ function SkeletonRow() {
 }
 
 export default function Duplicates() {
-  const { selectedConsoles } = useScanStore();
+  const { selectedConsoles, cacheVersion } = useScanStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [resolved, setResolved] = useState<Set<string>>(new Set());
   const [loadedKey, setLoadedKey] = useState("");
@@ -44,7 +44,7 @@ export default function Duplicates() {
     getDuplicates(selectedConsoles ?? undefined)
       .then((data) => { setGroups(data); setLoadedKey(key); })
       .catch(() => setLoadedKey(key));
-  }, [selectedConsoles]);
+  }, [selectedConsoles, cacheVersion]);
 
   type SortKey = "az" | "count";
   const [sort, setSort] = useState<SortKey>("az");

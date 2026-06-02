@@ -1,7 +1,9 @@
 use rusqlite::Connection;
-use tauri::State;
+use tauri::{Emitter, State};
 
+use crate::commands::group::{group_roms, matches_preferred, merge_format_pairs, region_score};
 use crate::db::{self, AppState};
+use crate::deduper::detect_format_pairs;
 use crate::models::{AppSettings, OnboardingState, UserPreferences};
 
 // ── Testable inner functions ──────────────────────────────────────────────────
@@ -53,9 +55,23 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    let format_preferences: std::collections::HashMap<String, String> = {
+        let mut stmt = conn
+            .prepare("SELECT console_group, preferred_folder FROM format_preferences")
+            .map_err(|e| e.to_string())?;
+        let mut prefs = std::collections::HashMap::new();
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let group: String = row.get(0).map_err(|e| e.to_string())?;
+            let folder: String = row.get(1).map_err(|e| e.to_string())?;
+            prefs.insert(group, folder);
+        }
+        prefs
+    };
+
     Ok(AppSettings {
         rom_roots,
-        format_preferences: std::collections::HashMap::new(),
+        format_preferences,
         preferences: UserPreferences {
             preferred_languages,
             preferred_regions,
@@ -116,6 +132,17 @@ pub(crate) fn save_settings_inner(conn: &Connection, settings: &AppSettings) -> 
         .map_err(|e| e.to_string())?;
     }
 
+    // Sync format_preferences: full replace.
+    conn.execute("DELETE FROM format_preferences", [])
+        .map_err(|e| e.to_string())?;
+    for (console_group, preferred_folder) in &settings.format_preferences {
+        conn.execute(
+            "INSERT INTO format_preferences (console_group, preferred_folder) VALUES (?1, ?2)",
+            rusqlite::params![console_group, preferred_folder],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -131,6 +158,34 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
 pub fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     save_settings_inner(&conn, &settings)
+}
+
+#[tauri::command]
+pub fn reapply_preferences(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let settings = get_settings_inner(&conn)?;
+    drop(conn);
+
+    let mut cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
+    if cache.roms.is_empty() {
+        return Ok(());
+    }
+
+    for rom in &mut cache.roms {
+        rom.matches_preferred_language = matches_preferred(rom, &settings.preferences);
+        rom.matches_preferred_region = region_score(&rom.regions, &settings.preferences) > 5;
+    }
+
+    let format_pairs = detect_format_pairs(&cache.roms);
+    let new_groups = group_roms(cache.roms.clone(), &settings.preferences);
+    cache.groups = merge_format_pairs(new_groups, &format_pairs, &settings.preferences);
+    drop(cache);
+
+    app_handle.emit("preferences:regrouped", ()).ok();
+    Ok(())
 }
 
 #[tauri::command]
@@ -262,5 +317,32 @@ mod tests {
         let conn = db::open_in_memory();
         let loaded = get_settings_inner(&conn).unwrap();
         assert!(!loaded.allow_permanent_delete);
+    }
+
+    #[test]
+    fn test_save_load_format_preferences() {
+        let conn = db::open_in_memory();
+        let mut s = default_settings();
+        s.format_preferences.insert(
+            "Nintendo - Family Computer Disk System".into(),
+            "Nintendo - Family Computer Disk System".into(),
+        );
+        save_settings_inner(&conn, &s).unwrap();
+        let loaded = get_settings_inner(&conn).unwrap();
+        assert_eq!(loaded.format_preferences, s.format_preferences);
+    }
+
+    #[test]
+    fn test_format_preferences_replace_on_save() {
+        let conn = db::open_in_memory();
+        let mut s = default_settings();
+        s.format_preferences.insert("GroupA".into(), "FolderA".into());
+        save_settings_inner(&conn, &s).unwrap();
+        s.format_preferences.clear();
+        s.format_preferences.insert("GroupB".into(), "FolderB".into());
+        save_settings_inner(&conn, &s).unwrap();
+        let loaded = get_settings_inner(&conn).unwrap();
+        assert!(!loaded.format_preferences.contains_key("GroupA"));
+        assert_eq!(loaded.format_preferences["GroupB"], "FolderB");
     }
 }

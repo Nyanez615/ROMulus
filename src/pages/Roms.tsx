@@ -32,7 +32,7 @@ type SortKey = "az" | "za" | "variants";
 const ALL_GROUPS = 100_000;
 
 export default function Roms() {
-  const { selectedConsoles } = useScanStore();
+  const { selectedConsoles, cacheVersion } = useScanStore();
   const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
   const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt", "Unl"];
   const sortedStatus = [
@@ -56,7 +56,7 @@ export default function Roms() {
         .then((r) => setGroups(r.groups))
         .catch(console.error);
     }, 200);
-  }, [selectedConsoles, search]);
+  }, [selectedConsoles, search, cacheVersion]);
 
   function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
     set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);

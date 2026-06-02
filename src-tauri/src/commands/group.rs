@@ -68,7 +68,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32) {
     (region_score + collection_penalty + alt_penalty, rom.revision)
 }
 
-fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
+pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
     if prefs.preferred_regions.is_empty() {
         // Fallback scoring when no preference set
         let best = regions.iter().map(|r| default_region_score(r.as_str())).max();

@@ -4,7 +4,8 @@ import "./App.css";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { useOnboardingStore } from "./store/onboarding";
-import { getOnboardingState } from "./lib/tauri";
+import { usePreferencesStore } from "./store/preferences";
+import { getOnboardingState, getSettings } from "./lib/tauri";
 import { isTauri } from "./lib/env";
 
 const queryClient = new QueryClient({
@@ -13,6 +14,7 @@ const queryClient = new QueryClient({
 
 function AppShell() {
   const { state, setState } = useOnboardingStore();
+  const { setPreferences } = usePreferencesStore();
   // Start as false (not loading) in browser dev preview; true only inside Tauri
   const [loading, setLoading] = useState(isTauri);
 
@@ -22,7 +24,10 @@ function AppShell() {
       .then(setState)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [setState]);
+    getSettings()
+      .then((s) => setPreferences(s.preferences))
+      .catch(console.error);
+  }, [setState, setPreferences]);
 
   if (loading) {
     return (

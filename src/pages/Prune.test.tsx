@@ -17,6 +17,7 @@ vi.mock("@/lib/tauri", () => ({
   executePrune: () => mockExecutePrune(),
   exportCsv: () => mockExportCsv(),
   getSettings: () => mockGetSettings(),
+  getFormatPairs: () => Promise.resolve([]),
   isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
   formatBytes: (b: number) => `${b} B`,
 }));

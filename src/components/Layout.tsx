@@ -4,7 +4,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
-import { getConsoles, onScanProgress, onNewRom, getKnownTags } from "@/lib/tauri";
+import { getConsoles, onScanProgress, onNewRom, getKnownTags, onPreferencesRegrouped } from "@/lib/tauri";
 import { isTauri } from "@/lib/env";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
@@ -40,7 +40,7 @@ export function refreshTagStore() {
 
 export function Layout() {
   const { activeTab } = useUIStore();
-  const { setConsoles, setProgress, setStatus } = useScanStore();
+  const { setConsoles, setProgress, setStatus, bumpCacheVersion } = useScanStore();
   useKeyboardShortcuts();
 
   // Load consoles + tags on mount; subscribe to scan/watcher events
@@ -51,6 +51,7 @@ export function Layout() {
 
     let unlistenScan: (() => void) | null = null;
     let unlistenWatcher: (() => void) | null = null;
+    let unlistenRegroup: (() => void) | null = null;
 
     onScanProgress((p) => {
       setProgress(p);
@@ -61,11 +62,17 @@ export function Layout() {
       getConsoles().then(setConsoles).catch(console.error);
     }).then((fn) => { unlistenWatcher = fn; });
 
+    onPreferencesRegrouped(() => {
+      getConsoles().then(setConsoles).catch(console.error);
+      bumpCacheVersion();
+    }).then((fn) => { unlistenRegroup = fn; });
+
     return () => {
       unlistenScan?.();
       unlistenWatcher?.();
+      unlistenRegroup?.();
     };
-  }, [setConsoles, setProgress, setStatus]);
+  }, [setConsoles, setProgress, setStatus, bumpCacheVersion]);
 
   const PageComponent = PAGES[activeTab] ?? Dashboard;
 

@@ -19,7 +19,7 @@ const ALL_CATEGORIES: { key: FileCategory; label: string; icon: React.ElementTyp
 ];
 
 export default function SystemFiles() {
-  const { selectedConsoles } = useScanStore();
+  const { selectedConsoles, cacheVersion } = useScanStore();
   const [files, setFiles] = useState<RomFile[]>([]);
   const [search, setSearch] = useState("");
   const [activeCategories, setActiveCategories] = useState<Set<FileCategory>>(new Set());
@@ -29,7 +29,7 @@ export default function SystemFiles() {
     getSystemFiles({ consoles: selectedConsoles ?? undefined, page: 1, perPage: 9999 })
       .then((r) => setFiles(r.groups.flatMap((g) => g.variants)))
       .catch(console.error);
-  }, [selectedConsoles]);
+  }, [selectedConsoles, cacheVersion]);
 
   function toggleShowAll(key: FileCategory) {
     setShowAllCategories((prev) => {

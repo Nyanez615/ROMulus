@@ -11,6 +11,7 @@ const mockGetSettings = vi.fn(() => Promise.resolve({} as AppSettings));
 vi.mock("@/lib/tauri", () => ({
   getSettings: () => mockGetSettings(),
   saveSettings: (s: unknown) => mockSaveSettings(s),
+  reapplyPreferences: () => Promise.resolve(),
   isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
   getFormatPairs: () => Promise.resolve([]),
   hasIgdbCredentials: () => Promise.resolve(false),
@@ -24,6 +25,10 @@ vi.mock("@/lib/tauri", () => ({
   removeDat: () => Promise.resolve(),
   verifyRoms: () => Promise.resolve(),
   enrichAllGames: () => Promise.resolve(),
+}));
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: () => Promise.resolve("0.2.2"),
 }));
 
 const mockOpen = vi.fn(() => Promise.resolve(null as string | null));

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck, Zap } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   DndContext,
   PointerSensor,
@@ -21,7 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import {
-  getSettings, saveSettings, isOneDrivePath, getFormatPairs,
+  getSettings, saveSettings, reapplyPreferences, isOneDrivePath, getFormatPairs,
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
@@ -76,6 +77,7 @@ export default function Settings() {
   const { setPreferences } = usePreferencesStore();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [appVersion, setAppVersion] = useState(__APP_VERSION__);
   const [showScanPrompt, setShowScanPrompt] = useState(false);
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
   const [hasIgdb, setHasIgdb] = useState(false);
@@ -94,6 +96,7 @@ export default function Settings() {
     hasIgdbCredentials().then(setHasIgdb).catch(console.error);
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
+    getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
   async function save(next: AppSettings) {
@@ -101,6 +104,7 @@ export default function Settings() {
     await saveSettings(next);
     setSettings(next);
     setPreferences(next.preferences);
+    reapplyPreferences().catch(console.error);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -526,7 +530,7 @@ export default function Settings() {
       </section>
 
       <footer className="mt-10 pt-6 border-t border-border/40 text-center text-xs text-muted-foreground/50 space-y-0.5">
-        <p>ROMulus v{__APP_VERSION__}</p>
+        <p>ROMulus v{appVersion}</p>
         <p>Developed by Nicolas Yanez · <a href="https://github.com/Nyanez615/ROMulus" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-muted-foreground transition-colors">GitHub</a></p>
         <p>© 2026 Nicolas Yanez · Business Source License 1.1</p>
       </footer>
