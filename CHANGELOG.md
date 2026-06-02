@@ -6,6 +6,39 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-02
+
+### Fixed
+- **Language Match always 0% after rescan** — `scan_roots` passed a clone of `roms` to `group_roms()` (which tagged the clone with `matches_preferred_language`), then stored the original untagged roms in `cache.roms`. `get_consoles()` reads from `cache.roms`, so `preferred_count` was always 0. Fixed by rebuilding `cache.roms` from group variants after merging, which carry the correct flags.
+- **`scan:complete` event never fired** — Dashboard and browse tabs only refreshed via the filesystem watcher event, which doesn't always fire after a manual rescan. `scan_roots` now emits `scan:complete` on finish; `Layout.tsx` subscribes and calls `getConsoles()` + `refreshTagStore()` + `bumpCacheVersion()` unconditionally.
+- **"Unl" appearing in ROMs tab Category filter** — stale `(tag_type='status', value='Unl')` row from before `CATEGORY_FLAGS` was added to the scanner. Migration 008 purges and re-inserts it as `category`. Also removed "Unl" from `STATUS_PRIORITY` in `Roms.tsx` (Unl ROMs are not served by `get_roms`).
+- **Prune filter toggles resetting on restart** — filter settings were Zustand-only with no DB persistence. Added `get_filter_settings` / `save_filter_settings` Tauri commands (KV `settings` table, decoupled from `AppSettings`). Prune loads on mount and saves on each toggle.
+
+### Added
+- **Complete region → language inference map** — `parser.rs::region_default_languages` extended from 12 to 30+ regions (World, Europe, Canada, Austria, Switzerland, Belgium, Scandinavia, Finland, Mexico, Latin America, Argentina, South America, Greece, Poland, Czech Republic, Hungary, Romania, Turkey, and more). `(World)` and `(Europe)` ROMs without an explicit language tag now correctly match `preferred_languages = ["En"]`.
+- **`regionUtils.ts`** — TypeScript mirror of `region_default_languages` (`REGION_DEFAULT_LANGUAGES`, `getRegionDefaultLanguages`, `getRegionsForLanguage`). Kept in sync with the Rust function.
+- **Bidirectional filter chips** — Language chip in ROMs and Hacks tabs now also surfaces ROMs with no explicit language tag whose primary region infers the selected language. Region chip also matches ROMs with an explicit language but no region tag.
+- **Settings inferred-regions note** — below the Preferred Languages section, each selected language shows which regions will be inferred (e.g. `En → inferred for: USA, Australia, United Kingdom, World, Europe, Canada…`).
+- **Deletion reason codes** — `DeletionReason` enum (`NonPreferredLanguage`, `Prerelease`, `OlderRevision`, `Unofficial`, `FormatPairNonPreferred`, `NoPreferredVersion`) added to `models.rs`. `DeletionPlan.to_delete` is now `Vec<DeletionItem>` (was `Vec<RomFile>`). Each item carries its reason. Reason badge displayed on each row in the Prune preview.
+- **Format pairs wired into `apply_filters`** — format preferences set in Settings are now enforced during pruning: variants from the non-preferred format folder are marked for deletion with reason `FormatPairNonPreferred`, unconditionally when a preference is set.
+- **Prune staging area** — interactive checkboxes on each to-delete row with "Select All / Deselect All" controls. Execute and CSV export use only the checked (approved) subset.
+- **Search within Prune preview** — search bar filters the to-delete list by filename or title.
+- **Language Match tile breakdown tooltip** — hovering the tile shows: matched by explicit tag / matched by region inference / no match / total ROMs. `ConsoleStats` extended with `preferred_explicit_count` and `preferred_inferred_count` fields.
+- **macOS universal binary** — CI now builds `--target universal-apple-darwin` (replaces separate arm64 + x86_64 builds). Eliminates the "Support Ending for Intel-based Apps" Rosetta notification on Apple Silicon. Auto-updater `latest.json` updated; both `darwin-aarch64` and `darwin-x86_64` keys point at the single universal bundle.
+- **Shared sort constant** — `ROM_SORT_OPTIONS` and `RomSortKey` extracted to `src/lib/romUtils.ts`; both ROMs and Hacks tabs import from there.
+
+### Changed
+- **ROMs tab filter bar** — filter order changed from Region → Status → Language to **Category → Language → Region**. "Status" label renamed to "Category" (key unchanged). "Unl" removed from Category items (those ROMs live in Hacks & Unofficial).
+- **Hacks & Unofficial tab filter bar** — filter order changed from Category → Region → Language to **Category → Language → Region**.
+- **`keep_preferred_only` semantics** — now keeps exactly **one copy** per title (the highest-scored preferred variant), deleting all others including other language-matching variants. Previously, all language-matching variants were kept.
+- **Prune filter toggle labels** — updated to reflect new semantics: "Keep one copy per title", "Delete if no preferred version exists", "Remove pre-release", "Remove older revisions", "Keep unofficial as fallback", "Delete ALL unofficial regardless of language". Each toggle shows a tooltip on hover.
+- **CSV export** — header expanded from 5 to 10 columns: `path, filename, console, title, regions, languages, status_flags, file_category, filesize, reason`. Multi-value fields join with `|`. CSV export now includes only checked (approved) items from the staging area.
+
+### Technical
+- Migration 008: removes stale `(status, Pirate/Unl/Aftermarket/Hack)` rows and re-inserts as `(category, …)`.
+- `apply_filters_inner` signature extended with `format_prefs` and `format_pairs` parameters. All existing tests updated; 4 new prune tests added.
+- Rust tests: 95 → 107. Vitest: 115 (unchanged, tests updated for new types).
+
 ## [0.2.2] - 2026-06-01
 
 ### Fixed

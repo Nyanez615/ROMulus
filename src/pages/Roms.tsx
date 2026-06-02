@@ -3,6 +3,8 @@ import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { getRoms } from "@/lib/tauri";
+import { getRegionDefaultLanguages } from "@/lib/regionUtils";
+import { ROM_SORT_OPTIONS, type RomSortKey } from "@/lib/romUtils";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
@@ -26,24 +28,24 @@ function VerificationBadge({ status }: { status?: string }) {
 }
 
 
-type SortKey = "az" | "za" | "variants";
-
 // Load all groups for client-side sort/filter. Must exceed the largest realistic
 // collection — 100k covers any local library; SQLite returns this quickly.
 const ALL_GROUPS = 100_000;
+
+// Status flags that belong in the ROMs tab Category filter (Unl excluded — those live in Hacks).
+const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt"];
 
 export default function Roms() {
   const { selectedConsoles, cacheVersion } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
-  const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt", "Unl"];
   const sortedStatus = [
     ...STATUS_PRIORITY.filter((t) => knownStatus.includes(t)),
     ...knownStatus.filter((t) => !STATUS_PRIORITY.includes(t)),
   ];
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("az");
+  const [sort, setSort] = useState<RomSortKey>("az");
   const [activeRegions, setActiveRegions] = useState<string[]>([]);
   const [activeStatus, setActiveStatus] = useState<string[]>([]);
   const [activeLangs, setActiveLangs] = useState<string[]>([]);
@@ -64,23 +66,43 @@ export default function Roms() {
     set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
   }
 
-  // Client-side sort + filter
+  // Client-side sort + filter (bidirectional: Language chip also matches region-inferred, Region chip also matches explicit lang)
   const displayGroups = useMemo(() => {
     let result = groups;
 
+    if (activeLangs.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => {
+          // Explicit language tag match
+          if (v.languages.some((l) => activeLangs.includes(l))) return true;
+          // Region-inference match: ROM has no explicit language but its primary region infers one of the active langs
+          if (v.languages.length === 0) {
+            const inferred = getRegionDefaultLanguages(v.regions[0] ?? "");
+            return inferred.some((l) => activeLangs.includes(l));
+          }
+          return false;
+        }),
+      );
+    }
     if (activeRegions.length > 0) {
       result = result.filter((g) =>
-        g.variants.some((v) => v.regions.some((r) => activeRegions.includes(r))),
+        g.variants.some((v) => {
+          // Explicit region match
+          if (v.regions.some((r) => activeRegions.includes(r))) return true;
+          // Reverse inference: ROM has no region tag but has an explicit language that is the default for an active region
+          if (v.regions.length === 0) {
+            return activeRegions.some((r) => {
+              const defaults = getRegionDefaultLanguages(r);
+              return v.languages.some((l) => defaults.includes(l));
+            });
+          }
+          return false;
+        }),
       );
     }
     if (activeStatus.length > 0) {
       result = result.filter((g) =>
         g.variants.some((v) => v.status_flags.some((s) => activeStatus.includes(s))),
-      );
-    }
-    if (activeLangs.length > 0) {
-      result = result.filter((g) =>
-        g.variants.some((v) => v.languages.some((l) => activeLangs.includes(l))),
       );
     }
 
@@ -117,16 +139,8 @@ export default function Roms() {
       <FilterBar
         groups={[
           {
-            key: "region",
-            label: "Region",
-            items: knownRegions,
-            active: activeRegions,
-            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
-            onClear: () => setActiveRegions([]),
-          },
-          {
             key: "status",
-            label: "Status",
+            label: "Category",
             items: sortedStatus,
             active: activeStatus,
             onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus),
@@ -140,6 +154,14 @@ export default function Roms() {
             onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs),
             onClear: () => setActiveLangs([]),
           },
+          {
+            key: "region",
+            label: "Region",
+            items: knownRegions,
+            active: activeRegions,
+            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
+            onClear: () => setActiveRegions([]),
+          },
         ]}
         leading={
           <>
@@ -151,12 +173,12 @@ export default function Roms() {
             />
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
+              onChange={(e) => setSort(e.target.value as RomSortKey)}
               className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
             >
-              <option value="az">Name A–Z</option>
-              <option value="za">Name Z–A</option>
-              <option value="variants">Most variants</option>
+              {ROM_SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </>
         }

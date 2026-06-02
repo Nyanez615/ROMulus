@@ -64,6 +64,8 @@ export default function Dashboard() {
   // F1: Use total_bytes (actual file sizes) instead of bytes_to_free
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
   const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
+  const preferredExplicitCount = consoles.reduce((s, c) => s + c.preferred_explicit_count, 0);
+  const preferredInferredCount = consoles.reduce((s, c) => s + c.preferred_inferred_count, 0);
   const healthPct = totalRoms > 0 ? Math.round((preferredCount / totalRoms) * 100) : 0;
 
   async function handleScan() {
@@ -169,7 +171,7 @@ export default function Dashboard() {
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
         {/* F1: Use total_bytes for collection size */}
         <StatCard icon={HardDrive} label="Collection size" value={totalBytes > 0 ? formatBytes(totalBytes) : "—"} />
-        {/* F2: Renamed from "Collection health" to "Language Match" with tooltip */}
+        {/* F2: Language Match tile with breakdown tooltip */}
         <StatCard
           icon={Zap}
           label="Language Match"
@@ -179,8 +181,20 @@ export default function Dashboard() {
                 <TooltipTrigger asChild>
                   <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent className="max-w-xs text-xs">
-                  Percentage of your ROMs matching your preferred language/region setting.
+                <TooltipContent className="max-w-xs text-xs space-y-1">
+                  {totalRoms > 0 ? (
+                    <>
+                      <p className="font-medium text-foreground">Language match breakdown</p>
+                      <div className="space-y-0.5 text-muted-foreground">
+                        <p>{preferredExplicitCount.toLocaleString()} — matched by explicit language tag</p>
+                        <p>{preferredInferredCount.toLocaleString()} — matched by region inference</p>
+                        <p>{(totalRoms - preferredCount).toLocaleString()} — no preferred-language match</p>
+                        <p className="border-t border-border/60 pt-0.5 mt-0.5 text-foreground">{totalRoms.toLocaleString()} total ROMs</p>
+                      </div>
+                    </>
+                  ) : (
+                    <p>Percentage of your ROMs matching your preferred language/region setting.</p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

@@ -448,6 +448,35 @@ mod tests {
     }
 
     #[test]
+    fn world_matches_english_preference() {
+        let r = rom("Game (World)", &["World"], &[], &[]);
+        assert!(matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn europe_matches_english_preference() {
+        let r = rom("Game (Europe)", &["Europe"], &[], &[]);
+        assert!(matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn canada_matches_english_preference() {
+        let r = rom("Game (Canada)", &["Canada"], &[], &[]);
+        assert!(matches_preferred(&r, &en_prefs()));
+    }
+
+    #[test]
+    fn scandinavia_matches_swedish() {
+        let r = rom("Game (Scandinavia)", &["Scandinavia"], &[], &[]);
+        let prefs = UserPreferences {
+            preferred_languages: vec!["Sv".into()],
+            preferred_regions: vec!["Scandinavia".into()],
+            short_console_names: false,
+        };
+        assert!(matches_preferred(&r, &prefs));
+    }
+
+    #[test]
     fn japan_only_does_not_match_english() {
         let r = rom("Game (Japan)", &["Japan"], &[], &[]);
         assert!(!matches_preferred(&r, &en_prefs()));

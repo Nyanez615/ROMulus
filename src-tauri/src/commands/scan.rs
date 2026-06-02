@@ -59,8 +59,12 @@ pub async fn scan_roots(
     let format_pairs = detect_format_pairs(&roms);
     let groups = merge_format_pairs(groups, &format_pairs, &prefs);
 
+    // Rebuild flat roms list from group variants so matches_preferred_language flags are set.
+    // group_roms() received a clone of roms and tagged the clone; the original had all-false.
+    let updated_roms: Vec<RomFile> = groups.iter().flat_map(|g| g.variants.clone()).collect();
+
     let mut cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
-    cache.roms = roms;
+    cache.roms = updated_roms;
     cache.groups = groups;
     cache.status = ScanStatus {
         scanning: false,
@@ -93,6 +97,8 @@ pub async fn scan_roots(
         .title("ROMulus")
         .body(format!("Scan complete — {total} ROMs across {console_count} consoles"))
         .show();
+
+    app.emit("scan:complete", &final_status).ok();
 
     Ok(final_status)
 }
@@ -289,6 +295,8 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             name: rom.console.clone(),
             total_files: 0,
             preferred_count: 0,
+            preferred_explicit_count: 0,
+            preferred_inferred_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
             total_bytes: 0,
@@ -297,6 +305,11 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
         stats.total_bytes += rom.filesize;
         if rom.matches_preferred_language {
             stats.preferred_count += 1;
+            if rom.languages.is_empty() {
+                stats.preferred_inferred_count += 1;
+            } else {
+                stats.preferred_explicit_count += 1;
+            }
         }
     }
 
@@ -402,6 +415,23 @@ mod tests {
         assert_eq!(gba.preferred_count, 2);
         let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
         assert_eq!(snes.total_files, 1);
+    }
+
+    #[test]
+    fn preferred_explicit_vs_inferred_counts() {
+        // ROM with explicit language tag → explicit count
+        let mut with_tag = make_rom("GBA", true);
+        with_tag.languages = vec!["En".into()];
+        // ROM matched by region inference (no language tag) → inferred count
+        let no_tag = make_rom("GBA", true); // make_rom leaves languages empty
+        // ROM not preferred → neither count
+        let not_preferred = make_rom("GBA", false);
+
+        let stats = compute_console_stats(&[with_tag, no_tag, not_preferred]);
+        let gba = stats.iter().find(|s| s.name == "GBA").unwrap();
+        assert_eq!(gba.preferred_count, 2);
+        assert_eq!(gba.preferred_explicit_count, 1);
+        assert_eq!(gba.preferred_inferred_count, 1);
     }
 
     #[test]

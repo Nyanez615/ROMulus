@@ -13,7 +13,7 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 function makeConsole(name: string): ConsoleStats {
-  return { name, total_files: 1, preferred_count: 1, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
+  return { name, total_files: 1, preferred_count: 1, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
 // ── getCanonicalConsoleName ───────────────────────────────────────────────────

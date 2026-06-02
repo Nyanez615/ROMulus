@@ -9,6 +9,11 @@ const KNOWN_REGIONS: &[&str] = &[
     "Korea", "Brazil", "Taiwan", "China", "Russia", "Spain", "Italy",
     "United Kingdom", "Unknown", "Asia", "Hong Kong", "Netherlands",
     "Sweden", "Norway", "Denmark",
+    // Extended set
+    "Canada", "New Zealand", "South Africa", "India", "Austria",
+    "Switzerland", "Belgium", "Finland", "Portugal", "Mexico",
+    "Latin America", "Argentina", "South America", "Greece",
+    "Poland", "Czech Republic", "Hungary", "Romania", "Turkey", "Scandinavia",
 ];
 
 const STATUS_FLAGS: &[&str] = &[
@@ -42,19 +47,36 @@ const UTILITY_TAGS: &[&str] = &[
 
 pub fn region_default_languages(region: &str) -> &'static [&'static str] {
     match region {
-        "USA" | "Australia" | "United Kingdom" => &["En"],
-        "Japan" => &["Ja"],
-        "Germany" => &["De"],
-        "France" => &["Fr"],
-        "Spain" => &["Es"],
-        "Italy" => &["It"],
-        "Korea" => &["Ko"],
-        "Brazil" => &["Pt"],
-        "Russia" => &["Ru"],
+        "USA" | "Australia" | "United Kingdom" | "New Zealand"
+        | "South Africa" | "India" | "World" | "Europe" => &["En"],
+        "Canada"           => &["En", "Fr"],
+        "Japan"            => &["Ja"],
+        "Korea"            => &["Ko"],
         "China" | "Taiwan" | "Hong Kong" => &["Zh"],
-        "Netherlands" => &["Nl"],
-        "Sweden" | "Norway" | "Denmark" => &["Sv"],
-        _ => &[],
+        "Germany" | "Austria" => &["De"],
+        "Switzerland"      => &["De", "Fr", "It"],
+        "France"           => &["Fr"],
+        "Belgium"          => &["Fr", "Nl"],
+        "Spain"            => &["Es"],
+        "Italy"            => &["It"],
+        "Netherlands"      => &["Nl"],
+        "Sweden"           => &["Sv"],
+        "Norway"           => &["No"],
+        "Denmark"          => &["Da"],
+        "Scandinavia"      => &["Sv", "No", "Da"],
+        "Finland"          => &["Fi"],
+        "Portugal" | "Brazil" => &["Pt"],
+        "Russia"           => &["Ru"],
+        "Mexico" | "Latin America" | "Argentina" => &["Es"],
+        "South America"    => &["Es", "Pt"],
+        "Greece"           => &["El"],
+        "Poland"           => &["Pl"],
+        "Czech Republic"   => &["Cs"],
+        "Hungary"          => &["Hu"],
+        "Romania"          => &["Ro"],
+        "Turkey"           => &["Tr"],
+        "Asia"             => &["Zh", "Ja", "Ko"],
+        _                  => &[],
     }
 }
 

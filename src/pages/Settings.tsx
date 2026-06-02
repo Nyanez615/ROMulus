@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck, Zap } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -33,6 +33,8 @@ import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DatFile } from "@/lib/bindings/DatFile";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
+import { getRegionsForLanguage } from "@/lib/regionUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const COMMON_LANGUAGES = ["En", "Ja", "Fr", "De", "Es", "It", "Pt", "Zh", "Ko", "Ru", "Nl", "Sv"];
 const COMMON_REGIONS = ["USA", "World", "Europe", "Japan", "Australia", "United Kingdom",
@@ -264,6 +266,30 @@ export default function Settings() {
               </button>
             ))}
           </div>
+          {/* Inferred-regions note — show which regions map to each selected language */}
+          {settings.preferences.preferred_languages.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {settings.preferences.preferred_languages.map((lang) => {
+                const regions = getRegionsForLanguage(lang);
+                if (regions.length === 0) return null;
+                return (
+                  <div key={lang} className="flex items-start gap-1.5 text-xs text-muted-foreground/70">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-3 h-3 mt-0.5 shrink-0 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs max-w-xs">
+                          ROMs from these regions with no explicit language tag will be treated as {lang}.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span>{`${lang} → inferred for: ${regions.join(", ")}`}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div>
