@@ -13,6 +13,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Phase 4** ✅ IGDB metadata enrichment (OAuth2, Keychain, background + on-demand + bulk), SteamGridDB thumbnails (asset:// cache), OS notifications, No-Intro DAT import + CRC32 verification + completeness tracking
 - **Phase 5** ✅ Console icons, keyboard shortcuts, WCAG accessibility, auto-updater + release pipeline, `v0.1.0` published
 - **Dogfood Round 2** ✅ Dashboard overhaul, cross-console title merging, collapsible FilterBar, platform multi-select, short console names toggle, `v0.2.0` published
+- **Dogfood Rounds 3–4 + Bug Groups S–T** ✅ Settings persistence fixes, Language Match cache bug, region/language inference overhaul, Prune UX (checkboxes, reasons, search), format pairs in apply_filters, `v0.2.1`–`v0.2.3` published
 
 ## Dev setup
 
@@ -24,7 +25,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 86 unit tests + regenerates src/lib/bindings/
+cargo test                    # 107 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -44,7 +45,7 @@ src/                             React frontend (Vite root)
     ConsoleIcon.tsx              Manufacturer/console icon + accent color (wraps consoleUtils.ts)
     ConsolePageTitle.tsx         Colored console heading shared by all console-filtered tabs
     ConsoleEmptyState.tsx        Empty state for console-filtered views with no results
-    FilterBar.tsx                Collapsible Region/Status/Language filter panel (ROMs + Hacks tabs)
+    FilterBar.tsx                Collapsible Category/Language/Region filter panel (ROMs + Hacks tabs)
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -53,6 +54,8 @@ src/                             React frontend (Vite root)
   lib/
     bindings/                    Auto-generated TS types from Rust structs (never edit)
     consoleUtils.ts              SINGLE SOURCE OF TRUTH for all console data/logic — never import colors or abbreviations from ConsoleIcon.tsx in new code
+    regionUtils.ts               REGION_DEFAULT_LANGUAGES map + helpers — mirrors parser.rs::region_default_languages; keep in sync
+    romUtils.ts                  ROM_SORT_OPTIONS + RomSortKey shared between ROMs and Hacks tabs
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
@@ -71,16 +74,17 @@ src-tauri/
     commands/
       scan.rs          scan_roots, get_scan_status, get_consoles, get_format_pairs
       group.rs         get_roms, get_unofficial, get_system_files, get_duplicates, merge_format_pairs
-      prune.rs         apply_filters, export_csv
+      prune.rs         apply_filters (→ DeletionPlan w/ DeletionItem+DeletionReason), export_csv
       execute.rs       execute_prune (atomic + backup manifest), get_interrupted_session
       history.rs       get_history
-      settings.rs      get/save settings, get/complete onboarding
+      settings.rs      get/save settings, get/save filter_settings, reapply_preferences, get/complete onboarding
       metadata.rs      IGDB: set/has/clear_igdb_credentials, get_game_metadata, enrich_all_games
       thumbnail.rs     SteamGridDB: set/has/clear_steamgriddb_key, get_thumbnail
       dat.rs           import_dat, get_dat_files, remove_dat, verify_roms,
                        get_verification_status, get_completeness
   migrations/          001_initial.sql · 002_metadata.sql · 003_onboarding.sql
                        004_permanent_delete.sql · 005_known_tags.sql · 006_short_console_names.sql
+                       007_clean_language_tags.sql · 008_fix_known_tags.sql
   capabilities/        Tauri v2 permissions (fs, shell, dialog, notification, shortcuts)
   tauri.conf.json      Bundle ID: com.romulus.app · assetProtocol enabled
   Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip
@@ -92,7 +96,7 @@ src-tauri/
 - **Rust structs derive `TS`** — `cargo test` regenerates `src/lib/bindings/*.ts`. Commit alongside `models.rs` changes.
 - **Tauri commands, not HTTP** — frontend calls `invoke('command_name', args)` via wrappers in `tauri.ts`. All wrappers return safe defaults in browser preview.
 - **Background tasks use Arc cloning** — `Arc::clone(&state.db)` and `Arc::clone(&state.scan_cache)` before `tauri::async_runtime::spawn`.
-- **Background tasks emit Tauri events** — frontend subscribes via `listen()`. Events: `scan:progress`, `watcher:new_rom`, `enrich:progress`, `enrich:complete`, `verify:complete`.
+- **Background tasks emit Tauri events** — frontend subscribes via `listen()`. Events: `scan:progress`, `scan:complete`, `watcher:new_rom`, `preferences:regrouped`, `enrich:progress`, `enrich:complete`, `verify:complete`.
 - **Deletions go to Trash by default** — permanent delete opt-in in Settings → Danger Zone. Pre-prune backup manifest auto-written to Desktop before any execution.
 - **BIOS files always protected** — `is_bios: true` → never queued for deletion.
 - **Multi-disc games kept together** — `disc_number` coalesces into one `RomGroup`; delete/keep applies to full disc set.
@@ -103,7 +107,11 @@ src-tauri/
 - **`consoleUtils.ts` is the single source of truth** — all console abbreviations, colors, platform detection, and display-name logic live here. Never import these from `ConsoleIcon.tsx` in new code.
 - **`selectedConsoles: string[] | null`** (plural) in the scan store. `null` = All ROMs mode; array = one or more consoles selected.
 - **All Rust browse commands take `consoles: Option<Vec<String>>`** — use `group_matches_consoles()` (not the old `console_matches()`) so cross-console merged groups are handled correctly.
-- **`FilterBar` component** — takes `groups`, `leading`, and `trailing` ReactNode props. Renders collapsible Region/Status/Language chip panels with active-count badges.
+- **`FilterBar` component** — takes `groups`, `leading`, and `trailing` ReactNode props. Renders collapsible chip panels (Category → Language → Region order) with active-count badges. Filter chips are bidirectional: Language chip also matches region-inferred ROMs via `regionUtils.ts`.
+- **`regionUtils.ts`** — `REGION_DEFAULT_LANGUAGES` and `getRegionDefaultLanguages()` are the TS mirror of `parser.rs::region_default_languages`. Always keep in sync. Used by filter chips and the Settings inferred-regions note.
+- **`romUtils.ts`** — `ROM_SORT_OPTIONS` / `RomSortKey` shared by ROMs and Hacks tabs — import from here, never inline.
+- **`DeletionPlan`** — `to_delete` is `DeletionItem[]` (not `RomFile[]`). Each item has `{ rom: RomFile, reason: DeletionReason }`. Frontend must extract `.rom` when passing to `execute_prune` or `export_csv`.
+- **Prune filter settings** — persisted via dedicated `get_filter_settings` / `save_filter_settings` commands (KV `settings` table). Not bundled in `AppSettings`. Prune.tsx loads on mount and saves on each toggle.
 
 ## Database
 SQLite at `~/Library/Application Support/com.romulus.app/romulus.db` (macOS).
@@ -155,6 +163,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 86 tests, in-memory SQLite only
+- Rust: `cargo test` in `src-tauri/` — 107 tests, in-memory SQLite only
 - Frontend: `npm run test:run` (Vitest + jsdom) — 115 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

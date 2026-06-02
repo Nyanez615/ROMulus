@@ -127,8 +127,8 @@ describe("ROMs region filter (ANY within type)", () => {
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
     await waitFor(() => expect(countText()).toBe("2 titles"));
-    // Switch to Status panel and select Beta
-    fireEvent.click(screen.getByRole("button", { name: /Status/i }));
+    // Switch to Category panel and select Beta
+    fireEvent.click(screen.getByRole("button", { name: /Category/i }));
     await waitFor(() => screen.getByText("Beta"));
     fireEvent.click(screen.getByText("Beta")); // Only Metroid has Beta, but Metroid has no USA variant
     await waitFor(() => expect(countText()).toBe("0 titles"));

@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import Prune from "./Prune";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import { usePreferencesStore } from "@/store/preferences";
 
@@ -11,12 +12,16 @@ const mockApplyFilters = vi.fn(() => Promise.resolve({} as DeletionPlan));
 const mockExecutePrune = vi.fn(() => Promise.resolve({ success_count: 2, failed: [], skipped_count: 0 }));
 const mockExportCsv = vi.fn(() => Promise.resolve());
 const mockGetSettings = vi.fn(() => Promise.resolve({} as AppSettings));
+const mockGetFilterSettings = vi.fn(() => Promise.resolve({} as FilterSettings));
+const mockSaveFilterSettings = vi.fn(() => Promise.resolve());
 
 vi.mock("@/lib/tauri", () => ({
   applyFilters: () => mockApplyFilters(),
   executePrune: () => mockExecutePrune(),
   exportCsv: () => mockExportCsv(),
   getSettings: () => mockGetSettings(),
+  getFilterSettings: () => mockGetFilterSettings(),
+  saveFilterSettings: (s: unknown) => { void s; return mockSaveFilterSettings(); },
   isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
   formatBytes: (b: number) => `${b} B`,
 }));
@@ -39,24 +44,24 @@ const baseSettings: AppSettings = {
 
 const emptyPlan: DeletionPlan = { to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] };
 
+const fakeRom = {
+  path: "/roms/Game (Europe).zip", filename: "Game (Europe).zip",
+  console: "Nintendo - GBA", title: "Game", title_normalized: "game",
+  regions: ["Europe"], languages: [], status_flags: [], extra_tags: [],
+  bad_dump: false, revision: 0, disc_number: null, version: null,
+  is_bios: false, file_format: "zip" as const, file_category: "game" as const,
+  filesize: 1024, matches_preferred_language: false,
+  matches_preferred_region: false, is_unofficial_preferred_fallback: false,
+};
+
 const fakePlan: DeletionPlan = {
-  to_delete: [
-    {
-      path: "/roms/Game (Europe).zip", filename: "Game (Europe).zip",
-      console: "Nintendo - GBA", title: "Game", title_normalized: "game",
-      regions: ["Europe"], languages: [], status_flags: [], extra_tags: [],
-      bad_dump: false, revision: 0, disc_number: null, version: null,
-      is_bios: false, file_format: "zip", file_category: "game",
-      filesize: 1024, matches_preferred_language: false,
-      matches_preferred_region: false, is_unofficial_preferred_fallback: false,
-    },
-  ],
+  to_delete: [{ rom: fakeRom, reason: "non_preferred_language" as const }],
   to_keep: [],
   no_preferred_version_count: 0,
   total_bytes_freed: 1024, console_summary: [],
 };
 
-const defaultFilters = {
+const defaultFilters: FilterSettings = {
   keep_preferred_only: true,
   remove_if_no_preferred_version: true,
   remove_prerelease: true,
@@ -70,6 +75,7 @@ const defaultFilters = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSettings.mockResolvedValue({ ...baseSettings });
+  mockGetFilterSettings.mockResolvedValue({ ...defaultFilters });
   mockApplyFilters.mockResolvedValue(emptyPlan);
   usePreferencesStore.setState({ filterSettings: { ...defaultFilters } });
 });
@@ -141,7 +147,7 @@ describe("Preview toggle", () => {
     mockApplyFilters.mockResolvedValue(fakePlan);
     render(<Prune />);
     fireEvent.click(screen.getByText("Preview"));
-    await waitFor(() => expect(screen.getByText("to delete")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("approved to delete")).toBeInTheDocument());
   });
 
   it("Hide preview button clears the plan", async () => {
@@ -150,7 +156,7 @@ describe("Preview toggle", () => {
     fireEvent.click(screen.getByText("Preview"));
     await screen.findByText("Hide preview");
     fireEvent.click(screen.getByText("Hide preview"));
-    expect(screen.queryByText("to delete")).not.toBeInTheDocument();
+    expect(screen.queryByText("approved to delete")).not.toBeInTheDocument();
     expect(screen.getByText("Preview")).toBeInTheDocument();
   });
 
@@ -163,7 +169,7 @@ describe("Preview toggle", () => {
     const closeBtn = header?.querySelector("button:last-child");
     expect(closeBtn).toBeTruthy();
     fireEvent.click(closeBtn!);
-    expect(screen.queryByText("to delete")).not.toBeInTheDocument();
+    expect(screen.queryByText("approved to delete")).not.toBeInTheDocument();
   });
 });
 

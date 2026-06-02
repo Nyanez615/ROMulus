@@ -4,6 +4,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { getUnofficial } from "@/lib/tauri";
+import { getRegionDefaultLanguages } from "@/lib/regionUtils";
+import { ROM_SORT_OPTIONS, type RomSortKey } from "@/lib/romUtils";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
@@ -54,7 +56,6 @@ function HackVariantRow({ rom, isPreferred }: { rom: RomFile; isPreferred: boole
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-type SortKey = "az" | "za" | "variants";
 
 const ALL_GROUPS = 100_000;
 
@@ -70,7 +71,7 @@ export default function HacksUnofficial() {
 
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("az");
+  const [sort, setSort] = useState<RomSortKey>("az");
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [activeRegions, setActiveRegions]       = useState<string[]>([]);
   const [activeLangs, setActiveLangs]           = useState<string[]>([]);
@@ -99,14 +100,30 @@ export default function HacksUnofficial() {
         g.variants.some((v) => v.status_flags.some((f) => activeCategories.includes(f))),
       );
     }
-    if (activeRegions.length > 0) {
-      result = result.filter((g) =>
-        g.variants.some((v) => v.regions.some((r) => activeRegions.includes(r))),
-      );
-    }
     if (activeLangs.length > 0) {
       result = result.filter((g) =>
-        g.variants.some((v) => v.languages.some((l) => activeLangs.includes(l))),
+        g.variants.some((v) => {
+          if (v.languages.some((l) => activeLangs.includes(l))) return true;
+          if (v.languages.length === 0) {
+            const inferred = getRegionDefaultLanguages(v.regions[0] ?? "");
+            return inferred.some((l) => activeLangs.includes(l));
+          }
+          return false;
+        }),
+      );
+    }
+    if (activeRegions.length > 0) {
+      result = result.filter((g) =>
+        g.variants.some((v) => {
+          if (v.regions.some((r) => activeRegions.includes(r))) return true;
+          if (v.regions.length === 0) {
+            return activeRegions.some((r) => {
+              const defaults = getRegionDefaultLanguages(r);
+              return v.languages.some((l) => defaults.includes(l));
+            });
+          }
+          return false;
+        }),
       );
     }
 
@@ -151,20 +168,20 @@ export default function HacksUnofficial() {
             onClear: () => setActiveCategories([]),
           },
           {
-            key: "region",
-            label: "Region",
-            items: knownRegions,
-            active: activeRegions,
-            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
-            onClear: () => setActiveRegions([]),
-          },
-          {
             key: "language",
             label: "Language",
             items: knownLanguages,
             active: activeLangs,
             onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs),
             onClear: () => setActiveLangs([]),
+          },
+          {
+            key: "region",
+            label: "Region",
+            items: knownRegions,
+            active: activeRegions,
+            onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
+            onClear: () => setActiveRegions([]),
           },
         ]}
         leading={
@@ -177,12 +194,12 @@ export default function HacksUnofficial() {
             />
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
+              onChange={(e) => setSort(e.target.value as RomSortKey)}
               className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
             >
-              <option value="az">Name A–Z</option>
-              <option value="za">Name Z–A</option>
-              <option value="variants">Most variants</option>
+              {ROM_SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </>
         }

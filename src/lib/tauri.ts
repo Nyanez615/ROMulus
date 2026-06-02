@@ -12,6 +12,7 @@ import { isTauri } from "./env";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { ConsoleStats } from "./bindings/ConsoleStats";
 import type { DeleteMode } from "./bindings/DeleteMode";
+import type { DeletionItem } from "./bindings/DeletionItem";
 import type { DeletionPlan } from "./bindings/DeletionPlan";
 import type { ExecutionResult } from "./bindings/ExecutionResult";
 import type { FilterSettings } from "./bindings/FilterSettings";
@@ -105,7 +106,7 @@ export const applyFilters = (settings: FilterSettings, consoles?: string[]): Pro
     ? invoke("apply_filters", { settings, consoles: consoles ?? null })
     : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
-export const exportCsv = (toDelete: RomFile[], path: string): Promise<void> =>
+export const exportCsv = (toDelete: DeletionItem[], path: string): Promise<void> =>
   isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
 
 export const getUnofficial = (params: GetGamesParams): Promise<PagedGroups> =>
@@ -208,6 +209,21 @@ export const saveSettings = (settings: AppSettings): Promise<void> =>
 export const reapplyPreferences = (): Promise<void> =>
   isTauri() ? invoke("reapply_preferences") : Promise.resolve();
 
+export const getFilterSettings = (): Promise<FilterSettings> =>
+  isTauri()
+    ? invoke("get_filter_settings")
+    : Promise.resolve({
+        keep_preferred_only: false,
+        remove_if_no_preferred_version: false,
+        remove_prerelease: false,
+        remove_unofficial: false,
+        remove_older_revisions: false,
+        keep_unofficial_as_fallback: true,
+      });
+
+export const saveFilterSettings = (settings: FilterSettings): Promise<void> =>
+  isTauri() ? invoke("save_filter_settings", { settings }) : Promise.resolve();
+
 export const getOnboardingState = (): Promise<OnboardingState> =>
   isTauri() ? invoke("get_onboarding_state") : Promise.resolve(DEFAULT_ONBOARDING);
 
@@ -236,6 +252,11 @@ export const onNewRom = (
 
 export const onPreferencesRegrouped = (cb: () => void): Promise<UnlistenFn> =>
   isTauri() ? listen("preferences:regrouped", cb) : Promise.resolve(noop);
+
+export const onScanComplete = (cb: (status: ScanStatus) => void): Promise<UnlistenFn> =>
+  isTauri()
+    ? listen<ScanStatus>("scan:complete", (e) => cb(e.payload))
+    : Promise.resolve(noop);
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 

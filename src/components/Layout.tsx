@@ -4,7 +4,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
-import { getConsoles, onScanProgress, onNewRom, getKnownTags, onPreferencesRegrouped } from "@/lib/tauri";
+import { getConsoles, onScanProgress, onNewRom, getKnownTags, onPreferencesRegrouped, onScanComplete } from "@/lib/tauri";
 import { isTauri } from "@/lib/env";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
@@ -52,6 +52,7 @@ export function Layout() {
     let unlistenScan: (() => void) | null = null;
     let unlistenWatcher: (() => void) | null = null;
     let unlistenRegroup: (() => void) | null = null;
+    let unlistenScanComplete: (() => void) | null = null;
 
     onScanProgress((p) => {
       setProgress(p);
@@ -67,10 +68,18 @@ export function Layout() {
       bumpCacheVersion();
     }).then((fn) => { unlistenRegroup = fn; });
 
+    onScanComplete((s) => {
+      setStatus(s);
+      getConsoles().then(setConsoles).catch(console.error);
+      refreshTagStore();
+      bumpCacheVersion();
+    }).then((fn) => { unlistenScanComplete = fn; });
+
     return () => {
       unlistenScan?.();
       unlistenWatcher?.();
       unlistenRegroup?.();
+      unlistenScanComplete?.();
     };
   }, [setConsoles, setProgress, setStatus, bumpCacheVersion]);
 

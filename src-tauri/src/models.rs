@@ -156,9 +156,28 @@ impl Default for AppSettings {
 // ── Prune / execution types ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DeletionReason {
+    NonPreferredLanguage,
+    Prerelease,
+    OlderRevision,
+    Unofficial,
+    FormatPairNonPreferred,
+    NoPreferredVersion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DeletionItem {
+    pub rom: RomFile,
+    pub reason: DeletionReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DeletionPlan {
-    pub to_delete: Vec<RomFile>,
+    pub to_delete: Vec<DeletionItem>,
     pub to_keep: Vec<RomFile>,
     pub no_preferred_version_count: u32,
     #[ts(type = "number")]
@@ -172,6 +191,10 @@ pub struct ConsoleStats {
     pub name: String,
     pub total_files: u32,
     pub preferred_count: u32,
+    /// Subset of preferred_count where the ROM has an explicit language tag matching the preference.
+    pub preferred_explicit_count: u32,
+    /// Subset of preferred_count matched via region→language inference (no explicit tag).
+    pub preferred_inferred_count: u32,
     pub marked_for_deletion: u32,
     #[ts(type = "number")]
     pub bytes_to_free: u64,
@@ -381,6 +404,8 @@ mod tests {
         UserPreferences::export_all_to(out).unwrap();
         FilterSettings::export_all_to(out).unwrap();
         AppSettings::export_all_to(out).unwrap();
+        DeletionReason::export_all_to(out).unwrap();
+        DeletionItem::export_all_to(out).unwrap();
         DeletionPlan::export_all_to(out).unwrap();
         ConsoleStats::export_all_to(out).unwrap();
         ActionLogEntry::export_all_to(out).unwrap();

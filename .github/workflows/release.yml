@@ -17,9 +17,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            args: "--target universal-apple-darwin"
           - platform: ubuntu-22.04
             args: ""
           - platform: windows-latest
@@ -94,8 +92,7 @@ jobs:
 
           # Download the platform bundles tauri-action already uploaded
           gh release download "${TAG}" --dir bundles/ \
-            --pattern "ROMulus_aarch64.app.tar.gz" \
-            --pattern "ROMulus_x64.app.tar.gz" \
+            --pattern "ROMulus_universal.app.tar.gz" \
             --pattern "ROMulus_${VERSION}_amd64.AppImage" \
             --pattern "ROMulus_${VERSION}_x64-setup.exe"
 
@@ -109,10 +106,9 @@ jobs:
           (cd bundles && zip "ROMulus_${VERSION}_x64-setup.nsis.zip" \
             "ROMulus_${VERSION}_x64-setup.exe")
 
-          # Sign all four updater bundles (TAURI_SIGNING_PRIVATE_KEY is base64-encoded)
+          # Sign all updater bundles (TAURI_SIGNING_PRIVATE_KEY is base64-encoded)
           for bundle in \
-            "bundles/ROMulus_aarch64.app.tar.gz" \
-            "bundles/ROMulus_x64.app.tar.gz" \
+            "bundles/ROMulus_universal.app.tar.gz" \
             "bundles/ROMulus_${VERSION}_amd64.AppImage.tar.gz" \
             "bundles/ROMulus_${VERSION}_x64-setup.nsis.zip"; do
             echo "Signing: $bundle"
@@ -143,11 +139,11 @@ jobs:
                   print(f"ERROR: {path} not found")
                   return None
 
+          universal_sig = read_sig("bundles/ROMulus_universal.app.tar.gz.sig")
           sigs = {
-              "darwin-aarch64":  read_sig("bundles/ROMulus_aarch64.app.tar.gz.sig"),
-              "darwin-x86_64":   read_sig("bundles/ROMulus_x64.app.tar.gz.sig"),
-              "linux-x86_64":    read_sig(f"bundles/ROMulus_{version}_amd64.AppImage.tar.gz.sig"),
-              "windows-x86_64":  read_sig(f"bundles/ROMulus_{version}_x64-setup.nsis.zip.sig"),
+              "darwin-universal": universal_sig,
+              "linux-x86_64":     read_sig(f"bundles/ROMulus_{version}_amd64.AppImage.tar.gz.sig"),
+              "windows-x86_64":   read_sig(f"bundles/ROMulus_{version}_x64-setup.nsis.zip.sig"),
           }
 
           missing = [k for k, v in sigs.items() if not v]
@@ -155,18 +151,20 @@ jobs:
               print(f"ERROR: Missing signatures for: {missing}")
               sys.exit(1)
 
+          # Point both darwin targets at the same universal bundle so the updater
+          # serves the right file regardless of which architecture is running.
           data = {
               "version": version,
               "notes": "See https://github.com/Nyanez615/ROMulus/blob/main/CHANGELOG.md for details.",
               "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {
                   "darwin-aarch64": {
-                      "signature": sigs["darwin-aarch64"],
-                      "url": f"{base}/ROMulus_aarch64.app.tar.gz",
+                      "signature": sigs["darwin-universal"],
+                      "url": f"{base}/ROMulus_universal.app.tar.gz",
                   },
                   "darwin-x86_64": {
-                      "signature": sigs["darwin-x86_64"],
-                      "url": f"{base}/ROMulus_x64.app.tar.gz",
+                      "signature": sigs["darwin-universal"],
+                      "url": f"{base}/ROMulus_universal.app.tar.gz",
                   },
                   "linux-x86_64": {
                       "signature": sigs["linux-x86_64"],

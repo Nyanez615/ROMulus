@@ -4,7 +4,7 @@ use tauri::{Emitter, State};
 use crate::commands::group::{group_roms, matches_preferred, merge_format_pairs, region_score};
 use crate::db::{self, AppState};
 use crate::deduper::detect_format_pairs;
-use crate::models::{AppSettings, OnboardingState, UserPreferences};
+use crate::models::{AppSettings, FilterSettings, OnboardingState, UserPreferences};
 
 // ── Testable inner functions ──────────────────────────────────────────────────
 
@@ -188,6 +188,69 @@ pub fn reapply_preferences(
     Ok(())
 }
 
+// ── Format preferences loader (shared with prune.rs) ─────────────────────────
+
+pub(crate) fn load_format_preferences(conn: &Connection) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT console_group, preferred_folder FROM format_preferences")
+        .map_err(|e| e.to_string())?;
+    let mut prefs = std::collections::HashMap::new();
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let group: String = row.get(0).map_err(|e| e.to_string())?;
+        let folder: String = row.get(1).map_err(|e| e.to_string())?;
+        prefs.insert(group, folder);
+    }
+    Ok(prefs)
+}
+
+// ── Filter settings ───────────────────────────────────────────────────────────
+
+pub(crate) fn get_filter_settings_inner(conn: &Connection) -> Result<FilterSettings, String> {
+    let bool_key = |key: &str, default: bool| -> Result<bool, String> {
+        Ok(db::get_setting(conn, key)
+            .map_err(|e| e.to_string())?
+            .map(|v| v == "true")
+            .unwrap_or(default))
+    };
+    Ok(FilterSettings {
+        keep_preferred_only:          bool_key("filter_keep_preferred_only",          false)?,
+        remove_if_no_preferred_version: bool_key("filter_remove_if_no_preferred_version", false)?,
+        remove_prerelease:            bool_key("filter_remove_prerelease",            false)?,
+        remove_unofficial:            bool_key("filter_remove_unofficial",            false)?,
+        remove_older_revisions:       bool_key("filter_remove_older_revisions",       false)?,
+        keep_unofficial_as_fallback:  bool_key("filter_keep_unofficial_as_fallback",  true)?,
+    })
+}
+
+pub(crate) fn save_filter_settings_inner(conn: &Connection, s: &FilterSettings) -> Result<(), String> {
+    let pairs: &[(&str, bool)] = &[
+        ("filter_keep_preferred_only",            s.keep_preferred_only),
+        ("filter_remove_if_no_preferred_version", s.remove_if_no_preferred_version),
+        ("filter_remove_prerelease",              s.remove_prerelease),
+        ("filter_remove_unofficial",              s.remove_unofficial),
+        ("filter_remove_older_revisions",         s.remove_older_revisions),
+        ("filter_keep_unofficial_as_fallback",    s.keep_unofficial_as_fallback),
+    ];
+    for (key, val) in pairs {
+        db::set_setting(conn, key, if *val { "true" } else { "false" })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_filter_settings(state: State<'_, AppState>) -> Result<FilterSettings, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    get_filter_settings_inner(&conn)
+}
+
+#[tauri::command]
+pub fn save_filter_settings(state: State<'_, AppState>, settings: FilterSettings) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    save_filter_settings_inner(&conn, &settings)
+}
+
 #[tauri::command]
 pub fn get_onboarding_state(state: State<'_, AppState>) -> Result<OnboardingState, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -317,6 +380,36 @@ mod tests {
         let conn = db::open_in_memory();
         let loaded = get_settings_inner(&conn).unwrap();
         assert!(!loaded.allow_permanent_delete);
+    }
+
+    #[test]
+    fn test_save_load_filter_settings() {
+        let conn = db::open_in_memory();
+        let s = FilterSettings {
+            keep_preferred_only: true,
+            remove_if_no_preferred_version: true,
+            remove_prerelease: true,
+            remove_unofficial: true,
+            remove_older_revisions: true,
+            keep_unofficial_as_fallback: false,
+        };
+        save_filter_settings_inner(&conn, &s).unwrap();
+        let loaded = get_filter_settings_inner(&conn).unwrap();
+        assert!(loaded.keep_preferred_only);
+        assert!(loaded.remove_if_no_preferred_version);
+        assert!(loaded.remove_prerelease);
+        assert!(loaded.remove_unofficial);
+        assert!(loaded.remove_older_revisions);
+        assert!(!loaded.keep_unofficial_as_fallback);
+    }
+
+    #[test]
+    fn test_filter_keep_unofficial_as_fallback_default_true() {
+        let conn = db::open_in_memory();
+        // No saved state — defaults should apply
+        let loaded = get_filter_settings_inner(&conn).unwrap();
+        assert!(loaded.keep_unofficial_as_fallback, "keep_unofficial_as_fallback should default to true");
+        assert!(!loaded.keep_preferred_only, "keep_preferred_only should default to false");
     }
 
     #[test]
