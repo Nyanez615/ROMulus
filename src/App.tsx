@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { useOnboardingStore } from "./store/onboarding";
 import { usePreferencesStore } from "./store/preferences";
+import { useUIStore } from "./store/ui";
 import { getOnboardingState, getSettings } from "./lib/tauri";
 import { isTauri } from "./lib/env";
 
@@ -15,6 +16,7 @@ const queryClient = new QueryClient({
 function AppShell() {
   const { state, setState } = useOnboardingStore();
   const { setPreferences } = usePreferencesStore();
+  const { setTheme } = useUIStore();
   // Start as false (not loading) in browser dev preview; true only inside Tauri
   const [loading, setLoading] = useState(isTauri);
 
@@ -25,9 +27,12 @@ function AppShell() {
       .catch(console.error)
       .finally(() => setLoading(false));
     getSettings()
-      .then((s) => setPreferences(s.preferences))
+      .then((s) => {
+        setPreferences(s.preferences);
+        if (s.theme === "light" || s.theme === "dark") setTheme(s.theme);
+      })
       .catch(console.error);
-  }, [setState, setPreferences]);
+  }, [setState, setPreferences, setTheme]);
 
   if (loading) {
     return (
