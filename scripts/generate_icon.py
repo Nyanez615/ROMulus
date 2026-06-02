@@ -1,7 +1,9 @@
 """
 ROMulus icon generator v2.
 The cartridge body fills the entire canvas — no separate background element.
-Transparent corners let macOS/Windows/Linux apply their own rounding in context.
+The canvas background is solid dark navy; macOS/Windows/Linux apply their own
+platform rounding on top.  Do NOT use a transparent canvas — transparent icons
+composite against white in Finder, DMG windows, and most non-Dock contexts.
 
 Usage:
   python scripts/generate_icon.py
@@ -51,8 +53,10 @@ lbl_w       = body_w - 2 * LBL_MARGIN
 lbl_h       = ridge_div_y - lbl_y - 22
 lbl_r       = 26
 
-# ── Base canvas (transparent) ─────────────────────────────────────────────────
-img  = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+# ── Base canvas — solid dark navy background ──────────────────────────────────
+# Must be opaque: transparent icons composite against white in Finder / DMG.
+# macOS applies its own squircle rounding at display time.
+img  = Image.new("RGBA", (SIZE, SIZE), BODY_BOT + (255,))
 draw = ImageDraw.Draw(img)
 
 # ── Body gradient — dark navy, top → bottom ───────────────────────────────────
@@ -173,16 +177,6 @@ for i in range(n_pins):
     px = body_x + CONN_INSET + pin_gap + i * (pin_w + pin_gap)
     draw.rectangle([px, pin_y0, px + pin_w, pin_y1], fill=PIN_MAIN)
     draw.rectangle([px, pin_y0, px + 3,     pin_y1], fill=PIN_HI)
-
-# ── Clip to rounded cartridge shape (transparent corners) ────────────────────
-mask      = Image.new("L", (SIZE, SIZE), 0)
-mask_draw = ImageDraw.Draw(mask)
-mask_draw.rounded_rectangle(
-    [body_x, body_y, body_x + body_w, body_y + body_h],
-    radius=BRAD,
-    fill=255,
-)
-img.putalpha(mask)
 
 img.save(OUT, "PNG")
 print(f"Saved: {OUT}  ({SIZE}×{SIZE})")
