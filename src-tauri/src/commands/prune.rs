@@ -9,35 +9,17 @@ use crate::models::{
 
 // ── Filter application ────────────────────────────────────────────────────────
 
-/// Apply filter settings to all groups (optionally scoped to a console list) and produce a deletion plan.
-#[tauri::command]
-pub fn apply_filters(
-    state: State<'_, AppState>,
-    settings: FilterSettings,
-    consoles: Option<Vec<String>>,
-) -> Result<DeletionPlan, String> {
-    let groups = {
-        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
-        let all = cache.groups.clone();
-        if consoles.is_some() {
-            all.into_iter().filter(|g| group_matches_consoles(g, &consoles)).collect()
-        } else {
-            all
-        }
-    };
-
+pub(crate) fn apply_filters_inner(groups: Vec<crate::models::RomGroup>, settings: &FilterSettings) -> DeletionPlan {
     let mut to_delete: Vec<RomFile> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
     let mut no_preferred_count = 0u32;
 
     for group in &groups {
-        // Only process official games here — unofficial handled separately
-        if group.variants.iter().all(|v| matches!(v.file_category, FileCategory::Unofficial)) {
-            continue;
-        }
+        let all_unofficial = group.variants.iter().all(|v| matches!(v.file_category, FileCategory::Unofficial));
 
-        // No preferred version → delete all if flag set
-        if !group.has_preferred_version && settings.remove_if_no_preferred_version {
+        // No preferred version → delete all if flag set (official groups only; unofficial have
+        // no meaningful "preferred version" concept so don't nuke them on this criterion).
+        if !all_unofficial && !group.has_preferred_version && settings.remove_if_no_preferred_version {
             no_preferred_count += 1;
             to_delete.extend(group.variants.clone());
             continue;
@@ -57,7 +39,7 @@ pub fn apply_filters(
                 to_keep.push(rom.clone());
                 continue;
             }
-            // Unofficial handled by keep_unofficial_as_fallback below
+            // Unofficial variants — respect remove_unofficial toggle
             if matches!(rom.file_category, FileCategory::Unofficial) {
                 if settings.remove_unofficial {
                     if rom.is_unofficial_preferred_fallback && settings.keep_unofficial_as_fallback {
@@ -102,12 +84,10 @@ pub fn apply_filters(
         }
     }
 
-    // Sort preview list: console name ascending, then filename ascending
     to_delete.sort_by(|a, b| a.console.cmp(&b.console).then_with(|| a.filename.cmp(&b.filename)));
 
     let total_bytes = to_delete.iter().map(|r| r.filesize).sum();
 
-    // Build per-console summary
     let mut console_map: std::collections::HashMap<String, ConsoleStats> =
         std::collections::HashMap::new();
     for rom in &to_delete {
@@ -137,13 +117,126 @@ pub fn apply_filters(
     let mut console_summary: Vec<ConsoleStats> = console_map.into_values().collect();
     console_summary.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok(DeletionPlan {
+    DeletionPlan {
         to_delete,
         to_keep,
         no_preferred_version_count: no_preferred_count,
         total_bytes_freed: total_bytes,
         console_summary,
-    })
+    }
+}
+
+/// Apply filter settings to all groups (optionally scoped to a console list) and produce a deletion plan.
+#[tauri::command]
+pub fn apply_filters(
+    state: State<'_, AppState>,
+    settings: FilterSettings,
+    consoles: Option<Vec<String>>,
+) -> Result<DeletionPlan, String> {
+    let groups = {
+        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
+        let all = cache.groups.clone();
+        if consoles.is_some() {
+            all.into_iter().filter(|g| group_matches_consoles(g, &consoles)).collect()
+        } else {
+            all
+        }
+    };
+    Ok(apply_filters_inner(groups, &settings))
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{FileCategory, FilterSettings, RomFile, RomGroup};
+
+    fn default_filters() -> FilterSettings {
+        FilterSettings {
+            keep_preferred_only: true,
+            remove_if_no_preferred_version: true,
+            remove_prerelease: true,
+            remove_unofficial: false,
+            remove_older_revisions: true,
+            keep_unofficial_as_fallback: true,
+        }
+    }
+
+    fn make_rom(title: &str, category: FileCategory) -> RomFile {
+        RomFile {
+            path: format!("/roms/{title}.zip"),
+            filename: format!("{title}.zip"),
+            title: title.into(),
+            title_normalized: title.to_lowercase(),
+            console: "Test Console".into(),
+            languages: vec![],
+            regions: vec![],
+            revision: 0,
+            disc_number: None,
+            version: None,
+            status_flags: vec![],
+            extra_tags: vec![],
+            file_category: category,
+            file_format: crate::models::FileFormat::Zip,
+            filesize: 1024,
+            is_bios: false,
+            bad_dump: false,
+            matches_preferred_language: false,
+            matches_preferred_region: false,
+            is_unofficial_preferred_fallback: false,
+        }
+    }
+
+    fn make_group(variants: Vec<RomFile>) -> RomGroup {
+        RomGroup {
+            title_normalized: variants[0].title.to_lowercase(),
+            console: variants[0].console.clone(),
+            variants,
+            preferred_idx: None,
+            has_preferred_version: false,
+            is_format_pair: false,
+            disc_count: 0,
+        }
+    }
+
+    #[test]
+    fn unofficial_group_deleted_when_remove_unofficial_on() {
+        let group = make_group(vec![
+            make_rom("Hack (En)", FileCategory::Unofficial),
+            make_rom("Hack (Ja)", FileCategory::Unofficial),
+        ]);
+        let mut filters = default_filters();
+        filters.remove_unofficial = true;
+        let plan = apply_filters_inner(vec![group], &filters);
+        assert_eq!(plan.to_delete.len(), 2, "all unofficial variants should be deleted");
+        assert!(plan.to_keep.is_empty());
+    }
+
+    #[test]
+    fn unofficial_group_kept_when_remove_unofficial_off() {
+        let group = make_group(vec![
+            make_rom("Hack (En)", FileCategory::Unofficial),
+            make_rom("Hack (Ja)", FileCategory::Unofficial),
+        ]);
+        let mut filters = default_filters();
+        filters.remove_unofficial = false;
+        let plan = apply_filters_inner(vec![group], &filters);
+        assert!(plan.to_delete.is_empty(), "unofficial variants should be kept");
+        assert_eq!(plan.to_keep.len(), 2);
+    }
+
+    #[test]
+    fn unofficial_group_not_deleted_by_no_preferred_version_flag() {
+        // A pure hack group has no preferred language version — it should NOT be mass-deleted
+        // by remove_if_no_preferred_version (that flag is for official games only).
+        let group = make_group(vec![make_rom("Hack (Ja)", FileCategory::Unofficial)]);
+        let mut filters = default_filters();
+        filters.remove_unofficial = false;
+        filters.remove_if_no_preferred_version = true;
+        let plan = apply_filters_inner(vec![group], &filters);
+        assert!(plan.to_delete.is_empty(), "unofficial group must not be nuked by remove_if_no_preferred_version");
+    }
 }
 
 /// Export current deletion plan to a CSV file at the given path.
