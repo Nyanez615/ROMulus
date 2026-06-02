@@ -26,7 +26,7 @@ const DEFAULT_FILTERS: FilterSettings = {
 };
 
 export default function Prune() {
-  const { filterSettings, setFilterSettings } = usePreferencesStore();
+  const { filterSettings, setFilterSettings, preferences } = usePreferencesStore();
   const { setOnedriveAcknowledged, onedriveAcknowledged, setActiveTab } = useUIStore();
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
@@ -136,7 +136,7 @@ export default function Prune() {
               {Object.entries(formatPrefs)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([group, folder]) => {
-                  const abbr = getConsoleDisplayName(group, true);
+                  const abbr = getConsoleDisplayName(group, preferences.short_console_names);
                   const variant = folder.match(/\(([^)]+)\)$/)?.[1] ?? folder.split(" - ").pop() ?? folder;
                   return (
                     <span

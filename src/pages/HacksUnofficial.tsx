@@ -11,6 +11,7 @@ import { DiscBadge } from "@/components/DiscBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
+import { usePreferencesStore } from "@/store/preferences";
 import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
@@ -60,6 +61,7 @@ const ALL_GROUPS = 100_000;
 export default function HacksUnofficial() {
   const { selectedConsoles, cacheVersion } = useScanStore();
   const { category: knownCategories, region: knownRegions, language: knownLanguages } = useTagStore();
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
 
   const sortedCategories = [
     ...CATEGORY_PRIORITY.filter((t) => knownCategories.includes(t)),
@@ -229,7 +231,7 @@ export default function HacksUnofficial() {
                   </span>
                   {selectedConsoles === null && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
-                      {getConsoleDisplayName(g.console, true)}
+                      {getConsoleDisplayName(g.console, useShort)}
                     </span>
                   )}
                   {preferred && (
