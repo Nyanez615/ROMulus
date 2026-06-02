@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AlertTriangle, Download, Trash2, Eye, EyeOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { applyFilters, executePrune, exportCsv, formatBytes, isOneDrivePath, getSettings } from "@/lib/tauri";
+import { applyFilters, executePrune, exportCsv, formatBytes, isOneDrivePath, getSettings, getFormatPairs } from "@/lib/tauri";
 import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import type { FormatPair } from "@/lib/bindings/FormatPair";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
@@ -27,8 +28,15 @@ const DEFAULT_FILTERS: FilterSettings = {
 export default function Prune() {
   const { filterSettings, setFilterSettings } = usePreferencesStore();
   const { setOnedriveAcknowledged, onedriveAcknowledged } = useUIStore();
-  const { selectedConsoles } = useScanStore();
+  const { selectedConsoles, cacheVersion } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
+  const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
+  const [formatPrefs, setFormatPrefs] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getFormatPairs().then(setFormatPairs).catch(console.error);
+    getSettings().then((s) => setFormatPrefs(s.format_preferences as Record<string, string>)).catch(console.error);
+  }, [cacheVersion]);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
@@ -113,6 +121,28 @@ export default function Prune() {
           <FilterRow label="Keep unofficial as fallback" sub="If the only preferred-language version is unofficial, keep it" checked={filters.keep_unofficial_as_fallback} onToggle={() => toggle("keep_unofficial_as_fallback")} />
           <FilterRow label="Delete ALL unofficial regardless of language" checked={filters.remove_unofficial} onToggle={() => toggle("remove_unofficial")} destructive />
         </section>
+
+        {/* Format pair preferences (informational — configured in Settings) */}
+        {Object.keys(formatPrefs).length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-foreground">Format Pair Preferences</h2>
+            <p className="text-xs text-muted-foreground">Configured in Settings. Format pair integration with Prune is coming in a future update.</p>
+            {Object.entries(formatPrefs).map(([group, folder]) => {
+              const pair = formatPairs.find((p) => p.console_group === group);
+              const alt = pair
+                ? [pair.folder_a, pair.folder_b].find((f) => f !== folder) ?? folder
+                : folder;
+              return (
+                <div key={group} className="text-xs flex items-center gap-2 text-muted-foreground">
+                  <span className="font-medium text-foreground">{group}</span>
+                  <span>→ prefer</span>
+                  <span className="text-primary">{folder}</span>
+                  <span>(over {alt})</span>
+                </div>
+              );
+            })}
+          </section>
+        )}
 
         {/* OneDrive warning */}
         {hasOneDrive && !onedriveAcknowledged && (

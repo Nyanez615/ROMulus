@@ -12,6 +12,8 @@ interface ScanStore {
   setProgress: (p: ScanProgress | null) => void;
   selectedConsoles: string[] | null;
   setSelectedConsoles: (c: string[] | null) => void;
+  cacheVersion: number;
+  bumpCacheVersion: () => void;
 }
 
 export const useScanStore = create<ScanStore>((set) => ({
@@ -19,8 +21,10 @@ export const useScanStore = create<ScanStore>((set) => ({
   consoles: [],
   progress: null,
   selectedConsoles: null,
+  cacheVersion: 0,
   setStatus: (status) => set({ status }),
   setConsoles: (consoles) => set({ consoles }),
   setProgress: (progress) => set({ progress }),
   setSelectedConsoles: (selectedConsoles) => set({ selectedConsoles }),
+  bumpCacheVersion: () => set((s) => ({ cacheVersion: s.cacheVersion + 1 })),
 }));

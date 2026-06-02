@@ -205,6 +205,9 @@ export const getSettings = (): Promise<AppSettings> =>
 export const saveSettings = (settings: AppSettings): Promise<void> =>
   isTauri() ? invoke("save_settings", { settings }) : Promise.resolve();
 
+export const reapplyPreferences = (): Promise<void> =>
+  isTauri() ? invoke("reapply_preferences") : Promise.resolve();
+
 export const getOnboardingState = (): Promise<OnboardingState> =>
   isTauri() ? invoke("get_onboarding_state") : Promise.resolve(DEFAULT_ONBOARDING);
 
@@ -230,6 +233,9 @@ export const onNewRom = (
   isTauri()
     ? listen<NewRomEvent>("watcher:new_rom", (e) => cb(e.payload))
     : Promise.resolve(noop);
+
+export const onPreferencesRegrouped = (cb: () => void): Promise<UnlistenFn> =>
+  isTauri() ? listen("preferences:regrouped", cb) : Promise.resolve(noop);
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 

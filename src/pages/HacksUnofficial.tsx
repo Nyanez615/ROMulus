@@ -58,7 +58,7 @@ type SortKey = "az" | "za" | "variants";
 const ALL_GROUPS = 100_000;
 
 export default function HacksUnofficial() {
-  const { selectedConsoles } = useScanStore();
+  const { selectedConsoles, cacheVersion } = useScanStore();
   const { category: knownCategories, region: knownRegions, language: knownLanguages } = useTagStore();
 
   const sortedCategories = [
@@ -83,7 +83,7 @@ export default function HacksUnofficial() {
         .then((r) => setGroups(r.groups))
         .catch(console.error);
     }, 200);
-  }, [selectedConsoles, search]);
+  }, [selectedConsoles, search, cacheVersion]);
 
   function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
     set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);

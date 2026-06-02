@@ -115,6 +115,7 @@ pub fn run() {
             // Settings & onboarding
             settings::get_settings,
             settings::save_settings,
+            settings::reapply_preferences,
             settings::get_onboarding_state,
             settings::complete_onboarding_step,
             // Metadata (IGDB)
