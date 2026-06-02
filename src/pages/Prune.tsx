@@ -6,13 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { applyFilters, executePrune, exportCsv, formatBytes, isOneDrivePath, getSettings, getFormatPairs } from "@/lib/tauri";
+import { applyFilters, executePrune, exportCsv, formatBytes, isOneDrivePath, getSettings } from "@/lib/tauri";
 import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
-import type { FormatPair } from "@/lib/bindings/FormatPair";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
+import { getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 
@@ -27,14 +27,12 @@ const DEFAULT_FILTERS: FilterSettings = {
 
 export default function Prune() {
   const { filterSettings, setFilterSettings } = usePreferencesStore();
-  const { setOnedriveAcknowledged, onedriveAcknowledged } = useUIStore();
+  const { setOnedriveAcknowledged, onedriveAcknowledged, setActiveTab } = useUIStore();
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
-  const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
   const [formatPrefs, setFormatPrefs] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    getFormatPairs().then(setFormatPairs).catch(console.error);
     getSettings().then((s) => setFormatPrefs(s.format_preferences as Record<string, string>)).catch(console.error);
   }, [cacheVersion]);
   const [loading, setLoading] = useState(false);
@@ -122,25 +120,36 @@ export default function Prune() {
           <FilterRow label="Delete ALL unofficial regardless of language" checked={filters.remove_unofficial} onToggle={() => toggle("remove_unofficial")} destructive />
         </section>
 
-        {/* Format pair preferences (informational — configured in Settings) */}
+        {/* Format pair preferences — compact pill summary, configured in Settings */}
         {Object.keys(formatPrefs).length > 0 && (
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold text-foreground">Format Pair Preferences</h2>
-            <p className="text-xs text-muted-foreground">Configured in Settings. Format pair integration with Prune is coming in a future update.</p>
-            {Object.entries(formatPrefs).map(([group, folder]) => {
-              const pair = formatPairs.find((p) => p.console_group === group);
-              const alt = pair
-                ? [pair.folder_a, pair.folder_b].find((f) => f !== folder) ?? folder
-                : folder;
-              return (
-                <div key={group} className="text-xs flex items-center gap-2 text-muted-foreground">
-                  <span className="font-medium text-foreground">{group}</span>
-                  <span>→ prefer</span>
-                  <span className="text-primary">{folder}</span>
-                  <span>(over {alt})</span>
-                </div>
-              );
-            })}
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground">Format Pair Preferences</h2>
+              <button
+                onClick={() => setActiveTab("settings")}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Edit in Settings →
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(formatPrefs)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([group, folder]) => {
+                  const abbr = getConsoleDisplayName(group, true);
+                  const variant = folder.match(/\(([^)]+)\)$/)?.[1] ?? folder.split(" - ").pop() ?? folder;
+                  return (
+                    <span
+                      key={group}
+                      className="inline-flex items-center gap-1.5 text-xs bg-muted/40 border border-border/60 rounded-full px-3 py-1"
+                    >
+                      <span className="text-muted-foreground">{abbr}</span>
+                      <span className="text-muted-foreground/50">·</span>
+                      <span className="text-foreground font-medium">{variant}</span>
+                    </span>
+                  );
+                })}
+            </div>
           </section>
         )}
 
