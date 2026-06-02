@@ -18,6 +18,7 @@ const KNOWN_REGIONS: &[&str] = &[
 
 const STATUS_FLAGS: &[&str] = &[
     "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
+    "Preview", "GameCube Preview",
     "Aftermarket", "Unl", "Pirate", "Hack", "Alt",
 ];
 
@@ -511,5 +512,29 @@ mod tests {
         let r = parse("Some Game (USA) (DSi Enhanced).zip");
         assert!(r.languages.is_empty(), "DSi Enhanced must not be classified as a language");
         assert!(r.extra_tags.contains(&"DSi Enhanced".to_string()), "DSi Enhanced must be an extra tag");
+    }
+
+    // ── Preview / demo-disc tag tests ─────────────────────────────────────────
+
+    #[test]
+    fn standalone_preview_is_status_flag() {
+        let r = parse("Some Game (USA) (Preview).zip");
+        assert!(r.status_flags.contains(&"Preview".to_string()), "(Preview) must be a status flag");
+        assert!(r.languages.is_empty());
+        assert!(r.extra_tags.is_empty());
+    }
+
+    #[test]
+    fn preview_with_number_is_status_flag() {
+        // starts_with("Preview ") matches "Preview 2"
+        let r = parse("Some Game (USA) (Preview 2).zip");
+        assert!(r.status_flags.iter().any(|f| f.starts_with("Preview")), "(Preview 2) must be a status flag");
+    }
+
+    #[test]
+    fn gamecube_preview_is_status_flag() {
+        let r = parse("Pokemon Puzzle Collection (USA) (GameCube Preview).zip");
+        assert!(r.status_flags.contains(&"GameCube Preview".to_string()), "(GameCube Preview) must be a status flag");
+        assert!(r.extra_tags.is_empty(), "(GameCube Preview) must not leak into extra_tags");
     }
 }

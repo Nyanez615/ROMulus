@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { AlertTriangle, Download, Trash2, Eye, EyeOff, X, Search, CheckSquare, Square } from "lucide-react";
+import { AlertTriangle, Download, Trash2, Eye, EyeOff, X, Search, CheckSquare, Square, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -8,14 +8,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { applyFilters, executePrune, exportCsv, formatBytes, isOneDrivePath, getSettings, getFilterSettings, saveFilterSettings } from "@/lib/tauri";
+import { Separator } from "@/components/ui/separator";
+import {
+  applyFilters, applyFormatPairs, executePrune, exportCsv,
+  formatBytes, isOneDrivePath, getSettings, saveSettings,
+  getFilterSettings, saveFilterSettings, getFormatPairs,
+  reapplyPreferences,
+} from "@/lib/tauri";
+import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { FilterSettings } from "@/lib/bindings/FilterSettings";
+import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
-import { getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 
@@ -92,16 +99,25 @@ const FILTER_ROWS: Array<{
 ];
 
 export default function Prune() {
-  const { filterSettings, setFilterSettings, preferences } = usePreferencesStore();
-  const { setOnedriveAcknowledged, onedriveAcknowledged, setActiveTab } = useUIStore();
+  const { filterSettings, setFilterSettings } = usePreferencesStore();
+  const { setOnedriveAcknowledged, onedriveAcknowledged } = useUIStore();
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
-  const [formatPrefs, setFormatPrefs] = useState<Record<string, string>>({});
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  // Load format prefs + filter settings from DB on mount / cache change
+  // ── Format pair state ────────────────────────────────────────────────────────
+  const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
+  // Full AppSettings needed to save format_preferences updates
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [fpPlan, setFpPlan] = useState<DeletionPlan | null>(null);
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpExecuting, setFpExecuting] = useState(false);
+  const [fpResult, setFpResult] = useState<{ success: number; failed: number } | null>(null);
+
+  // Load format pairs + AppSettings on mount / cache change
   useEffect(() => {
-    getSettings().then((s) => setFormatPrefs(s.format_preferences as Record<string, string>)).catch(console.error);
+    getFormatPairs().then(setFormatPairs).catch(console.error);
+    getSettings().then(setAppSettings).catch(console.error);
   }, [cacheVersion]);
 
   useEffect(() => {
@@ -197,6 +213,48 @@ export default function Prune() {
     saveFilterSettings(next).catch(console.error);
   }
 
+  // ── Format pair helpers ──────────────────────────────────────────────────────
+
+  function selectFormatFolder(consoleGroup: string, folder: string) {
+    if (!appSettings) return;
+    const next: AppSettings = {
+      ...appSettings,
+      format_preferences: { ...appSettings.format_preferences, [consoleGroup]: folder },
+    };
+    setAppSettings(next);
+    saveSettings(next).catch(console.error);
+  }
+
+  async function previewFormatPairs() {
+    setFpLoading(true);
+    setFpPlan(null);
+    try {
+      const p = await applyFormatPairs();
+      setFpPlan(p);
+    } finally {
+      setFpLoading(false);
+    }
+  }
+
+  async function executeFormatPairs() {
+    if (!fpPlan || fpPlan.to_delete.length === 0) return;
+    setFpExecuting(true);
+    try {
+      const mode = (appSettings?.allow_permanent_delete) ? "permanent" : "trash";
+      const toDelete = fpPlan.to_delete.map((d) => d.rom);
+      const res = await executePrune(toDelete, mode, onedriveAcknowledged);
+      setFpResult({ success: res.success_count, failed: res.failed.length });
+      setFpPlan(null);
+      // Refresh cache so browse tabs and Dashboard reflect the removal
+      await reapplyPreferences().catch(console.error);
+    } finally {
+      setFpExecuting(false);
+    }
+  }
+
+  const formatPrefs = appSettings?.format_preferences ?? {};
+  const anyFormatPrefSet = Object.keys(formatPrefs).length > 0;
+
   const filters = filterSettings;
 
   return (
@@ -221,6 +279,132 @@ export default function Prune() {
           </Alert>
         )}
 
+        {/* ── Format Pair Cleanup ─────────────────────────────────────── */}
+        {formatPairs.length > 0 && (
+          <>
+            <section className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">Format Pair Cleanup</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select your preferred format for each paired console folder. Click "Analyze" to preview which
+                files will be removed, then execute to delete the non-preferred copies.
+              </p>
+
+              {/* Pair selection cards */}
+              {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
+                const pref = formatPrefs[pair.console_group];
+                const sortedFolders = [pair.folder_a, pair.folder_b].sort((a, b) => a.localeCompare(b));
+                return (
+                  <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
+                      {Math.round(pair.overlap_percent * 100)}% title overlap
+                    </div>
+                    <div className="divide-y divide-border">
+                      {sortedFolders.map((folder) => (
+                        <button
+                          key={folder}
+                          onClick={() => selectFormatFolder(pair.console_group, folder)}
+                          className={[
+                            "w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors",
+                            pref === folder ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30",
+                          ].join(" ")}
+                        >
+                          <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
+                          <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>
+                            {folder.split(" - ")[1] ?? folder}
+                          </span>
+                          {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Format pair plan summary */}
+              {fpResult && (
+                <Alert className="border-green-500/40 bg-green-500/10">
+                  <AlertDescription className="text-green-300 text-sm">
+                    ✓ Removed {fpResult.success} format-pair files.{fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {fpPlan && fpPlan.to_delete.length > 0 && (
+                <div className="border border-border rounded-xl overflow-hidden text-xs">
+                  <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
+                    <span className="font-medium text-foreground">
+                      {fpPlan.to_delete.length.toLocaleString()} files · {formatBytes(fpPlan.total_bytes_freed)} to remove
+                    </span>
+                    <button onClick={() => setFpPlan(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <ScrollArea className="h-40">
+                    {fpPlan.to_delete.slice(0, 100).map((item, i) => (
+                      <div key={i} className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40 hover:bg-muted/20">
+                        <span className="flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
+                        <span className="text-muted-foreground/60 shrink-0">{item.rom.console.split(" - ")[1] ?? item.rom.console}</span>
+                      </div>
+                    ))}
+                    {fpPlan.to_delete.length > 100 && (
+                      <div className="px-4 py-2 text-muted-foreground">…and {(fpPlan.to_delete.length - 100).toLocaleString()} more</div>
+                    )}
+                  </ScrollArea>
+                </div>
+              )}
+
+              {fpPlan && fpPlan.to_delete.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nothing to remove — all files are already in the preferred format.</p>
+              )}
+
+              {/* Format pair actions */}
+              <div className="flex gap-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={fpLoading || !anyFormatPrefSet}
+                  onClick={previewFormatPairs}
+                  className="gap-2"
+                >
+                  {fpLoading ? "Analyzing…" : fpPlan ? "Re-analyze" : "Analyze Removals"}
+                </Button>
+                {fpPlan && fpPlan.to_delete.length > 0 && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="destructive" disabled={fpExecuting} className="gap-2">
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {fpExecuting ? "Removing…" : `Remove ${fpPlan.to_delete.length.toLocaleString()} files`}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove format-pair files?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {fpPlan.to_delete.length.toLocaleString()} files from non-preferred format folders
+                          ({formatBytes(fpPlan.total_bytes_freed)}) will be{" "}
+                          {appSettings?.allow_permanent_delete ? "permanently deleted" : "moved to the Trash"}.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={executeFormatPairs} className="bg-destructive hover:bg-destructive/90">
+                          {appSettings?.allow_permanent_delete ? "Delete permanently" : "Move to Trash"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+            </section>
+
+            <Separator />
+          </>
+        )}
+
+        {/* ── Variant Pruning ─────────────────────────────────────────── */}
         {/* Official ROMs filters */}
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Official ROMs</h2>
@@ -248,39 +432,6 @@ export default function Prune() {
             />
           ))}
         </section>
-
-        {/* Format pair preferences — compact pill summary */}
-        {Object.keys(formatPrefs).length > 0 && (
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-foreground">Format Pair Preferences</h2>
-              <button
-                onClick={() => setActiveTab("settings")}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Edit in Settings →
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(formatPrefs)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([group, folder]) => {
-                  const abbr = getConsoleDisplayName(group, preferences.short_console_names);
-                  const variant = folder.match(/\(([^)]+)\)$/)?.[1] ?? folder.split(" - ").pop() ?? folder;
-                  return (
-                    <span
-                      key={group}
-                      className="inline-flex items-center gap-1.5 text-xs bg-muted/40 border border-border/60 rounded-full px-3 py-1"
-                    >
-                      <span className="text-muted-foreground">{abbr}</span>
-                      <span className="text-muted-foreground/50">·</span>
-                      <span className="text-foreground font-medium">{variant}</span>
-                    </span>
-                  );
-                })}
-            </div>
-          </section>
-        )}
 
         {/* OneDrive warning */}
         {hasOneDrive && !onedriveAcknowledged && (

@@ -8,7 +8,7 @@ use crate::db::AppState;
 use crate::deduper::detect_format_pairs;
 use crate::models::{
     ConsoleStats, DeletionItem, DeletionPlan, DeletionReason, FileCategory, FilterSettings,
-    FormatPair, RomFile,
+    FormatPair, RomFile, RomGroup,
 };
 
 // ── Format-pair deletion helpers ──────────────────────────────────────────────
@@ -47,14 +47,13 @@ fn build_format_delete_set(
 
 // ── Filter application ────────────────────────────────────────────────────────
 
+/// Apply filter settings to groups and return a deletion plan.
+/// Format-pair removal is handled separately by `apply_format_pairs` — this
+/// function deals exclusively with variant selection (language / region / revision).
 pub(crate) fn apply_filters_inner(
-    groups: Vec<crate::models::RomGroup>,
+    groups: Vec<RomGroup>,
     settings: &FilterSettings,
-    format_prefs: &HashMap<String, String>,
-    format_pairs: &[FormatPair],
 ) -> DeletionPlan {
-    let format_delete_paths = build_format_delete_set(&groups, format_prefs, format_pairs);
-
     let mut to_delete: Vec<DeletionItem> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
     let mut no_preferred_count = 0u32;
@@ -86,11 +85,6 @@ pub(crate) fn apply_filters_inner(
                 to_keep.push(rom.clone());
                 continue;
             }
-            // Format-pair non-preferred folder — delete unconditionally.
-            if format_delete_paths.contains(&rom.path) {
-                to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::FormatPairNonPreferred });
-                continue;
-            }
             // Unofficial variants — respect remove_unofficial toggle.
             if matches!(rom.file_category, FileCategory::Unofficial) {
                 if settings.remove_unofficial {
@@ -107,7 +101,11 @@ pub(crate) fn apply_filters_inner(
             // Remove pre-release.
             if settings.remove_prerelease
                 && rom.status_flags.iter().any(|f| {
-                    matches!(f.as_str(), "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk")
+                    matches!(
+                        f.as_str(),
+                        "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk"
+                        | "Preview" | "GameCube Preview"
+                    )
                 })
             {
                 to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::Prerelease });
@@ -189,31 +187,85 @@ pub(crate) fn apply_filters_inner(
 }
 
 /// Apply filter settings to all groups (optionally scoped to a console list) and produce a deletion plan.
+/// Format-pair cleanup is a separate operation — see `apply_format_pairs`.
 #[tauri::command]
 pub fn apply_filters(
     state: State<'_, AppState>,
     settings: FilterSettings,
     consoles: Option<Vec<String>>,
 ) -> Result<DeletionPlan, String> {
-    // Load format preferences from DB before acquiring scan cache lock.
+    let groups = {
+        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
+        let all = cache.groups.clone();
+        if consoles.is_some() {
+            all.into_iter().filter(|g| group_matches_consoles(g, &consoles)).collect()
+        } else {
+            all
+        }
+    };
+
+    Ok(apply_filters_inner(groups, &settings))
+}
+
+/// Build a deletion plan for format-pair cleanup: remove all variants from the
+/// non-preferred folder for each pair where the user has set a preference.
+/// This is intentionally separate from `apply_filters` — format-pair removal is a
+/// structural, one-time operation; variant pruning is preference-driven and recurring.
+#[tauri::command]
+pub fn apply_format_pairs(state: State<'_, AppState>) -> Result<DeletionPlan, String> {
+    // Load format preferences before acquiring the scan cache lock.
     let format_prefs = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         load_format_preferences(&conn)?
     };
 
+    if format_prefs.is_empty() {
+        return Ok(DeletionPlan {
+            to_delete: vec![],
+            to_keep: vec![],
+            no_preferred_version_count: 0,
+            total_bytes_freed: 0,
+            console_summary: vec![],
+        });
+    }
+
     let (groups, format_pairs) = {
         let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
         let pairs = detect_format_pairs(&cache.roms);
-        let all = cache.groups.clone();
-        let filtered = if consoles.is_some() {
-            all.into_iter().filter(|g| group_matches_consoles(g, &consoles)).collect()
-        } else {
-            all
-        };
-        (filtered, pairs)
+        (cache.groups.clone(), pairs)
     };
 
-    Ok(apply_filters_inner(groups, &settings, &format_prefs, &format_pairs))
+    let delete_paths = build_format_delete_set(&groups, &format_prefs, &format_pairs);
+
+    let mut to_delete: Vec<DeletionItem> = vec![];
+    let mut to_keep: Vec<RomFile> = vec![];
+
+    for group in &groups {
+        for rom in &group.variants {
+            if delete_paths.contains(&rom.path) {
+                to_delete.push(DeletionItem {
+                    rom: rom.clone(),
+                    reason: DeletionReason::FormatPairNonPreferred,
+                });
+            } else {
+                to_keep.push(rom.clone());
+            }
+        }
+    }
+
+    to_delete.sort_by(|a, b| {
+        a.rom.console.cmp(&b.rom.console).then_with(|| a.rom.filename.cmp(&b.rom.filename))
+    });
+
+    let total_bytes_freed = to_delete.iter().map(|d| d.rom.filesize).sum();
+
+    Ok(DeletionPlan {
+        to_delete,
+        to_keep,
+        no_preferred_version_count: 0,
+        total_bytes_freed,
+        console_summary: vec![],
+    })
 }
 
 // ── CSV helper ────────────────────────────────────────────────────────────────
@@ -294,9 +346,6 @@ mod tests {
         }
     }
 
-    fn no_format_prefs() -> HashMap<String, String> { HashMap::new() }
-    fn no_format_pairs() -> Vec<FormatPair> { vec![] }
-
     fn make_rom(title: &str, category: FileCategory) -> RomFile {
         RomFile {
             path: format!("/roms/{title}.zip"),
@@ -342,7 +391,7 @@ mod tests {
         ]);
         let mut filters = default_filters();
         filters.remove_unofficial = true;
-        let plan = apply_filters_inner(vec![group], &filters, &no_format_prefs(), &no_format_pairs());
+        let plan = apply_filters_inner(vec![group], &filters);
         assert_eq!(plan.to_delete.len(), 2, "all unofficial variants should be deleted");
         assert!(plan.to_keep.is_empty());
     }
@@ -355,7 +404,7 @@ mod tests {
         ]);
         let mut filters = default_filters();
         filters.remove_unofficial = false;
-        let plan = apply_filters_inner(vec![group], &filters, &no_format_prefs(), &no_format_pairs());
+        let plan = apply_filters_inner(vec![group], &filters);
         assert!(plan.to_delete.is_empty(), "unofficial variants should be kept");
         assert_eq!(plan.to_keep.len(), 2);
     }
@@ -366,7 +415,7 @@ mod tests {
         let mut filters = default_filters();
         filters.remove_unofficial = false;
         filters.remove_if_no_preferred_version = true;
-        let plan = apply_filters_inner(vec![group], &filters, &no_format_prefs(), &no_format_pairs());
+        let plan = apply_filters_inner(vec![group], &filters);
         assert!(plan.to_delete.is_empty(), "unofficial group must not be nuked by remove_if_no_preferred_version");
     }
 
@@ -387,13 +436,13 @@ mod tests {
         filters.keep_preferred_only = true;
         filters.remove_prerelease = false;
         filters.remove_older_revisions = false;
-        let plan = apply_filters_inner(vec![group], &filters, &no_format_prefs(), &no_format_pairs());
+        let plan = apply_filters_inner(vec![group], &filters);
         assert_eq!(plan.to_keep.len(), 1, "exactly one ROM should be kept");
         assert_eq!(plan.to_delete.len(), 2);
     }
 
     #[test]
-    fn format_pair_non_preferred_variant_deleted() {
+    fn build_format_delete_set_marks_non_preferred_folder() {
         let fds = "Nintendo - Family Computer Disk System (FDS)";
         let qd  = "Nintendo - Family Computer Disk System (QD)";
         let group_name = "Nintendo - Family Computer Disk System";
@@ -401,16 +450,12 @@ mod tests {
         let mut fds_rom = make_rom("Game", FileCategory::Game);
         fds_rom.path = "/roms/fds/Game.zip".into();
         fds_rom.console = fds.into();
-        fds_rom.matches_preferred_language = true;
         let mut qd_rom = make_rom("Game", FileCategory::Game);
         qd_rom.path = "/roms/qd/Game.zip".into();
         qd_rom.console = qd.into();
-        qd_rom.matches_preferred_language = true;
 
         let mut group = make_group(vec![fds_rom, qd_rom]);
         group.is_format_pair = true;
-        group.has_preferred_version = true;
-        group.preferred_idx = Some(0);
 
         let mut format_prefs = HashMap::new();
         format_prefs.insert(group_name.to_string(), fds.to_string());
@@ -422,12 +467,40 @@ mod tests {
             overlap_percent: 1.0,
         }];
 
-        let mut filters = default_filters();
-        filters.keep_preferred_only = false;
-        let plan = apply_filters_inner(vec![group], &filters, &format_prefs, &pairs);
-        assert_eq!(plan.to_delete.len(), 1, "only the non-preferred format variant should be deleted");
-        assert!(matches!(plan.to_delete[0].reason, DeletionReason::FormatPairNonPreferred));
-        assert_eq!(plan.to_delete[0].rom.console, qd);
+        let delete_set = build_format_delete_set(&[group], &format_prefs, &pairs);
+        assert_eq!(delete_set.len(), 1, "only the non-preferred (QD) path should be in the delete set");
+        assert!(delete_set.contains("/roms/qd/Game.zip"));
+        assert!(!delete_set.contains("/roms/fds/Game.zip"));
+    }
+
+    #[test]
+    fn build_format_delete_set_bios_always_exempt() {
+        let fds = "Nintendo - Family Computer Disk System (FDS)";
+        let qd  = "Nintendo - Family Computer Disk System (QD)";
+        let group_name = "Nintendo - Family Computer Disk System";
+
+        let mut bios = make_rom("[BIOS] Disk System BIOS", FileCategory::Game);
+        bios.path = "/roms/qd/bios.zip".into();
+        bios.console = qd.into();
+        bios.is_bios = true;
+        let mut fds_rom = make_rom("Game", FileCategory::Game);
+        fds_rom.path = "/roms/fds/Game.zip".into();
+        fds_rom.console = fds.into();
+
+        let mut group = make_group(vec![fds_rom, bios]);
+        group.is_format_pair = true;
+
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert(group_name.to_string(), fds.to_string());
+        let pairs = vec![FormatPair {
+            console_group: group_name.into(),
+            folder_a: fds.into(),
+            folder_b: qd.into(),
+            overlap_percent: 1.0,
+        }];
+
+        let delete_set = build_format_delete_set(&[group], &format_prefs, &pairs);
+        assert!(!delete_set.contains("/roms/qd/bios.zip"), "BIOS must never be in delete set");
     }
 
     #[test]
@@ -447,8 +520,30 @@ mod tests {
         filters.keep_preferred_only = false;
         filters.remove_prerelease = true;
         filters.remove_older_revisions = false;
-        let plan = apply_filters_inner(vec![group], &filters, &no_format_prefs(), &no_format_pairs());
+        let plan = apply_filters_inner(vec![group], &filters);
         assert_eq!(plan.to_delete.len(), 1);
         assert!(matches!(plan.to_delete[0].reason, DeletionReason::Prerelease));
+    }
+
+    #[test]
+    fn preview_tag_deleted_as_prerelease() {
+        let mut release = make_rom("Pokemon Puzzle Collection (USA, Europe)", FileCategory::Game);
+        release.matches_preferred_language = true;
+        let mut preview = make_rom("Pokemon Puzzle Collection (USA) (GameCube Preview)", FileCategory::Game);
+        preview.status_flags = vec!["GameCube Preview".into()];
+        preview.matches_preferred_language = true;
+
+        let mut group = make_group(vec![release, preview]);
+        group.has_preferred_version = true;
+        group.preferred_idx = Some(0);
+
+        let mut filters = default_filters();
+        filters.keep_preferred_only = false;
+        filters.remove_prerelease = true;
+        filters.remove_older_revisions = false;
+        let plan = apply_filters_inner(vec![group], &filters);
+        assert_eq!(plan.to_delete.len(), 1);
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::Prerelease));
+        assert!(plan.to_delete[0].rom.filename.contains("GameCube Preview"));
     }
 }

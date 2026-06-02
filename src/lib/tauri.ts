@@ -106,6 +106,11 @@ export const applyFilters = (settings: FilterSettings, consoles?: string[]): Pro
     ? invoke("apply_filters", { settings, consoles: consoles ?? null })
     : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
+export const applyFormatPairs = (): Promise<DeletionPlan> =>
+  isTauri()
+    ? invoke("apply_format_pairs")
+    : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
+
 export const exportCsv = (toDelete: DeletionItem[], path: string): Promise<void> =>
   isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
 
