@@ -367,15 +367,16 @@ export default function Settings() {
             These console folders contain the same games in different formats.
             Select your preferred format — the entire non-preferred folder will be queued for deletion in the Prune tab.
           </p>
-          {formatPairs.map((pair) => {
+          {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
             const pref = settings?.format_preferences[pair.console_group];
+            const sortedFolders = [pair.folder_a, pair.folder_b].sort((a, b) => a.localeCompare(b));
             return (
               <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
                 <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
                   {Math.round(pair.overlap_percent * 100)}% title overlap
                 </div>
                 <div className="divide-y divide-border">
-                  {[pair.folder_a, pair.folder_b].map((folder) => (
+                  {sortedFolders.map((folder) => (
                     <button
                       key={folder}
                       onClick={() => {
