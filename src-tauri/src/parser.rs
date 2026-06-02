@@ -13,7 +13,23 @@ const KNOWN_REGIONS: &[&str] = &[
 
 const STATUS_FLAGS: &[&str] = &[
     "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
-    "Aftermarket", "Unl", "Pirate", "Hack",
+    "Aftermarket", "Unl", "Pirate", "Hack", "Alt",
+];
+
+/// ISO 639-1 codes + common multi-language combos seen in No-Intro filenames.
+/// Explicit whitelist — anything not here falls through to status_flags or extra_tags.
+const LANGUAGE_CODES: &[&str] = &[
+    "Af", "Ar", "Be", "Bg", "Ca", "Cs", "Cy", "Da", "De", "El", "En",
+    "Eo", "Es", "Et", "Eu", "Fi", "Fr", "Ga", "Gl", "He", "Hr", "Hu",
+    "Hy", "Id", "Is", "It", "Ja", "Ka", "Ko", "Lt", "Lv", "Mk", "Ms",
+    "Mt", "Nl", "No", "Pl", "Pt", "Ro", "Ru", "Sk", "Sl", "Sq", "Sr",
+    "Sv", "Sw", "Th", "Tl", "Tr", "Uk", "Ur", "Vi", "Yi", "Zh",
+    // Multi-language combos
+    "En,Fr", "En,De", "En,Es", "En,It", "En,Pt", "En,Nl",
+    "En,Fr,De", "En,Fr,De,Es", "En,Fr,De,Es,It",
+    "En,Ja", "En,Zh", "En,Ko", "Zh,En",
+    // Rare but valid
+    "Kw", "Gd", "Br", "Co", "Oc",
 ];
 
 /// Tags that mark a utility / non-game ROM.
@@ -143,15 +159,7 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
 }
 
 fn is_language_tag(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    s.split(',').all(|part| {
-        let bytes = part.as_bytes();
-        (bytes.len() == 2 || bytes.len() == 3)
-            && bytes.iter().all(|b| b.is_ascii_alphabetic())
-            && part.chars().next().is_some_and(|c| c.is_uppercase())
-    })
+    LANGUAGE_CODES.contains(&s)
 }
 
 fn parse_revision(s: &str) -> Option<u32> {
@@ -450,5 +458,36 @@ mod tests {
     fn unknown_extension_is_skipped() {
         let p = PathBuf::from("/roms/NES/readme.txt");
         assert!(parse_file(&p, "Nintendo - NES", 0, 0).is_none());
+    }
+
+    // ── Language whitelist regression tests ───────────────────────────────────
+
+    #[test]
+    fn unl_only_is_unofficial_not_language() {
+        let r = parse("Some Game (USA) (Unl).zip");
+        assert!(r.languages.is_empty(), "Unl must not be classified as a language");
+        assert!(r.status_flags.contains(&"Unl".to_string()), "Unl must be a status flag");
+        assert_eq!(r.file_category, FileCategory::Unofficial, "Unl-only must be Unofficial");
+    }
+
+    #[test]
+    fn alt_is_status_flag_not_language() {
+        let r = parse("Some Game (USA) (Alt).zip");
+        assert!(r.languages.is_empty(), "Alt must not be classified as a language");
+        assert!(r.status_flags.contains(&"Alt".to_string()), "Alt must be a status flag");
+    }
+
+    #[test]
+    fn ces_is_extra_tag_not_language() {
+        let r = parse("Some Game (USA) (CES).zip");
+        assert!(r.languages.is_empty(), "CES must not be classified as a language");
+        assert!(r.extra_tags.contains(&"CES".to_string()), "CES must be an extra tag");
+    }
+
+    #[test]
+    fn dsi_enhanced_is_extra_tag_not_language() {
+        let r = parse("Some Game (USA) (DSi Enhanced).zip");
+        assert!(r.languages.is_empty(), "DSi Enhanced must not be classified as a language");
+        assert!(r.extra_tags.contains(&"DSi Enhanced".to_string()), "DSi Enhanced must be an extra tag");
     }
 }

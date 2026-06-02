@@ -368,7 +368,11 @@ pub fn get_duplicates(
         .groups
         .iter()
         .filter(|g| {
-            if g.is_format_pair { return true; }
+            // Format pairs are not true duplicates — they represent different
+            // formats of the same game (e.g. FDS/QD, Headered/Headerless).
+            // Those are handled by Prune; the Duplicates tab shows only cases
+            // where the same game exists as 2+ copies in the same format.
+            if g.is_format_pair { return false; }
             let eligible_count = g.variants.iter()
                 .filter(|v| v.matches_preferred_language && !v.bad_dump
                     && !v.status_flags.iter().any(|f| {

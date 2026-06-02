@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { CheckCircle2, AlertCircle } from "lucide-react";
+import { CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getDuplicates } from "@/lib/tauri";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
@@ -35,8 +35,6 @@ export default function Duplicates() {
   const { selectedConsoles } = useScanStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [resolved, setResolved] = useState<Set<string>>(new Set());
-  // Derive loading: "loaded for which selection key" vs current key.
-  // All setState calls stay inside async callbacks to satisfy react-hooks/set-state-in-effect.
   const [loadedKey, setLoadedKey] = useState("");
   const currentKey = selectedConsoles ? selectedConsoles.join("\0") : "\0all";
   const isLoading = loadedKey !== currentKey;
@@ -69,7 +67,7 @@ export default function Duplicates() {
       <div className="h-14 flex items-center gap-3 px-6 border-b border-border">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="Duplicates" />
         <span className="text-xs text-muted-foreground ml-auto">
-          {!isLoading && `${pending.length} of ${groups.length} to resolve`}
+          {!isLoading && `${pending.length} of ${groups.length} to review`}
         </span>
       </div>
 
@@ -86,14 +84,12 @@ export default function Duplicates() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {/* Loading skeleton */}
         {isLoading && (
           <div className="p-6 space-y-4 max-w-4xl mx-auto">
             {[1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)}
           </div>
         )}
 
-        {/* Empty state — only after load completes */}
         {!isLoading && groups.length === 0 && (
           <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="duplicates">
             <div className="flex flex-col items-center gap-3 px-6 pt-16 pb-6 text-muted-foreground">
@@ -103,57 +99,85 @@ export default function Duplicates() {
           </ConsoleEmptyState>
         )}
 
-        {!isLoading && (
+        {!isLoading && groups.length > 0 && (
           <div className="p-6 space-y-4 max-w-4xl mx-auto">
-          {sortedGroups.map((g) => {
-            const key = `${g.console}::${g.title_normalized}`;
-            const isResolved = resolved.has(key);
-            const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
+            {sortedGroups.map((g) => {
+              const key = `${g.console}::${g.title_normalized}`;
+              const isResolved = resolved.has(key);
+              const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
+              const hasPreferred = preferred != null;
+              const consoleName = g.console.split(" - ")[1] ?? g.console;
 
-            return (
-              <div key={key} className={`border rounded-xl overflow-hidden transition-opacity ${isResolved ? "opacity-40" : ""}`}>
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/30 border-b border-border">
-                  {isResolved ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                  )}
-                  <span className="text-sm font-medium text-foreground">{preferred?.title ?? g.variants[0]?.title ?? g.title_normalized}</span>
-                  {g.is_format_pair && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">format pair</span>
-                  )}
-                  <span className="text-xs text-muted-foreground ml-auto">{g.console.split(" - ")[1] ?? g.console}</span>
-                </div>
-
-                <div className="divide-y divide-border">
-                  {g.variants.map((v, vi) => (
-                    <div key={vi} className="flex items-center gap-3 px-4 py-3 bg-card text-sm">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-mono text-foreground truncate">{v.filename}</div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <TagList regions={v.regions} languages={v.languages} statusFlags={v.status_flags} max={4} />
-                          <span className="text-xs text-muted-foreground/60 ml-1">{variantType(v)}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0">{formatBytes(v.filesize)}</span>
-                      {g.preferred_idx === vi && <span className="text-xs text-green-400 shrink-0">★ preferred</span>}
-                    </div>
-                  ))}
-                </div>
-
-                {!isResolved && (
-                  <div className="flex gap-2 px-4 py-3 bg-muted/10 border-t border-border">
-                    <Button size="sm" variant="outline" onClick={() => markResolved(key)} className="text-xs">
-                      Keep preferred, mark others for deletion
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => markResolved(key)} className="text-xs text-muted-foreground">
-                      Keep both / skip
-                    </Button>
+              return (
+                <div key={key} className={`border rounded-xl overflow-hidden transition-opacity ${isResolved ? "opacity-40" : ""}`}>
+                  {/* Group header */}
+                  <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-border ${
+                    isResolved ? "bg-muted/30" : hasPreferred ? "bg-muted/30" : "bg-amber-500/10"
+                  }`}>
+                    {isResolved ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                    ) : !hasPreferred ? (
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    ) : null}
+                    <span className="text-sm font-medium text-foreground">
+                      {preferred?.title ?? g.variants[0]?.title ?? g.title_normalized}
+                    </span>
+                    {!hasPreferred && !isResolved && (
+                      <span className="text-xs text-amber-400/80">— no preferred version detected, review manually</span>
+                    )}
+                    <span className="text-xs text-muted-foreground ml-auto">{consoleName}</span>
                   </div>
-                )}
-              </div>
-            );
-          })}
+
+                  {/* Variant rows */}
+                  <div className="divide-y divide-border/50">
+                    {g.variants.map((v, vi) => {
+                      const isPreferredRow = g.preferred_idx === vi;
+                      return (
+                        <div
+                          key={vi}
+                          className={`flex items-center gap-3 px-4 py-3 text-sm border-l-2 ${
+                            isPreferredRow
+                              ? "border-l-green-500 bg-green-500/5"
+                              : "border-l-transparent bg-card"
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-mono text-foreground truncate">{v.filename}</div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <TagList regions={v.regions} languages={v.languages} statusFlags={v.status_flags} max={4} />
+                              <span className="text-xs text-muted-foreground/60 ml-1">{variantType(v)}</span>
+                            </div>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">{formatBytes(v.filesize)}</span>
+                          {isPreferredRow && (
+                            <span className="text-xs font-medium text-green-400 shrink-0 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> KEEP
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Actions */}
+                  {!isResolved && (
+                    <div className="flex flex-col gap-1 px-4 py-3 bg-muted/10 border-t border-border">
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => markResolved(key)} className="text-xs">
+                          {hasPreferred ? "Confirmed — keep preferred" : "Queue for Prune — manual"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => markResolved(key)} className="text-xs text-muted-foreground">
+                          Skip
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/50">
+                        Prune will delete non-preferred copies when you run it.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
