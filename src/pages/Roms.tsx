@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
-import { getRoms, getThumbnail } from "@/lib/tauri";
+import { getRoms } from "@/lib/tauri";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
@@ -15,6 +14,7 @@ import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { FilterBar } from "@/components/FilterBar";
+import { RomThumbnail } from "@/components/RomThumbnail";
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -24,18 +24,6 @@ function VerificationBadge({ status }: { status?: string }) {
   return <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" aria-label="Unverified" />;
 }
 
-// ── Lazy thumbnail ────────────────────────────────────────────────────────────
-function RomThumbnail({ title, consoleName }: { title: string; consoleName: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    getThumbnail(title, consoleName).then((path) => {
-      if (path) setSrc(convertFileSrc(path));
-    }).catch(() => {});
-  }, [title, consoleName]);
-
-  if (!src) return <div className="w-10 h-10 rounded bg-muted/40 shrink-0" />;
-  return <img src={src} alt={title} className="w-10 h-10 rounded object-cover shrink-0" />;
-}
 
 type SortKey = "az" | "za" | "variants";
 

@@ -38,6 +38,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/004_permanent_delete.sql")),
         M::up(include_str!("../migrations/005_known_tags.sql")),
         M::up(include_str!("../migrations/006_short_console_names.sql")),
+        M::up(include_str!("../migrations/007_clean_language_tags.sql")),
     ])
 }
 

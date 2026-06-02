@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-01
+
+### Fixed
+- **App icon on white backgrounds** — icon canvas was transparent, causing the cartridge to float on a white background in Finder, DMG windows, and any non-Dock context. Canvas is now solid dark navy (`BODY_BOT`); macOS/Windows/Linux apply their own platform rounding. All icon sizes regenerated.
+- **Language filter contamination** — `is_language_tag()` was a heuristic (any 2–3 char uppercase-first string) that misclassified `Unl`, `Alt`, `CES`, `DSi`, `PAL`, `Wii`, `NP`, and many others as language codes. Replaced with an explicit ISO 639-1 whitelist. Migration 007 cleans existing `known_tags` rows and pre-seeds `Unl`/`Alt` as status-type tags so filter chips are immediately correct.
+- **`Unl`-only ROMs missing from Hacks & Unofficial** — because `Unl` was misclassified as a language, files tagged only `(Unl)` (without `Aftermarket` or `Pirate`) were silently categorised as `FileCategory::Game`. After rescan they now correctly appear in Hacks & Unofficial.
+- **`Alt` missing from Status filter** — `Alt` was not in `STATUS_FLAGS`; it now is, so it appears in the Status filter alongside Beta, Proto, Unl, etc.
+- **Black placeholder box on expanded ROM rows** — `RomThumbnail` rendered a visible `bg-muted/40` div when no thumbnail was available. It now returns `null` — no box, no gap.
+- **Duplicates tab showed format pairs** — `get_duplicates()` unconditionally included all `is_format_pair` groups. Format pairs (FDS/QD, Headered/Headerless) are not true duplicates; they are now excluded. Prune handles format-pair preferences as before.
+
+### Changed
+- **Hacks & Unofficial tab layout** — refactored from a flat per-variant list to the same grouped, expandable layout as the ROMs tab: one collapsible row per canonical title, variants shown on expand. Category badge (Aftermarket / Pirate / Hack / Unl) appears on the left of each group header. Full feature parity with ROMs: virtualisation, lazy thumbnails, console badge in All-Hacks mode, format-pair sub-headers, "Most variants" sort option, priority-ordered Category filter.
+- **Duplicates tab redesign** — preferred variant is now clearly marked with a green left border and ✓ KEEP chip. When no preferred version is detected (`preferred_idx = null`), an amber warning is shown. Button renamed from "Keep preferred, mark others for deletion" to "Confirmed — keep preferred" (or "Queue for Prune — manual" when no preferred). Helper text clarifies that Prune performs the actual deletion.
+- **`RomThumbnail` extracted** to `src/components/RomThumbnail.tsx` — shared between ROMs and Hacks & Unofficial tabs.
+
+### Added
+- 4 new Rust parser tests: `(Unl)` → Unofficial, `(Alt)` → status flag, `(CES)` → extra tag, `(DSi Enhanced)` → extra tag
+
 ## [0.2.0] - 2026-06-01
 
 ### Added
