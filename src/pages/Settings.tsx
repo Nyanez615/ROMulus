@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Layers, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -22,14 +22,13 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import {
-  getSettings, saveSettings, reapplyPreferences, isOneDrivePath, getFormatPairs,
+  getSettings, saveSettings, reapplyPreferences, isOneDrivePath,
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
   scanRoots,
 } from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
-import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DatFile } from "@/lib/bindings/DatFile";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
@@ -81,7 +80,6 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
   const [showScanPrompt, setShowScanPrompt] = useState(false);
-  const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
   const [hasIgdb, setHasIgdb] = useState(false);
   const [hasSgdb, setHasSgdb] = useState(false);
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -94,7 +92,6 @@ export default function Settings() {
 
   useEffect(() => {
     getSettings().then(setSettings).catch(console.error);
-    getFormatPairs().then(setFormatPairs).catch(console.error);
     hasIgdbCredentials().then(setHasIgdb).catch(console.error);
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
@@ -381,60 +378,6 @@ export default function Settings() {
       </section>
 
       <Separator />
-
-      {/* Format Pairs */}
-      {formatPairs.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold text-foreground">Format Pairs</h2>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            These console folders contain the same games in different formats.
-            Select your preferred format — the entire non-preferred folder will be queued for deletion in the Prune tab.
-          </p>
-          {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
-            const pref = settings?.format_preferences[pair.console_group];
-            const sortedFolders = [pair.folder_a, pair.folder_b].sort((a, b) => a.localeCompare(b));
-            return (
-              <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
-                  {Math.round(pair.overlap_percent * 100)}% title overlap
-                </div>
-                <div className="divide-y divide-border">
-                  {sortedFolders.map((folder) => (
-                    <button
-                      key={folder}
-                      onClick={() => {
-                        if (!settings) return;
-                        const next: AppSettings = {
-                          ...settings,
-                          format_preferences: { ...settings.format_preferences, [pair.console_group]: folder },
-                        };
-                        save(next);
-                      }}
-                      className={[
-                        "w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors",
-                        pref === folder
-                          ? "bg-primary/10 border-l-2 border-l-primary"
-                          : "hover:bg-muted/30",
-                      ].join(" ")}
-                    >
-                      <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
-                      <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>
-                        {folder.split(" - ")[1] ?? folder}
-                      </span>
-                      {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </section>
-      )}
-
-      {formatPairs.length > 0 && <Separator />}
 
       {/* IGDB Metadata */}
       <section className="space-y-4">

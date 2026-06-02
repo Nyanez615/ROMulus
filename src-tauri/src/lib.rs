@@ -106,6 +106,7 @@ pub fn run() {
             group::get_duplicates,
             // Prune
             prune::apply_filters,
+            prune::apply_format_pairs,
             prune::export_csv,
             // Execute
             execute::execute_prune,

@@ -29,28 +29,34 @@ const COLLECTION_TAGS: &[&str] = &[
     "Limited Run Games", "Retro-Bit Generations",
 ];
 
-/// Higher score = more preferred variant. Returns (score, revision) tuple.
-pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32) {
+/// Higher score = more preferred variant.
+/// Returns (score, revision, lang_match_count) tuple — all three compared
+/// lexicographically so ties break cleanly: same score → higher revision → more
+/// preferred-language matches.
+pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // Non-matching language → lowest priority
     if !matches_preferred(rom, prefs) {
-        return (-9999, rom.revision);
+        return (-9999, rom.revision, 0);
     }
 
     // Pre-release → never keep unless sole copy
     if rom.status_flags.iter().any(|f| {
-        matches!(f.as_str(), "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk")
+        matches!(
+            f.as_str(),
+            "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk" | "Preview" | "GameCube Preview"
+        )
     }) {
-        return (-100, rom.revision);
+        return (-100, rom.revision, 0);
     }
 
     // Bad dump → very low
     if rom.bad_dump {
-        return (-80, rom.revision);
+        return (-80, rom.revision, 0);
     }
 
     // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease
     if matches!(rom.file_category, FileCategory::Unofficial) {
-        return (-30, rom.revision);
+        return (-30, rom.revision, 0);
     }
 
     // Region score from user's preferred_regions list
@@ -65,7 +71,18 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32) {
 
     let alt_penalty: i32 = if rom.extra_tags.iter().any(|t| t == "Alt") { -5 } else { 0 };
 
-    (region_score + collection_penalty + alt_penalty, rom.revision)
+    // Count how many of the user's preferred languages this ROM explicitly matches —
+    // used as a tiebreaker when two variants have the same region score and revision.
+    let lang_matches = if prefs.preferred_languages.is_empty() {
+        0
+    } else {
+        rom.languages
+            .iter()
+            .filter(|l| prefs.preferred_languages.contains(*l))
+            .count()
+    };
+
+    (region_score + collection_penalty + alt_penalty, rom.revision, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
@@ -132,11 +149,12 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     let max_disc = variants.iter().filter_map(|r| r.disc_number).max().unwrap_or(0);
     let disc_count = if max_disc > 0 { max_disc } else { 1 };
 
-    // Sort variants by score descending, then revision descending as tiebreaker
+    // Sort variants: (score, revision, lang_matches) descending; filename ascending as
+    // the final deterministic tiebreaker so groups are stable across runs.
     variants.sort_by(|a, b| {
-        let sa = score_rom(a, prefs);
-        let sb = score_rom(b, prefs);
-        sb.cmp(&sa)
+        score_rom(b, prefs)
+            .cmp(&score_rom(a, prefs))
+            .then_with(|| a.filename.cmp(&b.filename))
     });
 
     // Determine preferred index — None if no variant matches preferences
@@ -376,7 +394,9 @@ pub fn get_duplicates(
             let eligible_count = g.variants.iter()
                 .filter(|v| v.matches_preferred_language && !v.bad_dump
                     && !v.status_flags.iter().any(|f| {
-                        matches!(f.as_str(), "Beta"|"Proto"|"Demo"|"Sample"|"Promo"|"Kiosk")
+                        matches!(f.as_str(),
+                            "Beta"|"Proto"|"Demo"|"Sample"|"Promo"|"Kiosk"|"Preview"|"GameCube Preview"
+                        )
                     }))
                 .count();
             eligible_count > 1
@@ -508,7 +528,7 @@ mod tests {
     fn non_english_gets_min_score() {
         let jp = rom("Game", &["Japan"], &[], &[]);
         let prefs = en_prefs();
-        let (score, _) = score_rom(&jp, &prefs);
+        let (score, _, _) = score_rom(&jp, &prefs);
         assert_eq!(score, -9999);
     }
 
@@ -578,6 +598,87 @@ mod tests {
     fn console_filter_empty_vec_matches_nothing() {
         let filter: Option<Vec<String>> = Some(vec![]);
         assert!(!group_matches_consoles(&group_with_console("GBA"), &filter));
+    }
+
+    #[test]
+    fn preview_tag_scores_as_prerelease() {
+        let preview = rom("Pokemon Puzzle Collection (USA) (GameCube Preview)", &["USA"], &[], &["GameCube Preview"]);
+        let release = rom("Pokemon Puzzle Collection (USA)", &["USA"], &[], &[]);
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&release, &prefs) > score_rom(&preview, &prefs),
+            "release must score higher than GameCube Preview"
+        );
+        let (score, _, _) = score_rom(&preview, &prefs);
+        assert_eq!(score, -100, "GameCube Preview must score -100 (pre-release)");
+    }
+
+    #[test]
+    fn standalone_preview_scores_as_prerelease() {
+        let preview = rom("Game (USA) (Preview)", &["USA"], &[], &["Preview"]);
+        let prefs = en_prefs();
+        let (score, _, _) = score_rom(&preview, &prefs);
+        assert_eq!(score, -100);
+    }
+
+    #[test]
+    fn grouper_prefers_release_over_gamecube_preview() {
+        // Both ROMs share the same canonical title (as the real parser produces);
+        // only filename and metadata differ.
+        let mut preview = rom("Pokemon Puzzle Collection", &["USA"], &[], &["GameCube Preview"]);
+        preview.filename = "Pokemon Puzzle Collection (USA) (GameCube Preview).zip".into();
+        let mut release = rom("Pokemon Puzzle Collection", &["USA", "Europe"], &[], &[]);
+        release.filename = "Pokemon Puzzle Collection (USA, Europe).zip".into();
+        let prefs = en_prefs();
+        let groups = group_roms(vec![preview, release], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = &g.variants[g.preferred_idx.unwrap()];
+        assert!(preferred.regions.contains(&"USA".to_string()), "release (USA/Europe) must be preferred over GameCube Preview");
+        assert!(!preferred.status_flags.iter().any(|f| f == "GameCube Preview"), "preferred must not be the preview ROM");
+    }
+
+    #[test]
+    fn lang_count_tiebreaker_prefers_more_lang_matches() {
+        // (Europe)(En,Fr,De) vs (Europe)(En,Ja,Fr) when preferred = [En, De]
+        // (En,Fr,De) matches 2 preferred (En + De); (En,Ja,Fr) matches 1 (En only)
+        let mut enfr_de = rom("Pokemon Tetris", &["Europe"], &["En", "Fr", "De"], &[]);
+        enfr_de.filename = "Pokemon Tetris (Europe) (En,Fr,De).zip".into();
+        let mut en_ja_fr = rom("Pokemon Tetris", &["Europe"], &["En", "Ja", "Fr"], &[]);
+        en_ja_fr.filename = "Pokemon Tetris (Europe) (En,Ja,Fr).zip".into();
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into(), "De".into()],
+            preferred_regions: vec!["Europe".into()],
+            short_console_names: false,
+        };
+        assert!(
+            score_rom(&enfr_de, &prefs) > score_rom(&en_ja_fr, &prefs),
+            "(En,Fr,De) must score higher when preferred includes De"
+        );
+    }
+
+    #[test]
+    fn lang_count_tiebreaker_falls_back_to_filename() {
+        // When both variants match identical preferred langs, filename decides alphabetically.
+        let mut enfr_de = rom("Pokemon Tetris", &["Europe"], &["En", "Fr", "De"], &[]);
+        enfr_de.filename = "Pokemon Tetris (Europe) (En,Fr,De).zip".into();
+        let mut en_ja_fr = rom("Pokemon Tetris", &["Europe"], &["En", "Ja", "Fr"], &[]);
+        en_ja_fr.filename = "Pokemon Tetris (Europe) (En,Ja,Fr).zip".into();
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec!["Europe".into()],
+            short_console_names: false,
+        };
+        // Scores are tied (both match 1 preferred lang); filename "De" < "Ja" alphabetically
+        // → build_group sorts ascending on filename for ties → (En,Fr,De) ends up first → preferred_idx = 0
+        let groups = group_roms(vec![enfr_de, en_ja_fr], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = &g.variants[g.preferred_idx.unwrap()];
+        assert!(
+            preferred.filename.contains("En,Fr,De"),
+            "filename tiebreaker must pick (En,Fr,De) over (En,Ja,Fr)"
+        );
     }
 
     #[test]

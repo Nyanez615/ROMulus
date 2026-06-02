@@ -9,19 +9,27 @@ import { usePreferencesStore } from "@/store/preferences";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockApplyFilters = vi.fn(() => Promise.resolve({} as DeletionPlan));
+const mockApplyFormatPairs = vi.fn(() => Promise.resolve({} as DeletionPlan));
 const mockExecutePrune = vi.fn(() => Promise.resolve({ success_count: 2, failed: [], skipped_count: 0 }));
 const mockExportCsv = vi.fn(() => Promise.resolve());
 const mockGetSettings = vi.fn(() => Promise.resolve({} as AppSettings));
+const mockSaveSettings = vi.fn(() => Promise.resolve());
 const mockGetFilterSettings = vi.fn(() => Promise.resolve({} as FilterSettings));
 const mockSaveFilterSettings = vi.fn(() => Promise.resolve());
+const mockGetFormatPairs = vi.fn(() => Promise.resolve([]));
+const mockReapplyPreferences = vi.fn(() => Promise.resolve());
 
 vi.mock("@/lib/tauri", () => ({
   applyFilters: () => mockApplyFilters(),
+  applyFormatPairs: () => mockApplyFormatPairs(),
   executePrune: () => mockExecutePrune(),
   exportCsv: () => mockExportCsv(),
   getSettings: () => mockGetSettings(),
+  saveSettings: (s: unknown) => { void s; return mockSaveSettings(); },
   getFilterSettings: () => mockGetFilterSettings(),
   saveFilterSettings: (s: unknown) => { void s; return mockSaveFilterSettings(); },
+  getFormatPairs: () => mockGetFormatPairs(),
+  reapplyPreferences: () => mockReapplyPreferences(),
   isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
   formatBytes: (b: number) => `${b} B`,
 }));
@@ -77,6 +85,7 @@ beforeEach(() => {
   mockGetSettings.mockResolvedValue({ ...baseSettings });
   mockGetFilterSettings.mockResolvedValue({ ...defaultFilters });
   mockApplyFilters.mockResolvedValue(emptyPlan);
+  mockGetFormatPairs.mockResolvedValue([]);
   usePreferencesStore.setState({ filterSettings: { ...defaultFilters } });
 });
 
