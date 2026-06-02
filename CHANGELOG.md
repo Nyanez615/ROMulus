@@ -6,10 +6,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-06-01
+## [0.2.2] - 2026-06-01
 
 ### Fixed
-- **App icon on white backgrounds** — icon canvas was transparent, causing the cartridge to float on a white background in Finder, DMG windows, and any non-Dock context. Canvas is now solid dark navy (`BODY_BOT`); macOS/Windows/Linux apply their own platform rounding. All icon sizes regenerated.
 - **Language filter contamination** — `is_language_tag()` was a heuristic (any 2–3 char uppercase-first string) that misclassified `Unl`, `Alt`, `CES`, `DSi`, `PAL`, `Wii`, `NP`, and many others as language codes. Replaced with an explicit ISO 639-1 whitelist. Migration 007 cleans existing `known_tags` rows and pre-seeds `Unl`/`Alt` as status-type tags so filter chips are immediately correct.
 - **`Unl`-only ROMs missing from Hacks & Unofficial** — because `Unl` was misclassified as a language, files tagged only `(Unl)` (without `Aftermarket` or `Pirate`) were silently categorised as `FileCategory::Game`. After rescan they now correctly appear in Hacks & Unofficial.
 - **`Alt` missing from Status filter** — `Alt` was not in `STATUS_FLAGS`; it now is, so it appears in the Status filter alongside Beta, Proto, Unl, etc.
@@ -23,6 +22,11 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - 4 new Rust parser tests: `(Unl)` → Unofficial, `(Alt)` → status flag, `(CES)` → extra tag, `(DSi Enhanced)` → extra tag
+
+## [0.2.1] - 2026-06-01
+
+### Fixed
+- **App icon on white backgrounds** — icon canvas was transparent, causing the cartridge to float on a white background in Finder, DMG windows, and any non-Dock context. Canvas is now solid dark navy (`BODY_BOT`); macOS/Windows/Linux apply their own platform rounding. All icon sizes regenerated.
 
 ## [0.2.0] - 2026-06-01
 
