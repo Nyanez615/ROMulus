@@ -10,6 +10,7 @@ import { DiscBadge } from "@/components/DiscBadge";
 import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
+import { usePreferencesStore } from "@/store/preferences";
 import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
@@ -33,6 +34,7 @@ const ALL_GROUPS = 100_000;
 
 export default function Roms() {
   const { selectedConsoles, cacheVersion } = useScanStore();
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
   const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt", "Unl"];
   const sortedStatus = [
@@ -193,7 +195,7 @@ export default function Roms() {
                   <span className="flex-1 font-medium text-foreground truncate" title={displayTitle}>{displayTitle}</span>
                   {selectedConsoles === null && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
-                      {getConsoleDisplayName(g.console, true)}
+                      {getConsoleDisplayName(g.console, useShort)}
                     </span>
                   )}
                   {preferred && (

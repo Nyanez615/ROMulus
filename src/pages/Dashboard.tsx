@@ -26,7 +26,6 @@ import {
   getConsoleDisplayName,
   resolveConsoleVariants,
   getPlatform,
-  getShortConsoleName,
   PLATFORMS,
 } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
@@ -35,6 +34,7 @@ import { refreshTagStore } from "@/components/Layout";
 export default function Dashboard() {
   const { consoles, setConsoles, status, setStatus, setSelectedConsoles } = useScanStore();
   const { setActiveTab } = useUIStore();
+  const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const [interrupted, setInterrupted] = useState(false);
   const [recentActions, setRecentActions] = useState<ActionLogEntry[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -296,7 +296,7 @@ export default function Dashboard() {
               <div key={c.console} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-foreground truncate">{getShortConsoleName(c.console)}</span>
+                    <span className="text-sm text-foreground truncate">{getConsoleDisplayName(c.console, useShort)}</span>
                     <span className="text-xs text-muted-foreground shrink-0 ml-2">{c.have.toLocaleString()} / {c.total.toLocaleString()}</span>
                   </div>
                   <Progress value={c.percent} className="h-1" />
@@ -366,7 +366,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   return (
     <button
       onClick={onClick}
-      title={variants.length > 1 ? variants.map((v) => getShortConsoleName(v.name)).join(", ") : canonicalName}
+      title={variants.length > 1 ? variants.map((v) => getConsoleDisplayName(v.name, useShort)).join(", ") : canonicalName}
       className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full"
     >
       <div className="flex-1 min-w-0">
