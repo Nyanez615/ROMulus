@@ -6,6 +6,35 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-02
+
+### Fixed
+- **`(GameCube Preview)` and `(Preview)` treated as unpenalised extra tags** — added both to `STATUS_FLAGS` so they score −100 (pre-release). Fixes `(GameCube Preview)` ROMs incorrectly winning the preferred ★ over regular releases (confirmed: Pokémon Puzzle Collection).
+- **Language match not used as tiebreaker** — `score_rom()` now returns `(i32, u32, usize)`; the third element is the preferred-language explicit match count. Breaks ties where region score and revision are equal (e.g. `(Europe)(En,Fr,De)` vs `(Europe)(En,Ja,Fr)`).
+- **Non-deterministic variant order within a group** — filename alphabetical tiebreaker added as the final fallback in `build_group` sort, making the order fully stable across runs.
+- **Format pairs wired into `apply_filters_inner`** — format pair cleanup no longer runs inside `apply_filters_inner`. Its `format_prefs` / `format_pairs` parameters are removed. Format pair deletion is now a dedicated workflow in the Prune tab, so regular variant pruning and format pair cleanup no longer interfere.
+- **BIOS files silently skipped in format pair cleanup** — `build_format_delete_map` (renamed from `build_format_delete_set`) previously exempted BIOS files. That exemption was correct for variant pruning but wrong for format pair cleanup where the entire non-preferred folder is removed; BIOS files in that folder are now included.
+- **`(Preview)` / `(GameCube Preview)` not propagated to `remove_prerelease` filter and `get_duplicates` eligible-count** — both call-sites now see the updated `STATUS_FLAGS` and handle these tags correctly.
+
+### Added
+- **Format Pair Cleanup section in Prune tab** — pair-selection cards (same UI that was in Settings), "Analyze Removals" button, inline scrollable preview list (`h-64`, full search bar, no row cap), per-row reason badges, and a dedicated "Execute" button with confirmation dialog. Post-execute triggers `reapplyPreferences()` for immediate refresh.
+- **`DeletionReason::FormatPairNoCounterpart`** — when a title exists only in the non-preferred folder (no counterpart in the preferred folder), it is tagged with this reason instead of `FormatPairNonPreferred`. Displayed with an amber "No counterpart" badge per row. No-counterpart items are sorted to the top of the preview list with an amber left border, amber background, and amber filename text. An amber warning banner above the list shows the count.
+- **`apply_format_pairs` Tauri command** — returns a `DeletionPlan` containing only `FormatPairNonPreferred` / `FormatPairNoCounterpart` items for the selected format pair.
+- **`execute_format_pairs` Tauri command** — deletes the flagged files, then inspects each source parent directory: removes visibly empty dirs (`std::fs::remove_dir_all`), and purges deleted dirs from `rom_roots` in the DB. Returns `ExecutionResult` including the new `folders_removed: Vec<String>` field. The success alert shows how many empty folders were removed from scan roots.
+
+### Changed
+- **Format Pairs moved from Settings to Prune** — the Format Pairs section is removed from Settings.tsx. Pair selection and cleanup now live entirely in the Prune tab's new Format Pair Cleanup section.
+- **No-counterpart items sorted to top** — `filteredFpItems` memo sorts `FormatPairNoCounterpart` rows before `FormatPairNonPreferred` rows so the highest-risk deletions are immediately visible.
+
+### Technical
+- `score_rom()` return type: `(i32, u32)` → `(i32, u32, usize)`. All call-sites in `group.rs` use tuple comparison unchanged.
+- `apply_filters_inner(groups, &settings)` — `format_prefs` and `format_pairs` parameters removed.
+- `build_format_delete_map` (renamed from `build_format_delete_set`): returns `HashMap<String, DeletionReason>` instead of `HashSet<String>`.
+- `delete_files_inner()` helper extracted in `execute.rs` — shared by `execute_prune` and `execute_format_pairs`.
+- `ExecutionResult`: new `folders_removed: Vec<String>` field (empty `vec![]` for `execute_prune`).
+- `DeletionReason`: new `FormatPairNoCounterpart` variant (serialised as `"format_pair_no_counterpart"`).
+- Rust tests: 107 → 119. Vitest: 115 (mocks updated).
+
 ## [0.2.3] - 2026-06-02
 
 ### Fixed
