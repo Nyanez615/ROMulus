@@ -129,14 +129,6 @@ pub fn update_pending_action(
     Ok(())
 }
 
-pub fn has_pending_actions(conn: &Connection) -> rusqlite::Result<bool> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM action_log WHERE action = 'pending'",
-        [],
-        |row| row.get(0),
-    )?;
-    Ok(count > 0)
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
