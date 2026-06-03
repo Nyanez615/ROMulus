@@ -260,13 +260,19 @@ export default function Prune() {
   const formatPrefs = appSettings?.format_preferences ?? {};
   const anyFormatPrefSet = Object.keys(formatPrefs).length > 0;
 
-  // Filtered + searched format pair preview items
+  // Filtered + searched format pair preview items.
+  // No-counterpart items always sort to the top so they're immediately visible.
   const filteredFpItems = useMemo(() => {
     if (!fpPlan) return [];
     const q = fpPreviewSearch.toLowerCase();
-    return fpPlan.to_delete.filter(
+    const items = fpPlan.to_delete.filter(
       (d) => !q || d.rom.filename.toLowerCase().includes(q) || d.rom.title.toLowerCase().includes(q),
     );
+    return items.sort((a, b) => {
+      const aNC = reasonKey(a.reason) === "format_pair_no_counterpart" ? 0 : 1;
+      const bNC = reasonKey(b.reason) === "format_pair_no_counterpart" ? 0 : 1;
+      return aNC - bNC;
+    });
   }, [fpPlan, fpPreviewSearch]);
 
   const fpNoCounterpartCount = useMemo(
@@ -387,10 +393,20 @@ export default function Prune() {
                   <ScrollArea className="h-64">
                     {filteredFpItems.map((item, i) => {
                       const rk = reasonKey(item.reason);
+                      const isNoCounterpart = rk === "format_pair_no_counterpart";
                       const colorClass = REASON_COLORS[rk] ?? "bg-muted/40 text-muted-foreground border-border/60";
                       return (
-                        <div key={i} className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40 text-xs hover:bg-muted/20">
-                          <span className="flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
+                        <div
+                          key={i}
+                          className={`flex items-center gap-2 px-4 py-1.5 border-b text-xs ${
+                            isNoCounterpart
+                              ? "border-l-2 border-l-amber-500/50 border-b-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10"
+                              : "border-b-border/40 hover:bg-muted/20"
+                          }`}
+                        >
+                          <span className={`flex-1 truncate font-mono ${isNoCounterpart ? "text-amber-300/80" : "text-muted-foreground"}`}>
+                            {item.rom.filename}
+                          </span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>
                             {REASON_LABELS[rk] ?? rk}
                           </span>
