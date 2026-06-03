@@ -32,7 +32,8 @@ vi.mock("@/lib/tauri", () => ({
   saveFilterSettings: (s: unknown) => { void s; return mockSaveFilterSettings(); },
   getFormatPairs: () => mockGetFormatPairs(),
   reapplyPreferences: () => mockReapplyPreferences(),
-  isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
+  isCloudPath: (path: string) => path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
+  isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
   formatBytes: (b: number) => `${b} B`,
 }));
 
@@ -45,10 +46,8 @@ const baseSettings: AppSettings = {
   rom_roots: [],
   format_preferences: {},
   preferences: { preferred_languages: ["En"], preferred_regions: ["USA"], short_console_names: false },
-  onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
-  allow_permanent_delete: false,
   theme: "dark",
 };
 
@@ -195,17 +194,3 @@ describe("CSV export", () => {
   });
 });
 
-describe("OneDrive guard", () => {
-  it("shows OneDrive warning when a root is an OneDrive path", async () => {
-    mockGetSettings.mockResolvedValue({
-      ...baseSettings,
-      rom_roots: ["/Users/test/Library/CloudStorage/OneDrive-Personal/ROMs"],
-    });
-    mockApplyFilters.mockResolvedValue(fakePlan);
-    render(<Prune />);
-    fireEvent.click(screen.getByText("Preview"));
-    await waitFor(() => {
-      expect(screen.getByText(/OneDrive path detected/)).toBeInTheDocument();
-    });
-  });
-});

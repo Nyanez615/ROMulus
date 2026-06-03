@@ -130,11 +130,8 @@ pub struct AppSettings {
     pub rom_roots: Vec<String>,
     pub format_preferences: std::collections::HashMap<String, String>,
     pub preferences: UserPreferences,
-    pub onedrive_acknowledged: bool,
     pub terms_accepted: bool,
     pub crash_reporting_enabled: bool,
-    #[serde(default)]
-    pub allow_permanent_delete: bool,
     pub theme: String,
 }
 
@@ -144,10 +141,8 @@ impl Default for AppSettings {
             rom_roots: vec![],
             format_preferences: std::collections::HashMap::new(),
             preferences: UserPreferences::default(),
-            onedrive_acknowledged: false,
             terms_accepted: false,
             crash_reporting_enabled: false,
-            allow_permanent_delete: false,
             theme: "dark".into(),
         }
     }
@@ -227,14 +222,6 @@ pub struct ActionLogEntry {
     pub title: String,
     pub reason: String,
     pub session_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export)]
-pub enum DeleteMode {
-    Trash,
-    Permanent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -429,7 +416,6 @@ mod tests {
         FormatPair::export_all_to(out).unwrap();
         PagedGroups::export_all_to(out).unwrap();
         PagedHistory::export_all_to(out).unwrap();
-        DeleteMode::export_all_to(out).unwrap();
         ScanProgress::export_all_to(out).unwrap();
         NewRomEvent::export_all_to(out).unwrap();
         GameMetadata::export_all_to(out).unwrap();

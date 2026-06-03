@@ -2,18 +2,27 @@ import { useState } from "react";
 import { FolderOpen, Plus, X, AlertTriangle } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
-import { completeOnboardingStep, getSettings, saveSettings, isOneDrivePath } from "@/lib/tauri";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { completeOnboardingStep, getSettings, saveSettings, isCloudPath } from "@/lib/tauri";
 import { useOnboardingStore } from "@/store/onboarding";
 
 export function AddRootStep() {
   const { setState, setStep } = useOnboardingStore();
   const [roots, setRoots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string" && !roots.includes(selected)) {
-      setRoots((prev) => [...prev, selected]);
+    if (typeof selected === "string") {
+      setCloudError(null);
+      if (isCloudPath(selected)) {
+        setCloudError("Cloud storage paths cannot be used as ROM roots. Files are permanently deleted during cleanup.");
+        return;
+      }
+      if (!roots.includes(selected)) {
+        setRoots((prev) => [...prev, selected]);
+      }
     }
   }
 
@@ -43,34 +52,34 @@ export function AddRootStep() {
         </div>
       </div>
 
-      {roots.map((root) => {
-        const onCloud = isOneDrivePath(root);
-        return (
-          <div key={root} className="border border-border rounded-lg p-3 space-y-2">
-            <div className="flex items-start gap-2">
-              <FolderOpen className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-              <span className="flex-1 text-sm text-foreground break-all font-mono text-xs">{root}</span>
-              <button
-                onClick={() => setRoots((prev) => prev.filter((r) => r !== root))}
-                className="text-muted-foreground hover:text-foreground shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            {onCloud && (
-              <div className="flex items-center gap-1.5 text-xs text-amber-400">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                OneDrive path detected — deletions will sync to the cloud.
-              </div>
-            )}
+      {roots.map((root) => (
+        <div key={root} className="border border-border rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <FolderOpen className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+            <span className="flex-1 text-sm text-foreground break-all font-mono text-xs">{root}</span>
+            <button
+              onClick={() => setRoots((prev) => prev.filter((r) => r !== root))}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-        );
-      })}
+        </div>
+      ))}
 
       <Button variant="outline" className="w-full" onClick={pickFolder}>
         <Plus className="w-4 h-4 mr-2" />
         Choose folder
       </Button>
+
+      {cloudError && (
+        <Alert className="border-red-500/40 bg-red-500/10">
+          <AlertTriangle className="w-4 h-4 text-red-400" />
+          <AlertDescription className="text-red-300 text-sm">
+            {cloudError}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Button
         className="w-full"

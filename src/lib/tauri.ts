@@ -11,7 +11,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isTauri } from "./env";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { ConsoleStats } from "./bindings/ConsoleStats";
-import type { DeleteMode } from "./bindings/DeleteMode";
 import type { DeletionItem } from "./bindings/DeletionItem";
 import type { DeletionPlan } from "./bindings/DeletionPlan";
 import type { ExecutionResult } from "./bindings/ExecutionResult";
@@ -51,10 +50,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   rom_roots: [],
   format_preferences: {},
   preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"], short_console_names: false },
-  onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
-  allow_permanent_delete: false,
   theme: "dark",
 };
 
@@ -92,19 +89,16 @@ export const getRoms = (params: GetGamesParams): Promise<PagedGroups> =>
 
 export const executePrune = (
   toDelete: RomFile[],
-  mode: DeleteMode,
-  onedriveAcknowledged: boolean,
 ): Promise<ExecutionResult> =>
   isTauri()
-    ? invoke("execute_prune", { toDelete, mode, onedriveAcknowledged })
+    ? invoke("execute_prune", { toDelete })
     : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
 export const executeFormatPairs = (
   toDelete: RomFile[],
-  mode: DeleteMode,
 ): Promise<ExecutionResult> =>
   isTauri()
-    ? invoke("execute_format_pairs", { toDelete, mode })
+    ? invoke("execute_format_pairs", { toDelete })
     : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
 export const getInterruptedSession = (): Promise<InterruptedSession | null> =>
@@ -293,6 +287,18 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${units[i]}`;
 }
 
-export function isOneDrivePath(path: string): boolean {
-  return path.includes("OneDrive") || path.includes("CloudStorage");
+export function isCloudPath(path: string): boolean {
+  const p = path.replace(/\\/g, "/");
+  return (
+    p.includes("/CloudStorage/") ||
+    p.includes("Mobile Documents/com~apple~CloudDocs") ||
+    p.includes("OneDrive") ||
+    p.includes("/Dropbox/") ||
+    p.includes("/Google Drive/") ||
+    p.includes("/iCloudDrive/") ||
+    p.includes("/iCloud Drive/") ||
+    p.includes("/Box/")
+  );
 }
+
+export const isOneDrivePath = isCloudPath;

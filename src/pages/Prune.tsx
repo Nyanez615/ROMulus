@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   applyFilters, applyFormatPairs, executePrune, executeFormatPairs, exportCsv,
-  formatBytes, isOneDrivePath, getSettings, saveSettings,
+  formatBytes, getSettings, saveSettings,
   getFilterSettings, saveFilterSettings, getFormatPairs,
   reapplyPreferences,
 } from "@/lib/tauri";
@@ -21,7 +21,6 @@ import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import { usePreferencesStore } from "@/store/preferences";
-import { useUIStore } from "@/store/ui";
 import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
@@ -102,7 +101,6 @@ const FILTER_ROWS: Array<{
 
 export default function Prune() {
   const { filterSettings, setFilterSettings } = usePreferencesStore();
-  const { setOnedriveAcknowledged, onedriveAcknowledged } = useUIStore();
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -134,8 +132,6 @@ export default function Prune() {
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
-  const [hasOneDrive, setHasOneDrive] = useState(false);
-  const [allowPermanentDelete, setAllowPermanentDelete] = useState(false);
 
   // Staging area — paths the user has unchecked (will NOT be executed/exported)
   const [uncheckedPaths, setUncheckedPaths] = useState<Set<string>>(new Set());
@@ -150,9 +146,6 @@ export default function Prune() {
     try {
       const p = await applyFilters(filterSettings, selectedConsoles ?? undefined);
       setPlan(p);
-      const settings = await getSettings();
-      setHasOneDrive(settings.rom_roots.some(isOneDrivePath));
-      setAllowPermanentDelete(settings.allow_permanent_delete ?? false);
     } finally {
       setLoading(false);
     }
@@ -200,9 +193,8 @@ export default function Prune() {
     if (!plan) return;
     setExecuting(true);
     try {
-      const mode = allowPermanentDelete ? "permanent" : "trash";
       const toDelete = checkedItems.map((item) => item.rom);
-      const res = await executePrune(toDelete, mode, onedriveAcknowledged);
+      const res = await executePrune(toDelete);
       setResult({ success: res.success_count, failed: res.failed.length });
       setPlan(null);
     } finally {
@@ -243,9 +235,8 @@ export default function Prune() {
     if (!fpPlan || fpPlan.to_delete.length === 0) return;
     setFpExecuting(true);
     try {
-      const mode = (appSettings?.allow_permanent_delete) ? "permanent" : "trash";
       const toDelete = fpPlan.to_delete.map((d) => d.rom);
-      const res = await executeFormatPairs(toDelete, mode);
+      const res = await executeFormatPairs(toDelete);
       setFpResult({ success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
       setFpPlan(null);
       setFpPreviewSearch("");
@@ -299,7 +290,7 @@ export default function Prune() {
         {result && (
           <Alert className="border-green-500/40 bg-green-500/10">
             <AlertDescription className="text-green-300 text-sm">
-              ✓ Moved {result.success} files to Trash. {result.failed > 0 && `${result.failed} failed.`}
+              ✓ Permanently deleted {result.success} files. {result.failed > 0 && `${result.failed} failed.`}
             </AlertDescription>
           </Alert>
         )}
@@ -449,8 +440,7 @@ export default function Prune() {
                         <AlertDialogTitle>Remove format-pair files?</AlertDialogTitle>
                         <AlertDialogDescription>
                           {fpPlan.to_delete.length.toLocaleString()} files from non-preferred format folders
-                          ({formatBytes(fpPlan.total_bytes_freed)}) will be{" "}
-                          {appSettings?.allow_permanent_delete ? "permanently deleted" : "moved to the Trash"}.
+                          ({formatBytes(fpPlan.total_bytes_freed)}) will be permanently deleted.
                           {fpNoCounterpartCount > 0 && (
                             <span className="block mt-1 text-amber-400">
                               {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder.
@@ -461,7 +451,7 @@ export default function Prune() {
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={executeFormatPairsAction} className="bg-destructive hover:bg-destructive/90">
-                          {appSettings?.allow_permanent_delete ? "Delete permanently" : "Move to Trash"}
+                          Delete permanently
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -502,19 +492,6 @@ export default function Prune() {
             />
           ))}
         </section>
-
-        {/* OneDrive warning */}
-        {hasOneDrive && !onedriveAcknowledged && (
-          <Alert className="border-amber-500/40 bg-amber-500/10">
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-            <AlertDescription className="text-amber-300 text-sm space-y-2">
-              <p>OneDrive path detected. Deletions will sync to the cloud.</p>
-              <Button size="sm" variant="outline" className="border-amber-500/40 text-amber-300" onClick={() => setOnedriveAcknowledged(true)}>
-                I understand — proceed
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Plan summary */}
         {plan && (
@@ -626,23 +603,21 @@ export default function Prune() {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
-                  disabled={executing || checkedItems.length === 0 || (hasOneDrive && !onedriveAcknowledged)}
+                  disabled={executing || checkedItems.length === 0}
                   variant="destructive"
                   className="gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
                   {executing
-                    ? (allowPermanentDelete ? "Deleting…" : "Moving to Trash…")
-                    : `${allowPermanentDelete ? "Delete" : "Move"} ${checkedItems.length.toLocaleString()} files ${allowPermanentDelete ? "permanently" : "to Trash"}`}
+                    ? "Deleting…"
+                    : `Delete ${checkedItems.length.toLocaleString()} files permanently`}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {allowPermanentDelete
-                      ? `${checkedItems.length.toLocaleString()} files will be permanently deleted (${formatBytes(checkedItems.reduce((s, i) => s + i.rom.filesize, 0))} freed). This cannot be undone.`
-                      : `${checkedItems.length.toLocaleString()} files will be moved to the Trash (${formatBytes(checkedItems.reduce((s, i) => s + i.rom.filesize, 0))} freed). This action can be undone from the Trash.`}
+                    {checkedItems.length.toLocaleString()} files will be permanently deleted ({formatBytes(checkedItems.reduce((s, i) => s + i.rom.filesize, 0))} freed). This cannot be undone.
                     {uncheckedPaths.size > 0 && (
                       <span className="block mt-1 text-muted-foreground">{uncheckedPaths.size} unchecked file{uncheckedPaths.size !== 1 ? "s" : ""} will be skipped.</span>
                     )}
@@ -651,7 +626,7 @@ export default function Prune() {
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={doExecute} className="bg-destructive hover:bg-destructive/90">
-                    {allowPermanentDelete ? "Delete permanently" : "Move to Trash"}
+                    Delete permanently
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

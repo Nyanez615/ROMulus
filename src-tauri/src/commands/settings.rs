@@ -6,6 +6,23 @@ use crate::db::{self, AppState};
 use crate::deduper::detect_format_pairs;
 use crate::models::{AppSettings, FilterSettings, OnboardingState, UserPreferences};
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn is_cloud_path(path: &str) -> bool {
+    [
+        "CloudStorage",
+        "OneDrive",
+        "Dropbox",
+        "Google Drive",
+        "iCloudDrive",
+        "iCloud Drive",
+        "Mobile Documents",
+        "Box",
+    ]
+    .iter()
+    .any(|s| path.contains(s))
+}
+
 // ── Testable inner functions ──────────────────────────────────────────────────
 
 pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, String> {
@@ -13,17 +30,7 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "dark".into());
 
-    let onedrive_acknowledged = db::get_setting(conn, "onedrive_acknowledged")
-        .map_err(|e| e.to_string())?
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
     let crash_reporting_enabled = db::get_setting(conn, "crash_reporting_enabled")
-        .map_err(|e| e.to_string())?
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
-    let allow_permanent_delete = db::get_setting(conn, "allow_permanent_delete")
         .map_err(|e| e.to_string())?
         .map(|v| v == "true")
         .unwrap_or(false);
@@ -77,10 +84,8 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
             preferred_regions,
             short_console_names,
         },
-        onedrive_acknowledged,
         terms_accepted: true,
         crash_reporting_enabled,
-        allow_permanent_delete,
         theme,
     })
 }
@@ -89,20 +94,8 @@ pub(crate) fn save_settings_inner(conn: &Connection, settings: &AppSettings) -> 
     db::set_setting(conn, "theme", &settings.theme).map_err(|e| e.to_string())?;
     db::set_setting(
         conn,
-        "onedrive_acknowledged",
-        if settings.onedrive_acknowledged { "true" } else { "false" },
-    )
-    .map_err(|e| e.to_string())?;
-    db::set_setting(
-        conn,
         "crash_reporting_enabled",
         if settings.crash_reporting_enabled { "true" } else { "false" },
-    )
-    .map_err(|e| e.to_string())?;
-    db::set_setting(
-        conn,
-        "allow_permanent_delete",
-        if settings.allow_permanent_delete { "true" } else { "false" },
     )
     .map_err(|e| e.to_string())?;
 
@@ -120,6 +113,28 @@ pub(crate) fn save_settings_inner(conn: &Connection, settings: &AppSettings) -> 
         if settings.preferences.short_console_names { "true" } else { "false" },
     )
     .map_err(|e| e.to_string())?;
+
+    // Block newly added cloud roots before writing.
+    {
+        let existing: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT path FROM rom_roots ORDER BY id")
+                .map_err(|e| e.to_string())?;
+            let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+            let mut v = vec![];
+            while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                v.push(row.get::<_, String>(0).map_err(|e| e.to_string())?);
+            }
+            v
+        };
+        for path in &settings.rom_roots {
+            if !existing.contains(path) && is_cloud_path(path) {
+                return Err(format!(
+                    "Cloud storage path cannot be used as a ROM root: {path}"
+                ));
+            }
+        }
+    }
 
     // Sync rom_roots: full replace so removes are reflected immediately.
     conn.execute("DELETE FROM rom_roots", [])
@@ -319,10 +334,8 @@ mod tests {
                 preferred_regions: vec!["USA".into()],
                 short_console_names: false,
             },
-            onedrive_acknowledged: false,
             terms_accepted: true,
             crash_reporting_enabled: false,
-            allow_permanent_delete: false,
             theme: "dark".into(),
         }
     }
@@ -363,23 +376,6 @@ mod tests {
         assert_eq!(loaded.preferences.preferred_regions, s.preferences.preferred_regions);
         assert!(loaded.crash_reporting_enabled);
         assert_eq!(loaded.theme, "light");
-    }
-
-    #[test]
-    fn test_save_load_permanent_delete() {
-        let conn = db::open_in_memory();
-        let mut s = default_settings();
-        s.allow_permanent_delete = true;
-        save_settings_inner(&conn, &s).unwrap();
-        let loaded = get_settings_inner(&conn).unwrap();
-        assert!(loaded.allow_permanent_delete);
-    }
-
-    #[test]
-    fn test_default_permanent_delete_is_false() {
-        let conn = db::open_in_memory();
-        let loaded = get_settings_inner(&conn).unwrap();
-        assert!(!loaded.allow_permanent_delete);
     }
 
     #[test]
@@ -437,5 +433,42 @@ mod tests {
         let loaded = get_settings_inner(&conn).unwrap();
         assert!(!loaded.format_preferences.contains_key("GroupA"));
         assert_eq!(loaded.format_preferences["GroupB"], "FolderB");
+    }
+
+    #[test]
+    fn test_is_cloud_path() {
+        assert!(is_cloud_path(
+            "/Users/foo/Library/CloudStorage/OneDrive-Personal/ROMs"
+        ));
+        assert!(is_cloud_path("/Users/foo/OneDrive/ROMs"));
+        assert!(is_cloud_path("/Users/foo/Dropbox/ROMs"));
+        assert!(is_cloud_path(
+            "/Users/foo/Library/Mobile Documents/com~apple~CloudDocs/ROMs"
+        ));
+        assert!(is_cloud_path("/Users/foo/Library/iCloudDrive/ROMs"));
+        assert!(is_cloud_path("/Users/foo/Box/ROMs"));
+        assert!(!is_cloud_path("/Users/foo/Documents/ROMs"));
+        assert!(!is_cloud_path("/Volumes/External/ROMs"));
+        assert!(!is_cloud_path("/home/user/roms"));
+    }
+
+    #[test]
+    fn test_save_cloud_root_rejected() {
+        let conn = db::open_in_memory();
+        let mut s = default_settings();
+        s.rom_roots = vec!["/Users/foo/OneDrive/ROMs".into()];
+        let result = save_settings_inner(&conn, &s);
+        assert!(result.is_err(), "Cloud root should be rejected");
+        assert!(result.unwrap_err().contains("Cloud storage path"));
+    }
+
+    #[test]
+    fn test_save_local_root_accepted() {
+        let conn = db::open_in_memory();
+        let mut s = default_settings();
+        s.rom_roots = vec!["/Users/foo/Documents/ROMs".into()];
+        save_settings_inner(&conn, &s).unwrap();
+        let loaded = get_settings_inner(&conn).unwrap();
+        assert_eq!(loaded.rom_roots, vec!["/Users/foo/Documents/ROMs".to_string()]);
     }
 }

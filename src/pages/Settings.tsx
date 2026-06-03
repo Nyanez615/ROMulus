@@ -22,7 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import {
-  getSettings, saveSettings, reapplyPreferences, isOneDrivePath,
+  getSettings, saveSettings, reapplyPreferences, isCloudPath,
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
@@ -80,6 +80,7 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
   const [showScanPrompt, setShowScanPrompt] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const [hasIgdb, setHasIgdb] = useState(false);
   const [hasSgdb, setHasSgdb] = useState(false);
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -110,9 +111,16 @@ export default function Settings() {
 
   async function pickFolder() {
     const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string" && settings && !settings.rom_roots.includes(selected)) {
-      await save({ ...settings, rom_roots: [...settings.rom_roots, selected] });
-      setShowScanPrompt(true);
+    if (typeof selected === "string") {
+      setCloudError(null);
+      if (isCloudPath(selected)) {
+        setCloudError("Cloud storage paths cannot be used as ROM roots. Files are permanently deleted during cleanup.");
+        return;
+      }
+      if (settings && !settings.rom_roots.includes(selected)) {
+        await save({ ...settings, rom_roots: [...settings.rom_roots, selected] });
+        setShowScanPrompt(true);
+      }
     }
   }
 
@@ -187,9 +195,24 @@ export default function Settings() {
           <h2 className="font-semibold text-foreground">ROM Libraries</h2>
         </div>
 
+        {/* Section-level warning for existing cloud roots */}
+        {settings.rom_roots.filter(isCloudPath).length > 0 && (
+          <Alert className="border-amber-500/40 bg-amber-500/10">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <AlertDescription className="text-amber-300 text-sm space-y-1">
+              <p>These paths are in cloud storage — permanent deletion will sync changes to the cloud:</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {settings.rom_roots.filter(isCloudPath).map((r) => (
+                  <li key={r} className="font-mono text-xs break-all">{r}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="space-y-2">
           {settings.rom_roots.map((root) => (
-            <div key={root} className="border border-border rounded-lg p-3 space-y-1.5">
+            <div key={root} className="border border-border rounded-lg p-3">
               <div className="flex items-start gap-2">
                 <FolderOpen className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                 <span className="flex-1 text-xs text-foreground font-mono break-all">{root}</span>
@@ -197,11 +220,6 @@ export default function Settings() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              {isOneDrivePath(root) && (
-                <div className="flex items-center gap-1.5 text-xs text-amber-400">
-                  <AlertTriangle className="w-3 h-3" /> OneDrive — deletions sync to cloud
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -209,6 +227,15 @@ export default function Settings() {
         <Button variant="outline" onClick={pickFolder} className="w-full">
           <Plus className="w-4 h-4 mr-2" /> Add folder
         </Button>
+
+        {cloudError && (
+          <Alert className="border-red-500/40 bg-red-500/10">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertDescription className="text-red-300 text-sm">
+              {cloudError}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {showScanPrompt && (
           <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/30 bg-primary/10">
@@ -470,33 +497,6 @@ export default function Settings() {
         }}>
           <Plus className="w-4 h-4 mr-2" /> Import DAT file
         </Button>
-      </section>
-
-      <Separator />
-
-      {/* Danger Zone */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-destructive" />
-          <h2 className="font-semibold text-destructive">Danger Zone</h2>
-        </div>
-        <Alert className="border-destructive/40 bg-destructive/10">
-          <AlertTriangle className="w-4 h-4 text-destructive" />
-          <AlertDescription className="text-sm text-destructive/80">
-            Permanent delete bypasses the Trash and cannot be undone. Disabled by default.
-          </AlertDescription>
-        </Alert>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm text-foreground">Allow permanent delete</Label>
-            <p className="text-xs text-muted-foreground">Files will be deleted immediately, not moved to Trash</p>
-          </div>
-          <Switch
-            checked={settings.allow_permanent_delete}
-            onCheckedChange={(v) => save({ ...settings, allow_permanent_delete: v })}
-            className="data-[state=checked]:bg-destructive"
-          />
-        </div>
       </section>
 
       <footer className="mt-10 pt-6 border-t border-border/40 text-center text-xs text-muted-foreground/50 space-y-0.5">
