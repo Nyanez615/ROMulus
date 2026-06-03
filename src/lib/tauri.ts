@@ -146,6 +146,9 @@ export const getDuplicates = (consoles?: string[]): Promise<RomGroup[]> =>
 export const getFormatPairs = (): Promise<FormatPair[]> =>
   isTauri() ? invoke("get_format_pairs") : Promise.resolve([]);
 
+export const clearHistory = (): Promise<number> =>
+  isTauri() ? invoke("clear_history") : Promise.resolve(0);
+
 export const getHistory = (
   consoles: string[] | null,
   filter: HistoryFilter | null,

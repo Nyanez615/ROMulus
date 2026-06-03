@@ -109,9 +109,9 @@ describe("ROM Libraries", () => {
     });
   });
 
-  it("shows section-level cloud warning for cloud paths already in roots", async () => {
+  it("shows section-level cloud error for cloud paths already in roots", async () => {
     await renderSettings({ rom_roots: ["/Users/test/Library/CloudStorage/OneDrive-Personal/ROMs"] });
-    expect(screen.getByText(/These paths are in cloud storage/)).toBeInTheDocument();
+    expect(screen.getByText(/Cloud storage paths are not supported/)).toBeInTheDocument();
   });
 
   it("blocks adding a cloud path and shows an error", async () => {

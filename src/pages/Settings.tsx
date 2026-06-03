@@ -195,15 +195,16 @@ export default function Settings() {
           <h2 className="font-semibold text-foreground">ROM Libraries</h2>
         </div>
 
-        {/* Section-level warning for existing cloud roots */}
+        {/* Section-level error for existing cloud roots — these are unsupported */}
         {settings.rom_roots.filter(isCloudPath).length > 0 && (
-          <Alert className="border-amber-500/40 bg-amber-500/10">
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-            <AlertDescription className="text-amber-300 text-sm space-y-1">
-              <p>These paths are in cloud storage — permanent deletion will sync changes to the cloud:</p>
-              <ul className="list-disc list-inside space-y-0.5">
+          <Alert className="border-red-500/40 bg-red-500/10">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertDescription className="text-red-300 text-sm space-y-2">
+              <p className="font-medium">Cloud storage paths are not supported.</p>
+              <p>ROMulus cannot safely delete files from cloud-synced folders — deletions may fail or force files to download first. Remove these roots and point ROMulus at a local copy of your library instead.</p>
+              <ul className="list-disc list-inside space-y-0.5 pt-0.5">
                 {settings.rom_roots.filter(isCloudPath).map((r) => (
-                  <li key={r} className="font-mono text-xs break-all">{r}</li>
+                  <li key={r} className="font-mono text-xs break-all text-red-300/70">{r}</li>
                 ))}
               </ul>
             </AlertDescription>
