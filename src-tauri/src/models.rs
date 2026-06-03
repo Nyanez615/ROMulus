@@ -164,6 +164,8 @@ pub enum DeletionReason {
     OlderRevision,
     Unofficial,
     FormatPairNonPreferred,
+    /// Deleted from non-preferred folder AND has no counterpart in the preferred folder.
+    FormatPairNoCounterpart,
     NoPreferredVersion,
 }
 
@@ -241,6 +243,9 @@ pub struct ExecutionResult {
     pub success_count: u32,
     pub failed: Vec<FailedFile>,
     pub skipped_count: u32,
+    /// Source directories that were empty after file deletion and were removed.
+    /// Also removed from rom_roots. Empty vec for regular execute_prune calls.
+    pub folders_removed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -110,6 +110,7 @@ pub fn run() {
             prune::export_csv,
             // Execute
             execute::execute_prune,
+            execute::execute_format_pairs,
             execute::get_interrupted_session,
             // History
             history::get_history,

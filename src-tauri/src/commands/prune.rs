@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 use tauri::State;
 
@@ -13,17 +13,21 @@ use crate::models::{
 
 // ── Format-pair deletion helpers ──────────────────────────────────────────────
 
-/// Returns the set of file paths that should be deleted due to format-pair preferences.
-/// For each is_format_pair group where a preference is configured, variants from the
-/// non-preferred folder are collected. BIOS files are always exempt.
-fn build_format_delete_set(
-    groups: &[crate::models::RomGroup],
+/// Returns a map of file path → DeletionReason for all files to delete due to format-pair
+/// preferences. For each is_format_pair group where a preference is configured, ALL variants
+/// from the non-preferred folder are included (including BIOS — the entire folder is removed).
+///
+/// Reason assignment:
+/// - `FormatPairNonPreferred`   — title also exists in the preferred folder (safe to delete)
+/// - `FormatPairNoCounterpart`  — title exists ONLY in the non-preferred folder (no counterpart)
+pub(crate) fn build_format_delete_map(
+    groups: &[RomGroup],
     format_prefs: &HashMap<String, String>,
     format_pairs: &[FormatPair],
-) -> HashSet<String> {
-    let mut set = HashSet::new();
+) -> HashMap<String, DeletionReason> {
+    let mut map = HashMap::new();
     if format_prefs.is_empty() || format_pairs.is_empty() {
-        return set;
+        return map;
     }
     for group in groups {
         if !group.is_format_pair {
@@ -35,14 +39,21 @@ fn build_format_delete_set(
         });
         let Some(pair) = pair else { continue };
         let Some(preferred_folder) = format_prefs.get(&pair.console_group) else { continue };
-        // Add non-preferred-folder variants (except BIOS) to the delete set.
+        // Does this group have any variant in the preferred folder?
+        let has_counterpart = group.variants.iter().any(|v| v.console == *preferred_folder);
+        let reason = if has_counterpart {
+            DeletionReason::FormatPairNonPreferred
+        } else {
+            DeletionReason::FormatPairNoCounterpart
+        };
+        // All non-preferred-folder variants go in the map — BIOS included.
         for rom in &group.variants {
-            if !rom.is_bios && rom.console != *preferred_folder {
-                set.insert(rom.path.clone());
+            if rom.console != *preferred_folder {
+                map.insert(rom.path.clone(), reason.clone());
             }
         }
     }
-    set
+    map
 }
 
 // ── Filter application ────────────────────────────────────────────────────────
@@ -235,17 +246,17 @@ pub fn apply_format_pairs(state: State<'_, AppState>) -> Result<DeletionPlan, St
         (cache.groups.clone(), pairs)
     };
 
-    let delete_paths = build_format_delete_set(&groups, &format_prefs, &format_pairs);
+    let delete_map = build_format_delete_map(&groups, &format_prefs, &format_pairs);
 
     let mut to_delete: Vec<DeletionItem> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
 
     for group in &groups {
         for rom in &group.variants {
-            if delete_paths.contains(&rom.path) {
+            if let Some(reason) = delete_map.get(&rom.path) {
                 to_delete.push(DeletionItem {
                     rom: rom.clone(),
-                    reason: DeletionReason::FormatPairNonPreferred,
+                    reason: reason.clone(),
                 });
             } else {
                 to_keep.push(rom.clone());
@@ -280,12 +291,13 @@ fn csv_escape(s: &str) -> String {
 
 fn deletion_reason_str(r: &DeletionReason) -> &'static str {
     match r {
-        DeletionReason::NonPreferredLanguage   => "non_preferred_language",
-        DeletionReason::Prerelease             => "prerelease",
-        DeletionReason::OlderRevision          => "older_revision",
-        DeletionReason::Unofficial             => "unofficial",
-        DeletionReason::FormatPairNonPreferred => "format_pair_non_preferred",
-        DeletionReason::NoPreferredVersion     => "no_preferred_version",
+        DeletionReason::NonPreferredLanguage     => "non_preferred_language",
+        DeletionReason::Prerelease               => "prerelease",
+        DeletionReason::OlderRevision            => "older_revision",
+        DeletionReason::Unofficial               => "unofficial",
+        DeletionReason::FormatPairNonPreferred   => "format_pair_non_preferred",
+        DeletionReason::FormatPairNoCounterpart  => "format_pair_no_counterpart",
+        DeletionReason::NoPreferredVersion       => "no_preferred_version",
     }
 }
 
@@ -442,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn build_format_delete_set_marks_non_preferred_folder() {
+    fn build_format_delete_map_marks_non_preferred_folder() {
         let fds = "Nintendo - Family Computer Disk System (FDS)";
         let qd  = "Nintendo - Family Computer Disk System (QD)";
         let group_name = "Nintendo - Family Computer Disk System";
@@ -467,14 +479,16 @@ mod tests {
             overlap_percent: 1.0,
         }];
 
-        let delete_set = build_format_delete_set(&[group], &format_prefs, &pairs);
-        assert_eq!(delete_set.len(), 1, "only the non-preferred (QD) path should be in the delete set");
-        assert!(delete_set.contains("/roms/qd/Game.zip"));
-        assert!(!delete_set.contains("/roms/fds/Game.zip"));
+        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
+        assert_eq!(delete_map.len(), 1, "only the non-preferred (QD) path should be in the map");
+        assert!(delete_map.contains_key("/roms/qd/Game.zip"));
+        assert!(!delete_map.contains_key("/roms/fds/Game.zip"));
+        assert!(matches!(delete_map["/roms/qd/Game.zip"], DeletionReason::FormatPairNonPreferred));
     }
 
     #[test]
-    fn build_format_delete_set_bios_always_exempt() {
+    fn build_format_delete_map_includes_bios_in_non_preferred_folder() {
+        // BIOS in the non-preferred folder IS included — the whole folder is being removed.
         let fds = "Nintendo - Family Computer Disk System (FDS)";
         let qd  = "Nintendo - Family Computer Disk System (QD)";
         let group_name = "Nintendo - Family Computer Disk System";
@@ -483,11 +497,12 @@ mod tests {
         bios.path = "/roms/qd/bios.zip".into();
         bios.console = qd.into();
         bios.is_bios = true;
-        let mut fds_rom = make_rom("Game", FileCategory::Game);
-        fds_rom.path = "/roms/fds/Game.zip".into();
-        fds_rom.console = fds.into();
+        let mut fds_bios = make_rom("[BIOS] Disk System BIOS", FileCategory::Game);
+        fds_bios.path = "/roms/fds/bios.zip".into();
+        fds_bios.console = fds.into();
+        fds_bios.is_bios = true;
 
-        let mut group = make_group(vec![fds_rom, bios]);
+        let mut group = make_group(vec![fds_bios, bios]);
         group.is_format_pair = true;
 
         let mut format_prefs = HashMap::new();
@@ -499,8 +514,74 @@ mod tests {
             overlap_percent: 1.0,
         }];
 
-        let delete_set = build_format_delete_set(&[group], &format_prefs, &pairs);
-        assert!(!delete_set.contains("/roms/qd/bios.zip"), "BIOS must never be in delete set");
+        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
+        assert!(delete_map.contains_key("/roms/qd/bios.zip"), "BIOS in non-preferred folder must be included");
+        assert!(!delete_map.contains_key("/roms/fds/bios.zip"), "BIOS in preferred folder must be kept");
+    }
+
+    #[test]
+    fn build_format_delete_map_no_counterpart_reason() {
+        // Title exists ONLY in the non-preferred folder → FormatPairNoCounterpart reason.
+        let fds = "Nintendo - Family Computer Disk System (FDS)";
+        let qd  = "Nintendo - Family Computer Disk System (QD)";
+        let group_name = "Nintendo - Family Computer Disk System";
+
+        // QD-only ROM (no FDS counterpart)
+        let mut qd_only = make_rom("QD Exclusive Title", FileCategory::Game);
+        qd_only.path = "/roms/qd/exclusive.zip".into();
+        qd_only.console = qd.into();
+
+        let mut group = make_group(vec![qd_only]);
+        group.is_format_pair = true;
+
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert(group_name.to_string(), fds.to_string());
+        let pairs = vec![FormatPair {
+            console_group: group_name.into(),
+            folder_a: fds.into(),
+            folder_b: qd.into(),
+            overlap_percent: 0.95,
+        }];
+
+        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
+        assert_eq!(delete_map.len(), 1);
+        assert!(matches!(
+            delete_map["/roms/qd/exclusive.zip"],
+            DeletionReason::FormatPairNoCounterpart
+        ), "title with no preferred-folder counterpart must use FormatPairNoCounterpart");
+    }
+
+    #[test]
+    fn build_format_delete_map_with_counterpart_reason() {
+        // Title exists in BOTH folders → FormatPairNonPreferred reason for non-preferred copy.
+        let fds = "Nintendo - Family Computer Disk System (FDS)";
+        let qd  = "Nintendo - Family Computer Disk System (QD)";
+        let group_name = "Nintendo - Family Computer Disk System";
+
+        let mut fds_rom = make_rom("Shared Title", FileCategory::Game);
+        fds_rom.path = "/roms/fds/shared.zip".into();
+        fds_rom.console = fds.into();
+        let mut qd_rom = make_rom("Shared Title", FileCategory::Game);
+        qd_rom.path = "/roms/qd/shared.zip".into();
+        qd_rom.console = qd.into();
+
+        let mut group = make_group(vec![fds_rom, qd_rom]);
+        group.is_format_pair = true;
+
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert(group_name.to_string(), fds.to_string());
+        let pairs = vec![FormatPair {
+            console_group: group_name.into(),
+            folder_a: fds.into(),
+            folder_b: qd.into(),
+            overlap_percent: 1.0,
+        }];
+
+        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
+        assert!(matches!(
+            delete_map["/roms/qd/shared.zip"],
+            DeletionReason::FormatPairNonPreferred
+        ), "title with a counterpart must use FormatPairNonPreferred");
     }
 
     #[test]
