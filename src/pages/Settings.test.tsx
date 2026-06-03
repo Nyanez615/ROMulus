@@ -12,7 +12,10 @@ vi.mock("@/lib/tauri", () => ({
   getSettings: () => mockGetSettings(),
   saveSettings: (s: unknown) => mockSaveSettings(s),
   reapplyPreferences: () => Promise.resolve(),
-  isOneDrivePath: (path: string) => path.toLowerCase().includes("onedrive"),
+  isCloudPath: (path: string) =>
+    path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
+  isOneDrivePath: (path: string) =>
+    path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
   getFormatPairs: () => Promise.resolve([]),
   hasIgdbCredentials: () => Promise.resolve(false),
   hasSteamGridDbKey: () => Promise.resolve(false),
@@ -25,6 +28,7 @@ vi.mock("@/lib/tauri", () => ({
   removeDat: () => Promise.resolve(),
   verifyRoms: () => Promise.resolve(),
   enrichAllGames: () => Promise.resolve(),
+  scanRoots: () => Promise.resolve({}),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -40,10 +44,8 @@ const baseSettings: AppSettings = {
   rom_roots: [],
   format_preferences: {},
   preferences: { preferred_languages: ["En"], preferred_regions: ["USA", "World", "Europe"], short_console_names: false },
-  onedrive_acknowledged: false,
   terms_accepted: true,
   crash_reporting_enabled: false,
-  allow_permanent_delete: false,
   theme: "dark",
 };
 
@@ -75,7 +77,7 @@ describe("Section order", () => {
 describe("Section icons", () => {
   it("all named sections have an icon in their title row", async () => {
     await renderSettings();
-    const sectionNames = ["ROM Libraries", "Language", "Appearance", "Privacy", "IGDB", "SteamGridDB", "DAT File", "Danger Zone"];
+    const sectionNames = ["ROM Libraries", "Language", "Appearance", "Privacy", "IGDB", "SteamGridDB", "DAT File"];
     for (const name of sectionNames) {
       const heading = screen.getAllByRole("heading", { level: 2 }).find((h) => h.textContent?.includes(name));
       expect(heading, `heading for "${name}" should exist`).toBeTruthy();
@@ -107,9 +109,19 @@ describe("ROM Libraries", () => {
     });
   });
 
-  it("shows OneDrive warning for OneDrive paths", async () => {
+  it("shows section-level cloud warning for cloud paths already in roots", async () => {
     await renderSettings({ rom_roots: ["/Users/test/Library/CloudStorage/OneDrive-Personal/ROMs"] });
-    expect(screen.getByText(/OneDrive — deletions sync/)).toBeInTheDocument();
+    expect(screen.getByText(/These paths are in cloud storage/)).toBeInTheDocument();
+  });
+
+  it("blocks adding a cloud path and shows an error", async () => {
+    await renderSettings();
+    mockOpen.mockResolvedValue("/Users/test/Library/CloudStorage/OneDrive-Personal/ROMs");
+    fireEvent.click(screen.getByText("Add folder"));
+    await waitFor(() => {
+      expect(screen.getByText(/Cloud storage paths cannot be used/)).toBeInTheDocument();
+    });
+    expect(mockSaveSettings).not.toHaveBeenCalled();
   });
 });
 
@@ -199,28 +211,6 @@ describe("Privacy section", () => {
     fireEvent.click(sw!);
     await waitFor(() => {
       expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ crash_reporting_enabled: true }));
-    });
-  });
-});
-
-describe("Danger Zone", () => {
-  it("permanent delete switch has destructive class", async () => {
-    await renderSettings();
-    const label = screen.getByText("Allow permanent delete");
-    const row = label.closest("div[class*='flex items-center justify-between']");
-    const sw = row?.querySelector('[role="switch"]');
-    expect(sw).toBeTruthy();
-    expect((sw as Element).className).toContain("data-[state=checked]:bg-destructive");
-  });
-
-  it("saves allow_permanent_delete=true when switch is toggled", async () => {
-    await renderSettings({ allow_permanent_delete: false });
-    const label = screen.getByText("Allow permanent delete");
-    const row = label.closest("div[class*='flex items-center justify-between']");
-    const sw = row?.querySelector('[role="switch"]');
-    fireEvent.click(sw!);
-    await waitFor(() => {
-      expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ allow_permanent_delete: true }));
     });
   });
 });

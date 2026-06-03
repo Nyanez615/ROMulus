@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -11,122 +11,15 @@ use uuid::Uuid;
 
 use crate::commands::settings::{get_settings_inner, save_settings_inner};
 use crate::db::{self, AppState, LogEntry};
-use crate::models::{DeleteMode, ExecutionResult, FailedFile, InterruptedSession, RomFile};
+use crate::models::{ExecutionResult, FailedFile, InterruptedSession, RomFile};
 
-// ── Staging-dir trash helper ──────────────────────────────────────────────────
+// ── Per-file permanent delete helper ─────────────────────────────────────────
 
-/// Move all `paths` into per-parent staging directories, then trash each staging
-/// dir with one OS call → one Finder sound per unique parent (typically one).
-///
-/// Falls back to a direct `trash::delete` for any file whose `fs::rename` fails
-/// (e.g. a file locked by OneDrive sync). Updates action_log rows from
-/// `"pending"` → `"moved_to_trash"` or `"failed"` for every path.
-fn trash_via_staging(
-    paths: &[&str],
-    conn: &Connection,
-) -> Result<(u32, Vec<FailedFile>), String> {
-    // Group paths by their parent directory.
-    let mut by_parent: HashMap<std::path::PathBuf, Vec<&str>> = HashMap::new();
-    for &path in paths {
-        if let Some(parent) = Path::new(path).parent() {
-            by_parent.entry(parent.to_path_buf()).or_default().push(path);
-        }
-    }
-
-    let mut success_count = 0u32;
-    let mut failed: Vec<FailedFile> = vec![];
-
-    for (parent_dir, group) in &by_parent {
-        // Use a short UUID suffix to avoid collisions with pre-existing staging dirs.
-        let uid = &Uuid::new_v4().to_string()[..8];
-        let staging_dir =
-            parent_dir.join(format!("ROMulus Cleanup ({} files) {}", group.len(), uid));
-
-        // If staging dir creation fails, fall back to per-file trash for this group.
-        if std::fs::create_dir(&staging_dir).is_err() {
-            for &path in group {
-                trash_single(path, conn, &mut success_count, &mut failed);
-            }
-            continue;
-        }
-
-        // Rename each file into the staging dir (same-volume → atomic, instant).
-        let mut staged: Vec<&str> = vec![];
-        let mut rename_failed: Vec<&str> = vec![];
-
-        for &path in group {
-            let src = Path::new(path);
-            let filename = src.file_name().unwrap_or_default();
-            let dst = staging_dir.join(filename);
-            if std::fs::rename(src, &dst).is_ok() {
-                staged.push(path);
-            } else {
-                rename_failed.push(path);
-            }
-        }
-
-        // Trash the staging dir — one OS call covers all staged files.
-        if !staged.is_empty() {
-            match trash::delete(&staging_dir) {
-                Ok(()) => {
-                    for &path in &staged {
-                        let _ = db::update_pending_action(conn, path, "moved_to_trash");
-                        success_count += 1;
-                    }
-                }
-                Err(e) => {
-                    // Staging dir trash failed; files are in the staging dir, not at
-                    // their original paths. Mark all as failed.
-                    let err = e.to_string();
-                    eprintln!("[staging] trash staging dir failed: {err}");
-                    for &path in &staged {
-                        let _ = db::update_pending_action(conn, path, "failed");
-                        failed.push(FailedFile { path: path.to_string(), error: err.clone() });
-                    }
-                }
-            }
-        }
-
-        // Fall back to per-file trash for files that couldn't be renamed.
-        for &path in &rename_failed {
-            trash_single(path, conn, &mut success_count, &mut failed);
-        }
-    }
-
-    Ok((success_count, failed))
-}
-
-/// Trash a single file directly (fallback for locked / cross-volume files).
-fn trash_single(
-    path: &str,
-    conn: &Connection,
-    success_count: &mut u32,
-    failed: &mut Vec<FailedFile>,
-) {
-    match trash::delete(Path::new(path)) {
-        Ok(()) => {
-            let _ = db::update_pending_action(conn, path, "moved_to_trash");
-            *success_count += 1;
-        }
-        Err(e) => {
-            let _ = db::update_pending_action(conn, path, "failed");
-            failed.push(FailedFile { path: path.to_string(), error: e.to_string() });
-        }
-    }
-}
-
-// ── Shared deletion helper ────────────────────────────────────────────────────
-
-/// Delete a list of files and record each action in the log.
-///
-/// Trash mode: pre-logs all files as "pending", then uses staging dirs so the
-/// entire batch produces one Finder sound per unique parent directory.
-/// Permanent mode: pre-logs all as "pending", then deletes sequentially.
-///
+/// Delete a list of files permanently and record each action in the log.
+/// Pre-logs all files as "pending", then deletes sequentially via fs::remove_file.
 /// Returns `(success_count, failed_files, skipped_count)`.
 fn delete_files_inner(
     files: &[RomFile],
-    mode: &DeleteMode,
     session_id: &str,
     reason: &str,
     db_conn: &Arc<Mutex<Connection>>,
@@ -143,7 +36,6 @@ fn delete_files_inner(
         }
     }
 
-    // Pre-log ALL files as "pending" before any filesystem operation.
     for rom in &to_process {
         db::log_action(
             &conn,
@@ -159,78 +51,29 @@ fn delete_files_inner(
         .map_err(|e| e.to_string())?;
     }
 
-    match mode {
-        DeleteMode::Trash => {
-            let paths: Vec<&str> = to_process.iter().map(|r| r.path.as_str()).collect();
-            let (success_count, failed) = trash_via_staging(&paths, &conn)?;
-            Ok((success_count, failed, skipped_count))
-        }
-        DeleteMode::Permanent => {
-            let mut success_count = 0u32;
-            let mut failed: Vec<FailedFile> = vec![];
-            for rom in &to_process {
-                match std::fs::remove_file(&rom.path) {
-                    Ok(()) => {
-                        db::update_pending_action(&conn, &rom.path, "moved_to_trash")
-                            .map_err(|e| e.to_string())?;
-                        success_count += 1;
-                    }
-                    Err(e) => {
-                        db::update_pending_action(&conn, &rom.path, "failed")
-                            .map_err(|e| e.to_string())?;
-                        failed.push(FailedFile {
-                            path: rom.path.clone(),
-                            error: e.to_string(),
-                        });
-                    }
-                }
+    let mut success_count = 0u32;
+    let mut failed: Vec<FailedFile> = vec![];
+    for rom in &to_process {
+        match std::fs::remove_file(&rom.path) {
+            Ok(()) => {
+                db::update_pending_action(&conn, &rom.path, "deleted")
+                    .map_err(|e| e.to_string())?;
+                success_count += 1;
             }
-            Ok((success_count, failed, skipped_count))
-        }
-    }
-}
-
-// ── Folder-cleanup helper ─────────────────────────────────────────────────────
-
-/// For each directory in `source_dirs`: if it contains no visible (non-hidden)
-/// entries, remove it with `remove_dir_all` and remove it from `rom_roots`.
-fn cleanup_empty_source_dirs(
-    source_dirs: &HashSet<std::path::PathBuf>,
-    conn: &Connection,
-) -> Result<Vec<String>, String> {
-    let mut removed: Vec<String> = vec![];
-
-    for dir in source_dirs {
-        if !dir.exists() {
-            continue;
-        }
-        let visible_count = std::fs::read_dir(dir)
-            .ok()
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                    .count()
-            })
-            .unwrap_or(1);
-
-        if visible_count == 0 {
-            if let Err(e) = std::fs::remove_dir_all(dir) {
-                eprintln!("[cleanup] Could not remove dir {:?}: {e}", dir);
-            } else {
-                removed.push(dir.to_string_lossy().to_string());
+            Err(e) => {
+                db::update_pending_action(&conn, &rom.path, "failed")
+                    .map_err(|e| e.to_string())?;
+                failed.push(FailedFile {
+                    path: rom.path.clone(),
+                    error: e.to_string(),
+                });
             }
         }
     }
-
-    if !removed.is_empty() {
-        let mut settings = get_settings_inner(conn)?;
-        settings.rom_roots.retain(|r| !removed.contains(r));
-        save_settings_inner(conn, &settings)?;
-    }
-
-    Ok(removed)
+    Ok((success_count, failed, skipped_count))
 }
+
+// ── Folder-sweep helper ───────────────────────────────────────────────────────
 
 /// Scan all entries in `rom_roots` and remove any that exist on disk but
 /// contain no visible files. Returns the list of removed paths.
@@ -278,34 +121,20 @@ pub fn execute_prune(
     app: AppHandle,
     state: State<'_, AppState>,
     to_delete: Vec<RomFile>,
-    mode: DeleteMode,
-    onedrive_acknowledged: bool,
 ) -> Result<ExecutionResult, String> {
-    if !onedrive_acknowledged {
-        let has_onedrive = to_delete
-            .iter()
-            .any(|r| r.path.contains("CloudStorage") || r.path.contains("OneDrive"));
-        if has_onedrive {
-            return Err(
-                "OneDrive paths detected. Acknowledge the cloud sync warning before proceeding."
-                    .into(),
-            );
-        }
-    }
-
     if let Err(e) = write_backup_manifest(&app, "romulus-prune", &to_delete) {
         eprintln!("[backup] Could not write manifest: {e}");
     }
 
     let session_id = Uuid::new_v4().to_string();
     let (success_count, failed, skipped_count) =
-        delete_files_inner(&to_delete, &mode, &session_id, "prune_execution", &state.db)?;
+        delete_files_inner(&to_delete, &session_id, "prune_execution", &state.db)?;
 
     let _ = app
         .notification()
         .builder()
         .title("ROMulus")
-        .body(format!("Moved {success_count} files to Trash"))
+        .body(format!("Permanently deleted {success_count} files"))
         .show();
 
     Ok(ExecutionResult {
@@ -323,60 +152,119 @@ pub fn execute_format_pairs(
     app: AppHandle,
     state: State<'_, AppState>,
     to_delete: Vec<RomFile>,
-    mode: DeleteMode,
 ) -> Result<ExecutionResult, String> {
-    let source_dirs: HashSet<std::path::PathBuf> = to_delete
-        .iter()
-        .filter_map(|r| Path::new(&r.path).parent().map(|p| p.to_path_buf()))
-        .collect();
+    // Group files by parent directory.
+    let mut by_dir: HashMap<std::path::PathBuf, Vec<usize>> = HashMap::new();
+    for (i, rom) in to_delete.iter().enumerate() {
+        if let Some(parent) = Path::new(&rom.path).parent() {
+            by_dir.entry(parent.to_path_buf()).or_default().push(i);
+        }
+    }
 
     if let Err(e) = write_backup_manifest(&app, "romulus-format-pair", &to_delete) {
         eprintln!("[backup] Could not write manifest: {e}");
     }
 
     let session_id = Uuid::new_v4().to_string();
-    let (success_count, failed, skipped_count) =
-        delete_files_inner(&to_delete, &mode, &session_id, "format_pair_cleanup", &state.db)?;
-
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let folders_removed = cleanup_empty_source_dirs(&source_dirs, &conn)?;
+
+    // Pre-log all files as "pending".
+    for rom in &to_delete {
+        db::log_action(
+            &conn,
+            LogEntry {
+                action: "pending",
+                path: &rom.path,
+                console: &rom.console,
+                title: &rom.title,
+                reason: "format_pair_cleanup",
+                session_id: &session_id,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let mut success_count = 0u32;
+    let mut failed: Vec<FailedFile> = vec![];
+    let mut folders_removed: Vec<String> = vec![];
+
+    for (dir, indices) in &by_dir {
+        // Safety check: count visible (non-hidden) files in the directory.
+        let visible_count = std::fs::read_dir(dir)
+            .ok()
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                    .count()
+            })
+            .unwrap_or(0);
+
+        if visible_count > indices.len() {
+            let err_msg = format!(
+                "{} unexpected files present; folder skipped",
+                visible_count - indices.len()
+            );
+            for &i in indices {
+                let _ = db::update_pending_action(&conn, &to_delete[i].path, "failed");
+                failed.push(FailedFile {
+                    path: to_delete[i].path.clone(),
+                    error: err_msg.clone(),
+                });
+            }
+            continue;
+        }
+
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => {
+                for &i in indices {
+                    let _ = db::update_pending_action(&conn, &to_delete[i].path, "deleted");
+                    success_count += 1;
+                }
+                folders_removed.push(dir.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                let err = e.to_string();
+                for &i in indices {
+                    let _ = db::update_pending_action(&conn, &to_delete[i].path, "failed");
+                    failed.push(FailedFile {
+                        path: to_delete[i].path.clone(),
+                        error: err.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Remove successfully deleted folders from rom_roots.
+    if !folders_removed.is_empty() {
+        let mut settings = get_settings_inner(&conn)?;
+        settings.rom_roots.retain(|r| !folders_removed.contains(r));
+        save_settings_inner(&conn, &settings)?;
+    }
 
     let _ = app
         .notification()
         .builder()
         .title("ROMulus")
-        .body(format!(
-            "Format pair cleanup: removed {success_count} files{}",
-            if folders_removed.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    ", {} folder{} deleted",
-                    folders_removed.len(),
-                    if folders_removed.len() == 1 { "" } else { "s" }
-                )
-            }
-        ))
+        .body(format!("Permanently deleted {success_count} files"))
         .show();
 
     Ok(ExecutionResult {
         success_count,
         failed,
-        skipped_count,
+        skipped_count: 0,
         folders_removed,
     })
 }
 
 // ── resume_session ────────────────────────────────────────────────────────────
 
-/// Resume a session that was interrupted mid-deletion.
+/// Resume a session interrupted mid-deletion.
 ///
-/// Reads all `"pending"` rows from `action_log` and re-attempts deletion via
-/// the staging-dir approach. For `format_pair_cleanup` items, also runs the
-/// empty-folder cleanup on affected parent directories. Finally sweeps all
-/// `rom_roots` for orphaned empty directories (e.g. a format folder whose
-/// files were all deleted in the interrupted run but whose directory was never
-/// removed).
+/// format_pair_cleanup rows: grouped by parent dir — if dir exists, remove_dir_all;
+/// if already gone, mark as "deleted". prune_execution rows: per-file remove_file.
+/// Finally sweeps rom_roots for orphaned empty directories.
 #[tauri::command]
 pub fn resume_session(
     app: AppHandle,
@@ -384,7 +272,6 @@ pub fn resume_session(
 ) -> Result<ExecutionResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
-    // Collect all pending rows: (path, reason).
     let mut stmt = conn
         .prepare("SELECT path, reason FROM action_log WHERE action = 'pending'")
         .map_err(|e| e.to_string())?;
@@ -404,37 +291,75 @@ pub fn resume_session(
         });
     }
 
-    // Collect parent dirs of format_pair_cleanup entries before any deletion.
-    let format_pair_source_dirs: HashSet<std::path::PathBuf> = pending
-        .iter()
-        .filter(|(_, reason)| reason == "format_pair_cleanup")
-        .filter_map(|(path, _)| Path::new(path.as_str()).parent().map(|d| d.to_path_buf()))
-        .collect();
-
-    // Split into files that still exist vs. already gone.
+    let mut success_count = 0u32;
     let mut skipped_count = 0u32;
-    let mut to_trash: Vec<&str> = vec![];
-    for (path, _) in &pending {
-        if Path::new(path.as_str()).exists() {
-            to_trash.push(path.as_str());
+    let mut failed: Vec<FailedFile> = vec![];
+    let mut folders_removed: Vec<String> = vec![];
+
+    // Group format_pair_cleanup rows by parent directory.
+    let mut format_pair_dirs: HashMap<std::path::PathBuf, Vec<String>> = HashMap::new();
+    for (path, reason) in &pending {
+        if reason == "format_pair_cleanup" {
+            if let Some(parent) = Path::new(path.as_str()).parent() {
+                format_pair_dirs
+                    .entry(parent.to_path_buf())
+                    .or_default()
+                    .push(path.clone());
+            }
+        }
+    }
+
+    // Handle format_pair_cleanup rows: directory-level removal.
+    for (dir, paths) in &format_pair_dirs {
+        if dir.exists() {
+            match std::fs::remove_dir_all(dir) {
+                Ok(()) => {
+                    for path in paths {
+                        let _ = db::update_pending_action(&conn, path, "deleted");
+                        success_count += 1;
+                    }
+                    folders_removed.push(dir.to_string_lossy().to_string());
+                }
+                Err(e) => {
+                    let err = e.to_string();
+                    for path in paths {
+                        let _ = db::update_pending_action(&conn, path, "failed");
+                        failed.push(FailedFile { path: path.clone(), error: err.clone() });
+                    }
+                }
+            }
         } else {
-            // Already deleted in a prior run — just resolve the pending status.
-            let _ = db::update_pending_action(&conn, path, "moved_to_trash");
+            // Directory already gone — resolve pending status.
+            for path in paths {
+                let _ = db::update_pending_action(&conn, path, "deleted");
+                skipped_count += 1;
+            }
+        }
+    }
+
+    // Handle prune_execution (and any other) pending rows: per-file removal.
+    for (path, reason) in &pending {
+        if reason == "format_pair_cleanup" {
+            continue;
+        }
+        if Path::new(path.as_str()).exists() {
+            match std::fs::remove_file(path.as_str()) {
+                Ok(()) => {
+                    let _ = db::update_pending_action(&conn, path, "deleted");
+                    success_count += 1;
+                }
+                Err(e) => {
+                    let _ = db::update_pending_action(&conn, path, "failed");
+                    failed.push(FailedFile { path: path.clone(), error: e.to_string() });
+                }
+            }
+        } else {
+            let _ = db::update_pending_action(&conn, path, "deleted");
             skipped_count += 1;
         }
     }
 
-    let (success_count, failed) = if to_trash.is_empty() {
-        (0, vec![])
-    } else {
-        trash_via_staging(&to_trash, &conn)?
-    };
-
-    // Folder cleanup for format_pair_cleanup items.
-    let mut folders_removed = cleanup_empty_source_dirs(&format_pair_source_dirs, &conn)?;
-
-    // Sweep all rom_roots for orphaned empty directories (handles the case where
-    // file deletion completed but folder cleanup was never reached).
+    // Sweep all rom_roots for orphaned empty directories.
     let swept = sweep_empty_roots(&conn)?;
     folders_removed.extend(swept);
 
@@ -443,7 +368,7 @@ pub fn resume_session(
         .builder()
         .title("ROMulus")
         .body(format!(
-            "Resumed: {success_count} file{} moved to Trash{}",
+            "Resumed: {success_count} file{} permanently deleted{}",
             if success_count == 1 { "" } else { "s" },
             if folders_removed.is_empty() {
                 String::new()
@@ -574,15 +499,16 @@ fn write_backup_manifest(
     prefix: &str,
     to_delete: &[RomFile],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let desktop = app.path().desktop_dir()?;
+    let manifests_dir = app.path().app_data_dir()?.join("manifests");
+    std::fs::create_dir_all(&manifests_dir)?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let manifest_path = desktop.join(format!("{prefix}-{ts}.txt"));
+    let manifest_path = manifests_dir.join(format!("{prefix}-{ts}.txt"));
     let mut file = std::fs::File::create(&manifest_path)?;
     writeln!(file, "# ROMulus pre-deletion manifest — {ts}")?;
-    writeln!(file, "# Files moved to Trash or deleted by this operation:")?;
+    writeln!(file, "# Files permanently deleted by this operation:")?;
     for rom in to_delete {
         writeln!(file, "{}", rom.path)?;
     }
@@ -595,8 +521,6 @@ fn write_backup_manifest(
 mod tests {
     use super::*;
     use crate::db;
-
-    // ── Helper: insert a pending action_log row ───────────────────────────────
 
     fn insert_pending(conn: &Connection, path: &str, console: &str, reason: &str) {
         conn.execute(
@@ -624,68 +548,7 @@ mod tests {
 
         let result = query_interrupted_session(&conn).unwrap().unwrap();
         assert_eq!(result.pending_count, 3);
-        // Consoles are distinct and alphabetically sorted.
         assert_eq!(result.consoles, vec!["Game Boy", "Nintendo 64"]);
-    }
-
-    // ── staging dir — file grouping and rename ────────────────────────────────
-
-    #[test]
-    fn test_staging_dir_created_per_parent() {
-        let tmp = std::env::temp_dir().join(format!("romulus_test_{}", Uuid::new_v4()));
-        let dir_a = tmp.join("dir_a");
-        let dir_b = tmp.join("dir_b");
-        std::fs::create_dir_all(&dir_a).unwrap();
-        std::fs::create_dir_all(&dir_b).unwrap();
-
-        // Create dummy files.
-        let file_a1 = dir_a.join("rom_a1.zip");
-        let file_a2 = dir_a.join("rom_a2.zip");
-        let file_b1 = dir_b.join("rom_b1.zip");
-        std::fs::write(&file_a1, b"a1").unwrap();
-        std::fs::write(&file_a2, b"a2").unwrap();
-        std::fs::write(&file_b1, b"b1").unwrap();
-
-        // Group paths by parent (mirrors the internal grouping in trash_via_staging).
-        let paths = [
-            file_a1.to_str().unwrap(),
-            file_a2.to_str().unwrap(),
-            file_b1.to_str().unwrap(),
-        ];
-        let mut by_parent: HashMap<std::path::PathBuf, Vec<&str>> = HashMap::new();
-        for &path in &paths {
-            if let Some(parent) = Path::new(path).parent() {
-                by_parent.entry(parent.to_path_buf()).or_default().push(path);
-            }
-        }
-
-        // Verify we get exactly two parent groups.
-        assert_eq!(by_parent.len(), 2);
-
-        // For each group, create a staging dir and rename files into it.
-        let mut staging_dirs: Vec<std::path::PathBuf> = vec![];
-        for (parent, group) in &by_parent {
-            let uid = &Uuid::new_v4().to_string()[..8];
-            let staging_dir = parent.join(format!("ROMulus Cleanup ({} files) {}", group.len(), uid));
-            std::fs::create_dir(&staging_dir).unwrap();
-
-            for &path in group {
-                let filename = Path::new(path).file_name().unwrap();
-                std::fs::rename(path, staging_dir.join(filename)).unwrap();
-            }
-
-            // Files should now be inside the staging dir.
-            let entries: Vec<_> = std::fs::read_dir(&staging_dir)
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .collect();
-            assert_eq!(entries.len(), group.len(), "staging dir should contain exactly the group's files");
-
-            staging_dirs.push(staging_dir);
-        }
-
-        // Cleanup: remove the whole tmp tree.
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     // ── empty root detection ──────────────────────────────────────────────────
@@ -697,10 +560,8 @@ mod tests {
         let non_empty_dir = tmp.join("non_empty_root");
         std::fs::create_dir_all(&empty_dir).unwrap();
         std::fs::create_dir_all(&non_empty_dir).unwrap();
-        // Put a visible file in non_empty_dir.
         std::fs::write(non_empty_dir.join("rom.zip"), b"data").unwrap();
 
-        // Set both as rom_roots in an in-memory DB.
         let conn = db::open_in_memory();
         let mut settings = crate::commands::settings::get_settings_inner(&conn).unwrap();
         settings.rom_roots = vec![
@@ -709,7 +570,6 @@ mod tests {
         ];
         crate::commands::settings::save_settings_inner(&conn, &settings).unwrap();
 
-        // Simulate get_empty_roots logic.
         let result_settings = crate::commands::settings::get_settings_inner(&conn).unwrap();
         let empties: Vec<String> = result_settings
             .rom_roots
@@ -739,42 +599,90 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    // ── resume: folder cleanup only for format_pair_cleanup reason ────────────
+    // ── execute_format_pairs: safety check skips dir with unexpected files ────
 
     #[test]
-    fn test_resume_folder_cleanup_only_for_format_pairs() {
+    fn test_format_pairs_safety_check_skips_unexpected_files() {
         let tmp = std::env::temp_dir().join(format!("romulus_test_{}", Uuid::new_v4()));
-        let format_dir = tmp.join("format_pair_dir");
-        let prune_dir = tmp.join("prune_dir");
-        std::fs::create_dir_all(&format_dir).unwrap();
-        std::fs::create_dir_all(&prune_dir).unwrap();
+        let dir = tmp.join("format_dir");
+        std::fs::create_dir_all(&dir).unwrap();
 
-        // format_pair_dir → empty (simulates post-deletion state).
-        // prune_dir → still has a file (regular prune should NOT touch the folder).
-        std::fs::write(prune_dir.join("remaining.zip"), b"keep").unwrap();
+        // Create 3 files but only mark 2 as to_delete → safety check should skip
+        std::fs::write(dir.join("a.zip"), b"a").unwrap();
+        std::fs::write(dir.join("b.zip"), b"b").unwrap();
+        std::fs::write(dir.join("extra.zip"), b"extra").unwrap();
 
         let conn = db::open_in_memory();
-        let mut settings = crate::commands::settings::get_settings_inner(&conn).unwrap();
-        settings.rom_roots = vec![
-            format_dir.to_str().unwrap().to_string(),
-            prune_dir.to_str().unwrap().to_string(),
-        ];
-        crate::commands::settings::save_settings_inner(&conn, &settings).unwrap();
+        let session_id = "test-session";
 
-        // Run cleanup on only the format_pair source dirs.
-        let format_pair_dirs: HashSet<std::path::PathBuf> =
-            [format_dir.clone()].into_iter().collect();
-        let removed = cleanup_empty_source_dirs(&format_pair_dirs, &conn).unwrap();
+        let roms: Vec<RomFile> = vec!["a.zip", "b.zip"]
+            .iter()
+            .map(|name| make_rom(dir.join(name).to_str().unwrap()))
+            .collect();
 
-        assert_eq!(removed.len(), 1, "only the empty format_pair dir should be removed");
-        assert!(!format_dir.exists(), "empty format_pair dir should be gone");
-        assert!(prune_dir.exists(), "non-empty prune dir should remain untouched");
+        // Pre-log as pending
+        for rom in &roms {
+            db::log_action(
+                &conn,
+                LogEntry {
+                    action: "pending",
+                    path: &rom.path,
+                    console: &rom.console,
+                    title: &rom.title,
+                    reason: "format_pair_cleanup",
+                    session_id,
+                },
+            )
+            .unwrap();
+        }
 
-        // Verify rom_roots was updated.
-        let updated = crate::commands::settings::get_settings_inner(&conn).unwrap();
-        assert!(!updated.rom_roots.contains(&format_dir.to_str().unwrap().to_string()));
-        assert!(updated.rom_roots.contains(&prune_dir.to_str().unwrap().to_string()));
+        // Simulate the safety check logic
+        let visible_count = std::fs::read_dir(&dir)
+            .ok()
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                    .count()
+            })
+            .unwrap_or(0);
+
+        assert_eq!(visible_count, 3, "should see 3 visible files");
+        assert!(
+            visible_count > roms.len(),
+            "safety check: unexpected file count triggers skip"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn make_rom(path: &str) -> RomFile {
+        use crate::models::{FileCategory, FileFormat};
+        RomFile {
+            path: path.to_string(),
+            filename: Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            console: "Test Console".to_string(),
+            title: "Test".to_string(),
+            title_normalized: "test".to_string(),
+            regions: vec![],
+            languages: vec![],
+            status_flags: vec![],
+            extra_tags: vec![],
+            bad_dump: false,
+            revision: 0,
+            disc_number: None,
+            version: None,
+            is_bios: false,
+            file_format: FileFormat::Zip,
+            file_category: FileCategory::Game,
+            filesize: 0,
+            matches_preferred_language: false,
+            matches_preferred_region: false,
+            is_unofficial_preferred_fallback: false,
+        }
     }
 }
