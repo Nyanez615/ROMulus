@@ -26,6 +26,7 @@ import type { ScanProgress } from "./bindings/ScanProgress";
 import type { ScanStatus } from "./bindings/ScanStatus";
 import type { FormatPair } from "./bindings/FormatPair";
 import type { HistoryFilter } from "./bindings/HistoryFilter";
+import type { InterruptedSession } from "./bindings/InterruptedSession";
 
 // ── Defaults for browser-preview mode ────────────────────────────────────────
 
@@ -106,8 +107,19 @@ export const executeFormatPairs = (
     ? invoke("execute_format_pairs", { toDelete, mode })
     : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
-export const getInterruptedSession = (): Promise<boolean> =>
-  isTauri() ? invoke("get_interrupted_session") : Promise.resolve(false);
+export const getInterruptedSession = (): Promise<InterruptedSession | null> =>
+  isTauri() ? invoke("get_interrupted_session") : Promise.resolve(null);
+
+export const resumeSession = (): Promise<ExecutionResult> =>
+  isTauri()
+    ? invoke("resume_session")
+    : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
+
+export const getEmptyRoots = (): Promise<string[]> =>
+  isTauri() ? invoke("get_empty_roots") : Promise.resolve([]);
+
+export const cleanupEmptyRoots = (paths: string[]): Promise<number> =>
+  isTauri() ? invoke("cleanup_empty_roots", { paths }) : Promise.resolve(0);
 
 export const applyFilters = (settings: FilterSettings, consoles?: string[]): Promise<DeletionPlan> =>
   isTauri()

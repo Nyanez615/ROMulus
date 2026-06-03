@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  getConsoles, getInterruptedSession, getHistory,
-  scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
+  getConsoles, getInterruptedSession, resumeSession,
+  getEmptyRoots, cleanupEmptyRoots,
+  getHistory, scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
   onEnrichProgress, onEnrichComplete, getEnrichmentStatus,
 } from "@/lib/tauri";
+import type { InterruptedSession } from "@/lib/bindings/InterruptedSession";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 import type { EnrichmentStatus } from "@/lib/bindings/EnrichmentStatus";
 import type { Completeness } from "@/lib/bindings/Completeness";
@@ -32,10 +34,13 @@ import { usePreferencesStore } from "@/store/preferences";
 import { refreshTagStore } from "@/components/Layout";
 
 export default function Dashboard() {
-  const { consoles, setConsoles, status, setStatus, setSelectedConsoles } = useScanStore();
+  const { consoles, setConsoles, status, setStatus, setSelectedConsoles, bumpCacheVersion } = useScanStore();
   const { setActiveTab } = useUIStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const [interrupted, setInterrupted] = useState(false);
+  const [interrupted, setInterrupted] = useState<InterruptedSession | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [resumeResult, setResumeResult] = useState<string | null>(null);
+  const [emptyRoots, setEmptyRoots] = useState<string[]>([]);
   const [recentActions, setRecentActions] = useState<ActionLogEntry[]>([]);
   const [scanning, setScanning] = useState(false);
   const [enrichment, setEnrichment] = useState<EnrichmentStatus | null>(null);
@@ -47,6 +52,7 @@ export default function Dashboard() {
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
     getInterruptedSession().then(setInterrupted).catch(console.error);
+    getEmptyRoots().then(setEmptyRoots).catch(console.error);
     getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
     getEnrichmentStatus().then((s) => { if (s.total > 0) setEnrichment(s); }).catch(console.error);
     getDatFiles().then((dats) => {
@@ -81,6 +87,36 @@ export default function Dashboard() {
     } finally {
       setScanning(false);
     }
+  }
+
+  async function handleResume() {
+    if (!interrupted) return;
+    setResuming(true);
+    try {
+      const result = await resumeSession();
+      const parts: string[] = [];
+      if (result.success_count > 0)
+        parts.push(`${result.success_count} file${result.success_count !== 1 ? "s" : ""} moved to Trash`);
+      if (result.folders_removed.length > 0)
+        parts.push(`${result.folders_removed.length} empty folder${result.folders_removed.length !== 1 ? "s" : ""} removed`);
+      setResumeResult(parts.join(". ") || "Done.");
+      setInterrupted(null);
+      setEmptyRoots([]);
+      const updated = await getConsoles();
+      setConsoles(updated);
+      bumpCacheVersion();
+    } catch (e) {
+      setResumeResult(`Error: ${String(e)}`);
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  async function handleCleanupRoots() {
+    await cleanupEmptyRoots(emptyRoots).catch(console.error);
+    setEmptyRoots([]);
+    const updated = await getConsoles();
+    setConsoles(updated);
   }
 
   // Platform summary stats (for stat tiles — unfiltered)
@@ -157,10 +193,62 @@ export default function Dashboard() {
       </div>
       {interrupted && (
         <Alert className="border-amber-500/40 bg-amber-500/10">
-          <AlertTriangle className="w-4 h-4 text-amber-400" />
-          <AlertDescription className="text-amber-300 text-sm">
-            Last session was interrupted mid-deletion.{" "}
-            <button className="underline" onClick={() => setActiveTab("history")}>Review in History →</button>
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <AlertDescription className="text-amber-300 text-sm space-y-2">
+            <div>
+              <p className="font-medium">Last session was interrupted mid-deletion.</p>
+              <p className="text-amber-400/70 text-xs mt-0.5">
+                {interrupted.pending_count} file{interrupted.pending_count !== 1 ? "s" : ""} remain pending
+                {interrupted.consoles.length > 0 && ` · ${interrupted.consoles.join(", ")}`}
+              </p>
+            </div>
+            {resumeResult ? (
+              <p className="text-green-400 text-xs">{resumeResult}</p>
+            ) : (
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  size="sm"
+                  className="h-7 text-xs bg-amber-600 hover:bg-amber-500 text-white"
+                  disabled={resuming}
+                  onClick={handleResume}
+                >
+                  {resuming ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                      Moving {interrupted.pending_count} file{interrupted.pending_count !== 1 ? "s" : ""} to Trash…
+                    </>
+                  ) : (
+                    "Resume deletion"
+                  )}
+                </Button>
+                <button
+                  className="text-xs underline text-amber-300/70 hover:text-amber-300"
+                  onClick={() => setActiveTab("history")}
+                >
+                  Review in History →
+                </button>
+              </div>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {emptyRoots.length > 0 && !interrupted && (
+        <Alert className="border-blue-500/30 bg-blue-500/5">
+          <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+          <AlertDescription className="text-blue-300 text-sm flex items-center justify-between gap-3 flex-wrap">
+            <span>
+              {emptyRoots.length} empty scan root{emptyRoots.length !== 1 ? "s" : ""} detected
+              {" "}({emptyRoots.map((r) => r.split("/").pop()).join(", ")})
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-blue-300 hover:text-blue-100 shrink-0"
+              onClick={handleCleanupRoots}
+            >
+              Remove from scan roots
+            </Button>
           </AlertDescription>
         </Alert>
       )}

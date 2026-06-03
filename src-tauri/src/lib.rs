@@ -111,7 +111,10 @@ pub fn run() {
             // Execute
             execute::execute_prune,
             execute::execute_format_pairs,
+            execute::resume_session,
             execute::get_interrupted_session,
+            execute::get_empty_roots,
+            execute::cleanup_empty_roots,
             // History
             history::get_history,
             // Settings & onboarding

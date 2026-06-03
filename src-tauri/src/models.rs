@@ -255,6 +255,15 @@ pub struct FailedFile {
     pub error: String,
 }
 
+/// Returned by get_interrupted_session when there are pending action_log rows.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct InterruptedSession {
+    pub pending_count: u32,
+    /// Distinct console names from pending rows, alphabetically sorted.
+    pub consoles: Vec<String>,
+}
+
 // ── Scan & background event payloads ────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
@@ -429,5 +438,6 @@ mod tests {
         Completeness::export_all_to(out).unwrap();
         VerificationStatus::export_all_to(out).unwrap();
         HistoryFilter::export_all_to(out).unwrap();
+        InterruptedSession::export_all_to(out).unwrap();
     }
 }
