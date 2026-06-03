@@ -117,6 +117,7 @@ pub fn run() {
             execute::cleanup_empty_roots,
             // History
             history::get_history,
+            history::clear_history,
             // Settings & onboarding
             settings::get_settings,
             settings::save_settings,

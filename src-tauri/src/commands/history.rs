@@ -84,7 +84,21 @@ pub(crate) fn get_history_inner(
     Ok(PagedHistory { total, page, per_page, entries })
 }
 
-// ── Tauri command ─────────────────────────────────────────────────────────────
+// ── Tauri commands ────────────────────────────────────────────────────────────
+
+/// Delete all non-pending action_log rows. Pending rows are preserved for
+/// crash recovery. Returns the number of rows cleared.
+#[tauri::command]
+pub fn clear_history(state: State<'_, AppState>) -> Result<u32, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let cleared = conn
+        .execute(
+            "DELETE FROM action_log WHERE action != 'pending'",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(cleared as u32)
+}
 
 #[tauri::command]
 pub fn get_history(

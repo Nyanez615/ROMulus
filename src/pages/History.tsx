@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Clock, Trash2, Check, SkipForward, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getHistory } from "@/lib/tauri";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { getHistory, clearHistory } from "@/lib/tauri";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import type { ActionType } from "@/lib/bindings/ActionType";
 import type { HistoryFilter } from "@/lib/bindings/HistoryFilter";
@@ -50,8 +51,9 @@ export default function History() {
   const [entries, setEntries] = useState<ActionLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [hs, setHs] = useState<HistoryState>({ page: 1, activeGroups: [], dateDays: undefined });
+  const [clearing, setClearing] = useState(false);
 
-  useEffect(() => {
+  const loadHistory = useCallback(() => {
     const actions =
       hs.activeGroups.length > 0
         ? hs.activeGroups.flatMap((label) => ACTION_CHIP_GROUPS.find((g) => g.label === label)?.actions ?? [])
@@ -64,6 +66,18 @@ export default function History() {
       .then((h) => { setEntries(h.entries); setTotal(h.total); })
       .catch(console.error);
   }, [selectedConsoles, hs]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  async function doClearHistory() {
+    setClearing(true);
+    try {
+      await clearHistory();
+      setHs({ page: 1, activeGroups: [], dateDays: undefined });
+    } finally {
+      setClearing(false);
+    }
+  }
 
   // Derive filter for display-state only (chips active indicator)
   const activeGroups = hs.activeGroups;
@@ -86,9 +100,33 @@ export default function History() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="h-14 flex items-center px-6 border-b border-border">
+      <div className="h-14 flex items-center px-6 border-b border-border gap-3">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="History" />
         <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} total actions</span>
+        {total > 0 && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="ghost" className="text-xs text-muted-foreground hover:text-destructive gap-1.5 shrink-0" disabled={clearing}>
+                <Trash2 className="w-3.5 h-3.5" />
+                Clear
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear history?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  All {total.toLocaleString()} history entries will be permanently removed. Any in-progress operations (pending rows) are preserved.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={doClearHistory} className="bg-destructive hover:bg-destructive/90">
+                  Clear history
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
 
       {/* Secondary toolbar: action chips + date filter */}
