@@ -10,7 +10,8 @@ import { usePreferencesStore } from "@/store/preferences";
 
 const mockApplyFilters = vi.fn(() => Promise.resolve({} as DeletionPlan));
 const mockApplyFormatPairs = vi.fn(() => Promise.resolve({} as DeletionPlan));
-const mockExecutePrune = vi.fn(() => Promise.resolve({ success_count: 2, failed: [], skipped_count: 0 }));
+const mockExecutePrune = vi.fn(() => Promise.resolve({ success_count: 2, failed: [], skipped_count: 0, folders_removed: [] }));
+const mockExecuteFormatPairs = vi.fn(() => Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] }));
 const mockExportCsv = vi.fn(() => Promise.resolve());
 const mockGetSettings = vi.fn(() => Promise.resolve({} as AppSettings));
 const mockSaveSettings = vi.fn(() => Promise.resolve());
@@ -23,6 +24,7 @@ vi.mock("@/lib/tauri", () => ({
   applyFilters: () => mockApplyFilters(),
   applyFormatPairs: () => mockApplyFormatPairs(),
   executePrune: () => mockExecutePrune(),
+  executeFormatPairs: () => mockExecuteFormatPairs(),
   exportCsv: () => mockExportCsv(),
   getSettings: () => mockGetSettings(),
   saveSettings: (s: unknown) => { void s; return mockSaveSettings(); },

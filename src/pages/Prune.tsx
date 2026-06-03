@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  applyFilters, applyFormatPairs, executePrune, exportCsv,
+  applyFilters, applyFormatPairs, executePrune, executeFormatPairs, exportCsv,
   formatBytes, isOneDrivePath, getSettings, saveSettings,
   getFilterSettings, saveFilterSettings, getFormatPairs,
   reapplyPreferences,
@@ -29,21 +29,23 @@ import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 // ── Deletion reason labels ────────────────────────────────────────────────────
 
 const REASON_LABELS: Record<string, string> = {
-  non_preferred_language:    "Non-preferred lang",
-  prerelease:                "Pre-release",
-  older_revision:            "Older revision",
-  unofficial:                "Unofficial",
-  format_pair_non_preferred: "Format pair",
-  no_preferred_version:      "No preferred ver.",
+  non_preferred_language:     "Non-preferred lang",
+  prerelease:                 "Pre-release",
+  older_revision:             "Older revision",
+  unofficial:                 "Unofficial",
+  format_pair_non_preferred:  "Format pair",
+  format_pair_no_counterpart: "No counterpart",
+  no_preferred_version:       "No preferred ver.",
 };
 
 const REASON_COLORS: Record<string, string> = {
-  non_preferred_language:    "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  prerelease:                "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  older_revision:            "bg-purple-500/15 text-purple-400 border-purple-500/30",
-  unofficial:                "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  format_pair_non_preferred: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-  no_preferred_version:      "bg-red-500/15 text-red-400 border-red-500/30",
+  non_preferred_language:     "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  prerelease:                 "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  older_revision:             "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  unofficial:                 "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  format_pair_non_preferred:  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  format_pair_no_counterpart: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  no_preferred_version:       "bg-red-500/15 text-red-400 border-red-500/30",
 };
 
 function reasonKey(r: DeletionItem["reason"]): string {
@@ -110,9 +112,10 @@ export default function Prune() {
   // Full AppSettings needed to save format_preferences updates
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [fpPlan, setFpPlan] = useState<DeletionPlan | null>(null);
+  const [fpPreviewSearch, setFpPreviewSearch] = useState("");
   const [fpLoading, setFpLoading] = useState(false);
   const [fpExecuting, setFpExecuting] = useState(false);
-  const [fpResult, setFpResult] = useState<{ success: number; failed: number } | null>(null);
+  const [fpResult, setFpResult] = useState<{ success: number; failed: number; foldersRemoved: number } | null>(null);
 
   // Load format pairs + AppSettings on mount / cache change
   useEffect(() => {
@@ -236,16 +239,18 @@ export default function Prune() {
     }
   }
 
-  async function executeFormatPairs() {
+  async function executeFormatPairsAction() {
     if (!fpPlan || fpPlan.to_delete.length === 0) return;
     setFpExecuting(true);
     try {
       const mode = (appSettings?.allow_permanent_delete) ? "permanent" : "trash";
       const toDelete = fpPlan.to_delete.map((d) => d.rom);
-      const res = await executePrune(toDelete, mode, onedriveAcknowledged);
-      setFpResult({ success: res.success_count, failed: res.failed.length });
+      const res = await executeFormatPairs(toDelete, mode);
+      setFpResult({ success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
       setFpPlan(null);
-      // Refresh cache so browse tabs and Dashboard reflect the removal
+      setFpPreviewSearch("");
+      // Refresh AppSettings (rom_roots may have changed) and cache
+      getSettings().then(setAppSettings).catch(console.error);
       await reapplyPreferences().catch(console.error);
     } finally {
       setFpExecuting(false);
@@ -254,6 +259,20 @@ export default function Prune() {
 
   const formatPrefs = appSettings?.format_preferences ?? {};
   const anyFormatPrefSet = Object.keys(formatPrefs).length > 0;
+
+  // Filtered + searched format pair preview items
+  const filteredFpItems = useMemo(() => {
+    if (!fpPlan) return [];
+    const q = fpPreviewSearch.toLowerCase();
+    return fpPlan.to_delete.filter(
+      (d) => !q || d.rom.filename.toLowerCase().includes(q) || d.rom.title.toLowerCase().includes(q),
+    );
+  }, [fpPlan, fpPreviewSearch]);
+
+  const fpNoCounterpartCount = useMemo(
+    () => fpPlan?.to_delete.filter((d) => reasonKey(d.reason) === "format_pair_no_counterpart").length ?? 0,
+    [fpPlan],
+  );
 
   const filters = filterSettings;
 
@@ -323,34 +342,64 @@ export default function Prune() {
                 );
               })}
 
-              {/* Format pair plan summary */}
+              {/* Success result */}
               {fpResult && (
                 <Alert className="border-green-500/40 bg-green-500/10">
                   <AlertDescription className="text-green-300 text-sm">
-                    ✓ Removed {fpResult.success} format-pair files.{fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
+                    ✓ Removed {fpResult.success} files.
+                    {fpResult.foldersRemoved > 0 && ` ${fpResult.foldersRemoved} empty folder${fpResult.foldersRemoved !== 1 ? "s" : ""} deleted from scan roots.`}
+                    {fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
                   </AlertDescription>
                 </Alert>
               )}
 
+              {/* No-counterpart warning */}
+              {fpNoCounterpartCount > 0 && (
+                <Alert className="border-amber-500/40 bg-amber-500/10">
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <AlertDescription className="text-amber-300 text-sm">
+                    {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder and will also be deleted.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Full preview with search */}
               {fpPlan && fpPlan.to_delete.length > 0 && (
-                <div className="border border-border rounded-xl overflow-hidden text-xs">
+                <div className="border border-border rounded-xl overflow-hidden">
                   <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
-                    <span className="font-medium text-foreground">
+                    <span className="text-xs font-medium text-foreground">
                       {fpPlan.to_delete.length.toLocaleString()} files · {formatBytes(fpPlan.total_bytes_freed)} to remove
                     </span>
-                    <button onClick={() => setFpPlan(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                    <button onClick={() => { setFpPlan(null); setFpPreviewSearch(""); }} className="text-muted-foreground hover:text-foreground transition-colors">
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <ScrollArea className="h-40">
-                    {fpPlan.to_delete.slice(0, 100).map((item, i) => (
-                      <div key={i} className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40 hover:bg-muted/20">
-                        <span className="flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
-                        <span className="text-muted-foreground/60 shrink-0">{item.rom.console.split(" - ")[1] ?? item.rom.console}</span>
-                      </div>
-                    ))}
-                    {fpPlan.to_delete.length > 100 && (
-                      <div className="px-4 py-2 text-muted-foreground">…and {(fpPlan.to_delete.length - 100).toLocaleString()} more</div>
+                  {/* Search bar */}
+                  <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <Input
+                      placeholder="Search files…"
+                      value={fpPreviewSearch}
+                      onChange={(e) => setFpPreviewSearch(e.target.value)}
+                      className="h-7 text-xs border-0 bg-transparent focus-visible:ring-0 p-0"
+                    />
+                  </div>
+                  <ScrollArea className="h-64">
+                    {filteredFpItems.map((item, i) => {
+                      const rk = reasonKey(item.reason);
+                      const colorClass = REASON_COLORS[rk] ?? "bg-muted/40 text-muted-foreground border-border/60";
+                      return (
+                        <div key={i} className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40 text-xs hover:bg-muted/20">
+                          <span className="flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>
+                            {REASON_LABELS[rk] ?? rk}
+                          </span>
+                          <span className="text-muted-foreground/60 shrink-0">{item.rom.console.split(" - ")[1] ?? item.rom.console}</span>
+                        </div>
+                      );
+                    })}
+                    {filteredFpItems.length === 0 && fpPreviewSearch && (
+                      <div className="px-4 py-4 text-xs text-muted-foreground text-center">No matches for "{fpPreviewSearch}"</div>
                     )}
                   </ScrollArea>
                 </div>
@@ -386,11 +435,16 @@ export default function Prune() {
                           {fpPlan.to_delete.length.toLocaleString()} files from non-preferred format folders
                           ({formatBytes(fpPlan.total_bytes_freed)}) will be{" "}
                           {appSettings?.allow_permanent_delete ? "permanently deleted" : "moved to the Trash"}.
+                          {fpNoCounterpartCount > 0 && (
+                            <span className="block mt-1 text-amber-400">
+                              {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder.
+                            </span>
+                          )}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={executeFormatPairs} className="bg-destructive hover:bg-destructive/90">
+                        <AlertDialogAction onClick={executeFormatPairsAction} className="bg-destructive hover:bg-destructive/90">
                           {appSettings?.allow_permanent_delete ? "Delete permanently" : "Move to Trash"}
                         </AlertDialogAction>
                       </AlertDialogFooter>

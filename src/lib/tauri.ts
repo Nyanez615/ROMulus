@@ -96,7 +96,15 @@ export const executePrune = (
 ): Promise<ExecutionResult> =>
   isTauri()
     ? invoke("execute_prune", { toDelete, mode, onedriveAcknowledged })
-    : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0 });
+    : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
+
+export const executeFormatPairs = (
+  toDelete: RomFile[],
+  mode: DeleteMode,
+): Promise<ExecutionResult> =>
+  isTauri()
+    ? invoke("execute_format_pairs", { toDelete, mode })
+    : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
 export const getInterruptedSession = (): Promise<boolean> =>
   isTauri() ? invoke("get_interrupted_session") : Promise.resolve(false);
