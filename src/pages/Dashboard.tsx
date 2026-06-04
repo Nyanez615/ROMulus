@@ -47,7 +47,7 @@ export default function Dashboard() {
   const [completeness, setCompleteness] = useState<Completeness[]>([]);
   const [consoleSearch, setConsoleSearch] = useState("");
   const [consoleSort, setConsoleSort] = useState<"alpha" | "count">("alpha");
-  const [collapsedPlatforms, setCollapsedPlatforms] = useState<Set<string>>(new Set());;
+  const [collapsedPlatforms, setCollapsedPlatforms] = useState<string[]>([]);
 
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
@@ -166,17 +166,19 @@ export default function Dashboard() {
     return byPlatform;
   }, [consoles, consoleSearch, consoleSort]);
 
-  const totalCanonicals = useMemo(
-    () => Array.from(platformStats.values()).reduce((s, p) => s + p.consoles.size, 0),
-    [platformStats],
-  );
+  const totalCanonicals = useMemo(() => {
+    const keys = new Set<string>();
+    for (const c of consoles) {
+      const { platform, canonical } = getConsoleParts(c.name);
+      keys.add(`${platform}\0${canonical}`);
+    }
+    return keys.size;
+  }, [consoles]);
 
   function togglePlatform(platform: string) {
-    setCollapsedPlatforms((prev) => {
-      const next = new Set(prev);
-      if (next.has(platform)) next.delete(platform); else next.add(platform);
-      return next;
-    });
+    setCollapsedPlatforms((prev) =>
+      prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform]
+    );
   }
 
   return (
@@ -324,7 +326,7 @@ export default function Dashboard() {
           {Array.from(canonicalGroups.entries()).map(([platform, entries]) => {
             const pStats = platformStats.get(platform);
             const platformColor = getConsoleColor(consoles.find((c) => getPlatform(c.name) === platform)?.name ?? "");
-            const isCollapsed = collapsedPlatforms.has(platform);
+            const isCollapsed = collapsedPlatforms.includes(platform);
             return (
               <div key={platform} className="mb-6">
                 {/* Collapsible platform header */}

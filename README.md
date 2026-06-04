@@ -57,13 +57,13 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 86 unit tests + regenerates TypeScript bindings
+cargo test             # 124 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 
 From project root:
 ```bash
-npm run test:run       # 115 Vitest tests
+npm run test:run       # 113 Vitest tests
 npx tsc --noEmit       # TypeScript type-check
 ```
 

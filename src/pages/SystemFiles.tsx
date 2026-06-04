@@ -22,8 +22,8 @@ export default function SystemFiles() {
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [files, setFiles] = useState<RomFile[]>([]);
   const [search, setSearch] = useState("");
-  const [activeCategories, setActiveCategories] = useState<Set<FileCategory>>(new Set());
-  const [showAllCategories, setShowAllCategories] = useState<Set<FileCategory>>(new Set());
+  const [activeCategories, setActiveCategories] = useState<FileCategory[]>([]);
+  const [showAllCategories, setShowAllCategories] = useState<FileCategory[]>([]);
 
   useEffect(() => {
     getSystemFiles({ consoles: selectedConsoles ?? undefined, page: 1, perPage: 9999 })
@@ -32,19 +32,15 @@ export default function SystemFiles() {
   }, [selectedConsoles, cacheVersion]);
 
   function toggleShowAll(key: FileCategory) {
-    setShowAllCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+    setShowAllCategories((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
   }
 
   function toggleCategory(key: FileCategory) {
-    setActiveCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+    setActiveCategories((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
   }
 
   const searchLower = search.toLowerCase();
@@ -59,7 +55,7 @@ export default function SystemFiles() {
   })).filter((c) => {
     if (c.items.length === 0) return false;
     // If category chips are active, only show the active ones
-    if (activeCategories.size > 0) return activeCategories.has(c.key);
+    if (activeCategories.length > 0) return activeCategories.includes(c.key);
     return true;
   });
 
@@ -87,7 +83,7 @@ export default function SystemFiles() {
             onClick={() => toggleCategory(key)}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs border transition-colors",
-              activeCategories.has(key)
+              activeCategories.includes(key)
                 ? "bg-primary/20 border-primary/60 text-primary"
                 : "bg-muted border-border text-muted-foreground hover:text-foreground",
             )}
@@ -117,7 +113,7 @@ export default function SystemFiles() {
               {prot && <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">protected</span>}
             </div>
             <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-              {(showAllCategories.has(key) ? items : items.slice(0, 50)).map((f, i) => (
+              {(showAllCategories.includes(key) ? items : items.slice(0, 50)).map((f, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-card hover:bg-muted/30 text-sm">
                   <span className="flex-1 truncate text-foreground font-mono text-xs">{f.filename}</span>
                   <span className="text-xs text-muted-foreground/60 shrink-0">{f.console.split(" - ")[1] ?? f.console}</span>
@@ -129,7 +125,7 @@ export default function SystemFiles() {
                   onClick={() => toggleShowAll(key)}
                   className="w-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground bg-muted/20 hover:bg-muted/40 transition-colors text-left"
                 >
-                  {showAllCategories.has(key)
+                  {showAllCategories.includes(key)
                     ? "Show fewer"
                     : `Show all ${items.length.toLocaleString()}`}
                 </button>

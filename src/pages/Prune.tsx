@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { AlertTriangle, Download, Trash2, Eye, EyeOff, X, Search, CheckSquare, Square, Layers } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { AlertTriangle, Download, Trash2, Eye, EyeOff, X, Search, CheckSquare, Square, Layers, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import {
   applyFilters, applyFormatPairs, executePrune, executeFormatPairs, exportCsv,
   formatBytes, getSettings, saveSettings,
   getFilterSettings, saveFilterSettings, getFormatPairs,
-  reapplyPreferences,
+  reapplyPreferences, scanRoots, getConsoles,
 } from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { FilterSettings } from "@/lib/bindings/FilterSettings";
@@ -24,6 +24,7 @@ import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { refreshTagStore } from "@/components/Layout";
 
 // ── Deletion reason labels ────────────────────────────────────────────────────
 
@@ -101,23 +102,65 @@ const FILTER_ROWS: Array<{
 
 export default function Prune() {
   const { filterSettings, setFilterSettings } = usePreferencesStore();
-  const { selectedConsoles, cacheVersion } = useScanStore();
-  const [plan, setPlan] = useState<DeletionPlan | null>(null);
+  const { selectedConsoles, cacheVersion, setConsoles, setStatus, bumpCacheVersion } = useScanStore();
+
+  // Stable key derived from selectedConsoles — used to auto-invalidate keyed state on console switch.
+  // Memoized so derived values (plan, fpPlan, etc.) are stable references when consoles don't change.
+  const consolesKey = useMemo(
+    () => (selectedConsoles === null ? "" : [...selectedConsoles].sort().join("\0")),
+    [selectedConsoles],
+  );
+
+  // loadedKey pattern: state stored alongside the consolesKey it was generated for.
+  // Derived value reads as null when consolesKey changes, clearing stale alerts without synchronous setState.
+  const [planStore, setPlanStore] = useState<{ key: string; plan: DeletionPlan } | null>(null);
+  const plan = planStore?.key === consolesKey ? planStore.plan : null;
+
+  const [resultStore, setResultStore] = useState<{ key: string; success: number; failed: number } | null>(null);
+  const result = resultStore?.key === consolesKey ? resultStore : null;
+
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
-  // Full AppSettings needed to save format_preferences updates
+  // Tracks which pair groups are included in analysis (all selected by default).
+  // Plain Record rather than Set so the React Compiler can reason about it as a memo dep.
+  const [selectedPairGroups, setSelectedPairGroups] = useState<Record<string, true>>({});
+  // Tracks previously-known groups so we can distinguish new vs deselected on rescan.
+  const prevPairGroupsRef = useRef<Set<string>>(new Set());
+  // Full AppSettings needed to save format_preferences updates.
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+
   const [fpPlan, setFpPlan] = useState<DeletionPlan | null>(null);
+
+  const [fpResultStore, setFpResultStore] = useState<{ key: string; success: number; failed: number; foldersRemoved: number } | null>(null);
+  const fpResult = fpResultStore?.key === consolesKey ? fpResultStore : null;
+
   const [fpPreviewSearch, setFpPreviewSearch] = useState("");
   const [fpLoading, setFpLoading] = useState(false);
   const [fpExecuting, setFpExecuting] = useState(false);
-  const [fpResult, setFpResult] = useState<{ success: number; failed: number; foldersRemoved: number } | null>(null);
+  const [fpScanState, setFpScanState] = useState<"idle" | "scanning" | "done">("idle");
 
   // Load format pairs + AppSettings on mount / cache change
   useEffect(() => {
-    getFormatPairs().then(setFormatPairs).catch(console.error);
+    getFormatPairs().then((pairs) => {
+      setFormatPairs(pairs);
+      const incomingGroups = new Set(pairs.map((p) => p.console_group));
+      setSelectedPairGroups((prev) => {
+        const next: Record<string, true> = {};
+        for (const g of incomingGroups) {
+          if (prevPairGroupsRef.current.has(g)) {
+            // Known group: preserve selection state
+            if (prev[g]) next[g] = true;
+          } else {
+            // New group: default to selected
+            next[g] = true;
+          }
+        }
+        return next;
+      });
+      prevPairGroupsRef.current = incomingGroups;
+    }).catch(console.error);
     getSettings().then(setAppSettings).catch(console.error);
   }, [cacheVersion]);
 
@@ -131,7 +174,6 @@ export default function Prune() {
 
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
-  const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
 
   // Staging area — paths the user has unchecked (will NOT be executed/exported)
   const [uncheckedPaths, setUncheckedPaths] = useState<Set<string>>(new Set());
@@ -140,16 +182,53 @@ export default function Prune() {
 
   async function preview() {
     setLoading(true);
-    setPlan(null);
+    setPlanStore(null);
     setUncheckedPaths(new Set());
     setPreviewSearch("");
     try {
       const p = await applyFilters(filterSettings, selectedConsoles ?? undefined);
-      setPlan(p);
+      setPlanStore({ key: consolesKey, plan: p });
     } finally {
       setLoading(false);
     }
   }
+
+  // On console switch: clear stale FP plan/search, and auto-refresh the variant plan if one is showing.
+  // All setState calls are inside .then() callbacks, matching the project convention
+  // (react-hooks/set-state-in-effect). result/fpResult auto-clear via loadedKey derivation.
+  useEffect(() => {
+    // Always clear stale FP plan and search when consoles change
+    Promise.resolve().then(() => {
+      setFpPlan(null);
+      setFpPreviewSearch("");
+    });
+
+    if (planStore === null || loading) return;
+    const key = consolesKey;
+    const consoles = selectedConsoles;
+    const fs = filterSettings;
+    Promise.resolve()
+      .then(() => {
+        setLoading(true);
+        setPlanStore(null);
+        setUncheckedPaths(new Set());
+        setPreviewSearch("");
+        return applyFilters(fs, consoles ?? undefined);
+      })
+      .then((p) => {
+        setPlanStore({ key, plan: p });
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConsoles]);
+
+  // Pairs visible under the current console filter
+  const visiblePairs = useMemo(() => {
+    if (selectedConsoles == null) return formatPairs;
+    const consoleSet = new Set(selectedConsoles);
+    return formatPairs.filter((p) => consoleSet.has(p.folder_a) || consoleSet.has(p.folder_b));
+  }, [formatPairs, selectedConsoles]);
 
   // Items visible in the preview after search filter
   const filteredItems = useMemo(() => {
@@ -195,8 +274,8 @@ export default function Prune() {
     try {
       const toDelete = checkedItems.map((item) => item.rom);
       const res = await executePrune(toDelete);
-      setResult({ success: res.success_count, failed: res.failed.length });
-      setPlan(null);
+      setResultStore({ key: consolesKey, success: res.success_count, failed: res.failed.length });
+      setPlanStore(null);
     } finally {
       setExecuting(false);
     }
@@ -220,6 +299,27 @@ export default function Prune() {
     saveSettings(next).catch(console.error);
   }
 
+  function togglePairGroup(group: string) {
+    setSelectedPairGroups((prev) => {
+      if (prev[group]) {
+        const next = { ...prev };
+        delete next[group];
+        return next;
+      }
+      return { ...prev, [group]: true };
+    });
+  }
+
+  function selectAllPairs() {
+    const all: Record<string, true> = {};
+    for (const p of visiblePairs) all[p.console_group] = true;
+    setSelectedPairGroups(all);
+  }
+
+  function deselectAllPairs() {
+    setSelectedPairGroups({});
+  }
+
   async function previewFormatPairs() {
     setFpLoading(true);
     setFpPlan(null);
@@ -232,31 +332,70 @@ export default function Prune() {
   }
 
   async function executeFormatPairsAction() {
-    if (!fpPlan || fpPlan.to_delete.length === 0) return;
+    if (!fpPlan || activeFpItems.length === 0) return;
+    setFpScanState("idle");
     setFpExecuting(true);
+    let settings = appSettings;
     try {
-      const toDelete = fpPlan.to_delete.map((d) => d.rom);
+      const toDelete = activeFpItems.map((d) => d.rom);
       const res = await executeFormatPairs(toDelete);
-      setFpResult({ success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
+      setFpResultStore({ key: consolesKey, success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
       setFpPlan(null);
       setFpPreviewSearch("");
-      // Refresh AppSettings (rom_roots may have changed) and cache
-      getSettings().then(setAppSettings).catch(console.error);
+      settings = await getSettings().catch(() => appSettings);
+      setAppSettings(settings);
       await reapplyPreferences().catch(console.error);
     } finally {
       setFpExecuting(false);
     }
+    // Auto-rescan: flush deleted entries from cache and update all counts everywhere.
+    if (!settings?.rom_roots.length) return;
+    setFpScanState("scanning");
+    try {
+      const scanResult = await scanRoots(settings.rom_roots);
+      setStatus(scanResult);
+      setConsoles(await getConsoles());
+      refreshTagStore();
+      bumpCacheVersion();
+      setFpScanState("done");
+    } catch {
+      setFpScanState("idle"); // rescan failed — counts may be stale, user can rescan from Dashboard
+    }
   }
 
-  const formatPrefs = appSettings?.format_preferences ?? {};
-  const anyFormatPrefSet = Object.keys(formatPrefs).length > 0;
+  // Memoized to avoid unstable object reference from the `?? {}` fallback
+  const formatPrefs = useMemo(
+    () => appSettings?.format_preferences ?? {},
+    [appSettings],
+  );
 
-  // Filtered + searched format pair preview items.
-  // No-counterpart items always sort to the top so they're immediately visible.
+  // At least one visible+checked pair has a preference set
+  const anySelectedPrefSet = useMemo(
+    () => visiblePairs.some((p) => selectedPairGroups[p.console_group] && formatPrefs[p.console_group] !== undefined),
+    [visiblePairs, selectedPairGroups, formatPrefs],
+  );
+
+  // All format-pair folder names — drives the "not a format-pair console" check in activeFpItems.
+  const formatPairFolderSet = useMemo(
+    () => new Set(formatPairs.flatMap((p) => [p.folder_a, p.folder_b])),
+    [formatPairs],
+  );
+
+  // FP plan items filtered to selected+visible pairs only — source of truth for stats + execute.
+  // Computed without useMemo so the React Compiler can generate its own memoization without conflict.
+  const activeFpItems = (fpPlan?.to_delete ?? []).filter((d) =>
+    !formatPairFolderSet.has(d.rom.console) ||
+    visiblePairs.some(
+      (p) =>
+        (p.folder_a === d.rom.console || p.folder_b === d.rom.console) &&
+        !!selectedPairGroups[p.console_group],
+    )
+  );
+
+  // activeFpItems + search filter + sort → display only
   const filteredFpItems = useMemo(() => {
-    if (!fpPlan) return [];
     const q = fpPreviewSearch.toLowerCase();
-    const items = fpPlan.to_delete.filter(
+    const items = activeFpItems.filter(
       (d) => !q || d.rom.filename.toLowerCase().includes(q) || d.rom.title.toLowerCase().includes(q),
     );
     return items.sort((a, b) => {
@@ -264,11 +403,11 @@ export default function Prune() {
       const bNC = reasonKey(b.reason) === "format_pair_no_counterpart" ? 0 : 1;
       return aNC - bNC;
     });
-  }, [fpPlan, fpPreviewSearch]);
+  }, [activeFpItems, fpPreviewSearch]);
 
   const fpNoCounterpartCount = useMemo(
-    () => fpPlan?.to_delete.filter((d) => reasonKey(d.reason) === "format_pair_no_counterpart").length ?? 0,
-    [fpPlan],
+    () => activeFpItems.filter((d) => reasonKey(d.reason) === "format_pair_no_counterpart").length,
+    [activeFpItems],
   );
 
   const filters = filterSettings;
@@ -296,12 +435,21 @@ export default function Prune() {
         )}
 
         {/* ── Format Pair Cleanup ─────────────────────────────────────── */}
-        {formatPairs.length > 0 && (
+        {visiblePairs.length > 0 && (
           <>
             <section className="space-y-4">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-primary" />
                 <h2 className="text-sm font-semibold text-foreground">Format Pair Cleanup</h2>
+                <div className="flex gap-1 ml-auto">
+                  <button onClick={selectAllPairs} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+                    <CheckSquare className="w-3 h-3" /> All
+                  </button>
+                  <span className="text-muted-foreground/40">·</span>
+                  <button onClick={deselectAllPairs} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+                    <Square className="w-3 h-3" /> None
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
                 Select your preferred format for each paired console folder. Click "Analyze" to preview which
@@ -309,31 +457,55 @@ export default function Prune() {
               </p>
 
               {/* Pair selection cards */}
-              {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
+              {[...visiblePairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
                 const pref = formatPrefs[pair.console_group];
-                const sortedFolders = [pair.folder_a, pair.folder_b].sort((a, b) => a.localeCompare(b));
+                const isSelected = !!selectedPairGroups[pair.console_group];
+                // folder_a is always the smaller (subset) folder; folder_b is larger or equal.
+                const isProperSubset = pair.folder_a_count < pair.folder_b_count;
+                const isIdentical   = pair.folder_a_count === pair.folder_b_count && pair.overlap_percent >= 0.999;
+                const shortA = pair.folder_a.split(" - ")[1] ?? pair.folder_a;
+                const shortB = pair.folder_b.split(" - ")[1] ?? pair.folder_b;
+                const headerLabel = isProperSubset
+                  ? `${shortA} ⊂ ${shortB} · ${pair.folder_a_count} of ${pair.folder_b_count} titles`
+                  : isIdentical
+                  ? `${pair.folder_a_count} titles each · 100% overlap`
+                  : `${Math.round(pair.overlap_percent * 100)}% overlap · ${pair.folder_a_count} / ${pair.folder_b_count} titles`;
                 return (
                   <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
-                    <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
-                      {Math.round(pair.overlap_percent * 100)}% title overlap
-                    </div>
-                    <div className="divide-y divide-border">
-                      {sortedFolders.map((folder) => (
-                        <button
-                          key={folder}
-                          onClick={() => selectFormatFolder(pair.console_group, folder)}
-                          className={[
-                            "w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors",
-                            pref === folder ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30",
-                          ].join(" ")}
-                        >
-                          <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
-                          <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>
-                            {folder.split(" - ")[1] ?? folder}
-                          </span>
-                          {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
-                        </button>
-                      ))}
+                    <button
+                      onClick={() => togglePairGroup(pair.console_group)}
+                      className="w-full px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground flex items-center gap-2 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${isSelected ? "bg-primary/20 border-primary/60" : "border-border"}`}>
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-sm bg-primary" />}
+                      </div>
+                      {headerLabel}
+                    </button>
+                    <div className={`divide-y divide-border${!isSelected ? " opacity-50 pointer-events-none" : ""}`}>
+                      {[pair.folder_a, pair.folder_b].map((folder) => {
+                        const count = folder === pair.folder_a ? pair.folder_a_count : pair.folder_b_count;
+                        const isSubsetFolder = isProperSubset && folder === pair.folder_a;
+                        return (
+                          <button
+                            key={folder}
+                            onClick={() => selectFormatFolder(pair.console_group, folder)}
+                            className={[
+                              "w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors",
+                              pref === folder ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30",
+                            ].join(" ")}
+                          >
+                            <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
+                            <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>
+                              {folder.split(" - ")[1] ?? folder}
+                            </span>
+                            <span className="text-xs text-muted-foreground/50 ml-1">{count} titles</span>
+                            {isSubsetFolder && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">subset</span>
+                            )}
+                            {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -342,10 +514,21 @@ export default function Prune() {
               {/* Success result */}
               {fpResult && (
                 <Alert className="border-green-500/40 bg-green-500/10">
-                  <AlertDescription className="text-green-300 text-sm">
-                    ✓ Removed {fpResult.success} files.
-                    {fpResult.foldersRemoved > 0 && ` ${fpResult.foldersRemoved} empty folder${fpResult.foldersRemoved !== 1 ? "s" : ""} deleted from scan roots.`}
-                    {fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
+                  <AlertDescription className="text-green-300 text-sm flex items-center justify-between gap-3 flex-wrap">
+                    <span>
+                      ✓ Removed {fpResult.success} file{fpResult.success !== 1 ? "s" : ""}.
+                      {fpResult.foldersRemoved > 0 && ` ${fpResult.foldersRemoved} empty folder${fpResult.foldersRemoved !== 1 ? "s" : ""} deleted from scan roots.`}
+                      {fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
+                    </span>
+                    {fpScanState === "scanning" && (
+                      <span className="flex items-center gap-1.5 text-green-400/70 text-xs shrink-0">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Rescanning collection…
+                      </span>
+                    )}
+                    {fpScanState === "done" && (
+                      <span className="text-green-400/70 text-xs shrink-0">Collection updated.</span>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}
@@ -361,11 +544,11 @@ export default function Prune() {
               )}
 
               {/* Full preview with search */}
-              {fpPlan && fpPlan.to_delete.length > 0 && (
+              {fpPlan && activeFpItems.length > 0 && (
                 <div className="border border-border rounded-xl overflow-hidden">
                   <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
                     <span className="text-xs font-medium text-foreground">
-                      {fpPlan.to_delete.length.toLocaleString()} files · {formatBytes(fpPlan.total_bytes_freed)} to remove
+                      {activeFpItems.length.toLocaleString()} files · {formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))} to remove
                     </span>
                     <button onClick={() => { setFpPlan(null); setFpPreviewSearch(""); }} className="text-muted-foreground hover:text-foreground transition-colors">
                       <X className="w-3.5 h-3.5" />
@@ -412,8 +595,12 @@ export default function Prune() {
                 </div>
               )}
 
-              {fpPlan && fpPlan.to_delete.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nothing to remove — all files are already in the preferred format.</p>
+              {fpPlan && activeFpItems.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {fpPlan.to_delete.length === 0
+                    ? "Nothing to remove — all files are already in the preferred format."
+                    : "No items match the selected pairs."}
+                </p>
               )}
 
               {/* Format pair actions */}
@@ -421,26 +608,26 @@ export default function Prune() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={fpLoading || !anyFormatPrefSet}
+                  disabled={fpLoading || !anySelectedPrefSet}
                   onClick={previewFormatPairs}
                   className="gap-2"
                 >
                   {fpLoading ? "Analyzing…" : fpPlan ? "Re-analyze" : "Analyze Removals"}
                 </Button>
-                {fpPlan && fpPlan.to_delete.length > 0 && (
+                {fpPlan && activeFpItems.length > 0 && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button size="sm" variant="destructive" disabled={fpExecuting} className="gap-2">
                         <Trash2 className="w-3.5 h-3.5" />
-                        {fpExecuting ? "Removing…" : `Remove ${fpPlan.to_delete.length.toLocaleString()} files`}
+                        {fpExecuting ? "Removing…" : `Remove ${activeFpItems.length.toLocaleString()} files`}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Remove format-pair files?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          {fpPlan.to_delete.length.toLocaleString()} files from non-preferred format folders
-                          ({formatBytes(fpPlan.total_bytes_freed)}) will be permanently deleted.
+                          {activeFpItems.length.toLocaleString()} files from non-preferred format folders
+                          ({formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))}) will be permanently deleted.
                           {fpNoCounterpartCount > 0 && (
                             <span className="block mt-1 text-amber-400">
                               {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder.
@@ -503,7 +690,7 @@ export default function Prune() {
                 <Button size="sm" variant="ghost" onClick={doExportCsv} className="text-xs gap-1.5">
                   <Download className="w-3.5 h-3.5" /> Export CSV
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setPlan(null)} className="text-xs gap-1 text-muted-foreground">
+                <Button size="sm" variant="ghost" onClick={() => setPlanStore(null)} className="text-xs gap-1 text-muted-foreground">
                   <X className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -591,7 +778,7 @@ export default function Prune() {
         {/* Actions */}
         <div className="flex gap-3">
           <Button
-            onClick={plan ? () => setPlan(null) : preview}
+            onClick={plan ? () => setPlanStore(null) : preview}
             disabled={loading}
             variant="outline"
             className="gap-2"

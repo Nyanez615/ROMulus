@@ -39,7 +39,7 @@ export function Sidebar() {
   const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();
   const { consoles, selectedConsoles, setSelectedConsoles, status } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const [collapsedPlatforms, setCollapsedPlatforms] = useState<Set<string>>(new Set());
+  const [collapsedPlatforms, setCollapsedPlatforms] = useState<string[]>([]);
 
   // A1c: Two-level deduplication — platform → canonical short name → variants[]
   const platformGroups = useMemo(() => {
@@ -56,11 +56,9 @@ export function Sidebar() {
   }, [consoles]);
 
   function togglePlatform(platform: string) {
-    setCollapsedPlatforms((prev) => {
-      const next = new Set(prev);
-      if (next.has(platform)) next.delete(platform); else next.add(platform);
-      return next;
-    });
+    setCollapsedPlatforms((prev) =>
+      prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform]
+    );
   }
 
   function handleConsoleClick(canonical: string) {
@@ -186,7 +184,7 @@ export function Sidebar() {
 
             {/* Per-platform collapsible groups */}
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
-              const isCollapsed = collapsedPlatforms.has(platform);
+              const isCollapsed = collapsedPlatforms.includes(platform);
               const allVariants = Array.from(canonicalMap.values()).flat();
               const platformTotal = allVariants.reduce((s, c) => s + c.total_files, 0);
               const platformColor = getConsoleColor(allVariants[0]?.name ?? "");

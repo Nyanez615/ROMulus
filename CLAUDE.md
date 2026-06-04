@@ -14,6 +14,8 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Phase 5** ✅ Console icons, keyboard shortcuts, WCAG accessibility, auto-updater + release pipeline, `v0.1.0` published
 - **Dogfood Round 2** ✅ Dashboard overhaul, cross-console title merging, collapsible FilterBar, platform multi-select, short console names toggle, `v0.2.0` published
 - **Dogfood Rounds 3–4 + Bug Groups S–T** ✅ Settings persistence fixes, Language Match cache bug, region/language inference overhaul, Prune UX (checkboxes, reasons, search), format pairs in apply_filters, `v0.2.1`–`v0.2.3` published
+- **Bug Groups U–X** ✅ Scoring fixes, format pair dedicated workflow, BIOS inclusion, no-counterpart reason, permanent-only deletion, cloud root blocking, `v0.2.4` published
+- **React Compiler v7 Hardening + Format Pair UX** ✅ Set→array state conversions, virtualizer child isolation, subset indicator on pair cards, auto-rescan after format pair execution
 
 ## Dev setup
 
@@ -164,5 +166,5 @@ Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, 
 
 ## Testing
 - Rust: `cargo test` in `src-tauri/` — 107 tests, in-memory SQLite only
-- Frontend: `npm run test:run` (Vitest + jsdom) — 115 tests in `src/**/*.test.tsx`
+- Frontend: `npm run test:run` (Vitest + jsdom) — 113 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

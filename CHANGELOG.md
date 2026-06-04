@@ -6,6 +6,23 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Format pair subset indicator** — `FormatPair` now carries `folder_a_count` and `folder_b_count` (title counts for each folder). `deduper.rs` assigns `folder_a` as the smaller (subset) folder and `folder_b` as the larger, so the frontend always knows the containment direction. Pair cards in the Prune tab now show: a `folder_a ⊂ folder_b · X of Y titles` header when it is a proper subset, `X titles each · 100% overlap` when both are equal, and `XX% overlap · X / Y titles` for partial overlap. Each folder row shows its title count; the subset folder gets a sky-blue "subset" badge.
+- **Auto-rescan after format pair execution** — after `execute_format_pairs` completes, Prune automatically calls `scanRoots` → `setStatus` → `setConsoles` → `refreshTagStore` → `bumpCacheVersion`. The success banner shows a spinning "Rescanning collection…" indicator during the scan, then settles to "Collection updated." when done. All tabs (sidebar counts, Dashboard, ROMs, Prune pair list) update without any user action.
+
+### Changed
+- **Format pair pair cards** — folder rows are now ordered subset-first (folder_a) rather than alphabetically. Title counts are displayed next to each folder name.
+
+### Technical
+- `FormatPair` struct: two new fields `folder_a_count: usize`, `folder_b_count: usize`. TS binding regenerated.
+- `deduper.rs`: `folder_a`/`folder_b` assignment now canonical (smaller ≤ larger). All 5 test fixtures in `group.rs` and `prune.rs` updated with `folder_a_count: 0, folder_b_count: 0`.
+- **React Compiler v7 hardening** (proactive — lint was already clean):
+  - `Prune.tsx` — removed `folderToGroup` (Record useMemo) and `activeGroupArr` (string[] useMemo); replaced with `formatPairFolderSet` (Set useMemo) and `activeFpItems` rewritten as an inline expression (no `useMemo` wrapper) so the React Compiler can auto-memoize without conflict with a manual memo.
+  - `SystemFiles.tsx`, `Sidebar.tsx`, `Dashboard.tsx`, `Duplicates.tsx`, `Roms.tsx`, `HacksUnofficial.tsx` — all `Set<T>` state variables converted to immutable arrays (`T[]`). Toggle functions use the `prev.includes(k) ? prev.filter(…) : […prev, k]` pattern. All `.has()` → `.includes()`, `.size` → `.length` at every read site.
+  - `Dashboard.tsx` — `totalCanonicals` rewritten to depend on `[consoles]` directly (builds composite `"platform\0canonical"` keys in a local Set) instead of chaining through the `platformStats` Map useMemo.
+  - `Roms.tsx`, `HacksUnofficial.tsx` — `useVirtualizer` isolated in private `VirtualRomList` / `VirtualHacksList` child components so the React Compiler exclusion is scoped to the child only. `expanded` state converted from `Set<string>` to `string[]` in both parent and child. `eslint-disable-next-line react-hooks/incompatible-library` comment moved to the line immediately above the `useVirtualizer(` call inside each child.
+- Rust tests: 124 (unchanged). Vitest: 113 (unchanged).
+
 ## [0.2.4] - 2026-06-02
 
 ### Fixed
