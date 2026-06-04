@@ -9,6 +9,7 @@ import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { cn } from "@/lib/utils";
+import { getAbbrev } from "@/lib/consoleUtils";
 
 const ALL_CATEGORIES: { key: FileCategory; label: string; icon: React.ElementType; protected?: boolean }[] = [
   { key: "bios",     label: "BIOS",      icon: Shield,       protected: true },
@@ -116,7 +117,7 @@ export default function SystemFiles() {
               {(showAllCategories.includes(key) ? items : items.slice(0, 50)).map((f, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-card hover:bg-muted/30 text-sm">
                   <span className="flex-1 truncate text-foreground font-mono text-xs">{f.filename}</span>
-                  <span className="text-xs text-muted-foreground/60 shrink-0">{f.console.split(" - ")[1] ?? f.console}</span>
+                  <span className="text-xs text-muted-foreground/60 shrink-0">{getAbbrev(f.console)}</span>
                   <span className="text-xs text-muted-foreground/60 shrink-0">{formatBytes(f.filesize)}</span>
                 </div>
               ))}

@@ -72,24 +72,31 @@ beforeEach(() => {
 // ── Sort tests ────────────────────────────────────────────────────────────────
 
 describe("ROMs sort", () => {
-  it("A–Z: total count is unchanged after sort change", async () => {
+  it("Name (asc): total count is unchanged", async () => {
     render(<Roms />);
     await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "az" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "name" } });
     expect(screen.getByText("3 titles")).toBeInTheDocument();
   });
 
-  it("Z–A: total count is unchanged", async () => {
+  it("Name (desc): toggling direction keeps total count unchanged", async () => {
     render(<Roms />);
     await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "za" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sort direction" }));
     expect(screen.getByText("3 titles")).toBeInTheDocument();
   });
 
-  it("variant count sort: total count is unchanged", async () => {
+  it("Variants sort: total count is unchanged", async () => {
     render(<Roms />);
     await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "variants" } });
+    expect(screen.getByText("3 titles")).toBeInTheDocument();
+  });
+
+  it("Preferred sort: total count is unchanged", async () => {
+    render(<Roms />);
+    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "preferred" } });
     expect(screen.getByText("3 titles")).toBeInTheDocument();
   });
 });

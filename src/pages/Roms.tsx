@@ -4,7 +4,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { getRoms } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
-import { ROM_SORT_OPTIONS, type RomSortKey } from "@/lib/romUtils";
+import { ROM_SORT_FIELDS, type RomSortField, type SortDir } from "@/lib/romUtils";
+import { SortControl } from "@/components/SortControl";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import { TagList } from "@/components/TagBadge";
@@ -45,7 +46,8 @@ export default function Roms() {
   ];
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<RomSortKey>("az");
+  const [sortField, setSortField] = useState<RomSortField>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [activeRegions, setActiveRegions] = useState<string[]>([]);
   const [activeStatus, setActiveStatus] = useState<string[]>([]);
   const [activeLangs, setActiveLangs] = useState<string[]>([]);
@@ -106,17 +108,33 @@ export default function Roms() {
     }
 
     const sorted = [...result];
-    if (sort === "za")       sorted.sort((a, b) => b.title_normalized.localeCompare(a.title_normalized));
-    else if (sort === "variants") sorted.sort((a, b) => b.variants.length - a.variants.length);
-    else                     sorted.sort((a, b) => a.title_normalized.localeCompare(b.title_normalized));
+    if (sortField === "variants") {
+      sorted.sort((a, b) => sortDir === "desc"
+        ? b.variants.length - a.variants.length
+        : a.variants.length - b.variants.length);
+    } else if (sortField === "preferred") {
+      sorted.sort((a, b) => {
+        const aHas = a.preferred_idx != null ? 1 : 0;
+        const bHas = b.preferred_idx != null ? 1 : 0;
+        const primary = sortDir === "desc" ? bHas - aHas : aHas - bHas;
+        return primary !== 0 ? primary : a.title_normalized.localeCompare(b.title_normalized);
+      });
+    } else {
+      sorted.sort((a, b) => sortDir === "asc"
+        ? a.title_normalized.localeCompare(b.title_normalized)
+        : b.title_normalized.localeCompare(a.title_normalized));
+    }
     return sorted;
-  }, [groups, sort, activeRegions, activeStatus, activeLangs]);
+  }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs]);
 
   function toggleExpand(key: string) {
     setExpanded((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
   }
+
+  const expandedSet = new Set(expanded);
+  const allExpanded = displayGroups.length > 0 && displayGroups.every(g => expandedSet.has(`${g.console}::${g.title_normalized}`));
 
   return (
     <div className="flex flex-col h-full">
@@ -159,18 +177,28 @@ export default function Roms() {
               onChange={(e) => setSearch(e.target.value)}
               className="max-w-xs h-8 text-sm"
             />
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as RomSortKey)}
-              className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
-            >
-              {ROM_SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            <SortControl
+              fields={ROM_SORT_FIELDS}
+              field={sortField}
+              dir={sortDir}
+              onField={setSortField}
+              onDir={setSortDir}
+            />
           </>
         }
-        trailing={<span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>}
+        trailing={
+          <div className="flex items-center gap-3">
+            {displayGroups.length > 0 && (
+              <button
+                onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {allExpanded ? "Collapse all" : "Expand all"}
+              </button>
+            )}
+            <span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>
+          </div>
+        }
       />
 
       {displayGroups.length === 0 && (

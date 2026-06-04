@@ -6,8 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   applyFilters, applyFormatPairs, executePrune, executeFormatPairs, exportCsv,
@@ -20,6 +18,7 @@ import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import { getAbbrev } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
@@ -58,44 +57,44 @@ const FILTER_ROWS: Array<{
   key: keyof FilterSettings;
   section: "official" | "unofficial";
   label: string;
-  tooltip: string;
+  description: string;
   destructive?: boolean;
 }> = [
   {
     key: "keep_preferred_only",
     section: "official",
     label: "Keep one copy per title",
-    tooltip: "Deletes all variants except the single highest-scored preferred version.",
+    description: "Keeps only the single highest-scored variant for each title and queues the rest for deletion. Scoring favours your preferred language and region, then the highest revision.",
   },
   {
     key: "remove_if_no_preferred_version",
     section: "official",
     label: "Delete if no preferred version exists",
-    tooltip: "Deletes ALL variants of a title when none match your language preference. Official games only.",
+    description: "When a title has no version matching your language preference, every copy is queued for deletion rather than keeping a non-matching one. Disable this to always keep at least one copy of every title.",
   },
   {
     key: "remove_prerelease",
     section: "official",
     label: "Remove pre-release",
-    tooltip: "Deletes Beta, Proto, Demo, Sample, Promo, Kiosk variants.",
+    description: "Queues Beta, Proto, Demo, Sample, Promo, and Kiosk builds for deletion. These are development or promotional releases not intended as final products.",
   },
   {
     key: "remove_older_revisions",
     section: "official",
     label: "Remove older revisions",
-    tooltip: "Keeps only the highest revision; deletes Rev 0, Rev A, etc.",
+    description: "When multiple revisions of the same title exist (Rev 1, Rev 2, …), keeps only the latest and queues older ones for deletion. Titles with a single version are unaffected.",
   },
   {
     key: "keep_unofficial_as_fallback",
     section: "unofficial",
     label: "Keep unofficial as fallback",
-    tooltip: "Keeps an unofficial variant when it's the only language-matching copy for a title.",
+    description: "When a title has no official version in your preferred language but an unofficial one (fan translation, hack) does match, that unofficial copy is kept rather than deleted.",
   },
   {
     key: "remove_unofficial",
     section: "unofficial",
     label: "Delete ALL unofficial regardless of language",
-    tooltip: "Deletes Hack, Pirate, Aftermarket, Unl variants.",
+    description: "Removes all hacks, fan translations, pirate releases, and aftermarket titles regardless of your language settings. When enabled, this overrides 'Keep unofficial as fallback'.",
     destructive: true,
   },
 ];
@@ -179,12 +178,14 @@ export default function Prune() {
   const [uncheckedPaths, setUncheckedPaths] = useState<Set<string>>(new Set());
   // Search within the to-delete preview list
   const [previewSearch, setPreviewSearch] = useState("");
+  const [showAllPreview, setShowAllPreview] = useState(false);
 
   async function preview() {
     setLoading(true);
     setPlanStore(null);
     setUncheckedPaths(new Set());
     setPreviewSearch("");
+    setShowAllPreview(false);
     try {
       const p = await applyFilters(filterSettings, selectedConsoles ?? undefined);
       setPlanStore({ key: consolesKey, plan: p });
@@ -463,8 +464,8 @@ export default function Prune() {
                 // folder_a is always the smaller (subset) folder; folder_b is larger or equal.
                 const isProperSubset = pair.folder_a_count < pair.folder_b_count;
                 const isIdentical   = pair.folder_a_count === pair.folder_b_count && pair.overlap_percent >= 0.999;
-                const shortA = pair.folder_a.split(" - ")[1] ?? pair.folder_a;
-                const shortB = pair.folder_b.split(" - ")[1] ?? pair.folder_b;
+                const shortA = getAbbrev(pair.folder_a);
+                const shortB = getAbbrev(pair.folder_b);
                 const headerLabel = isProperSubset
                   ? `${shortA} ⊂ ${shortB} · ${pair.folder_a_count} of ${pair.folder_b_count} titles`
                   : isIdentical
@@ -496,7 +497,7 @@ export default function Prune() {
                           >
                             <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
                             <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>
-                              {folder.split(" - ")[1] ?? folder}
+                              {getAbbrev(folder)}
                             </span>
                             <span className="text-xs text-muted-foreground/50 ml-1">{count} titles</span>
                             {isSubsetFolder && (
@@ -564,7 +565,7 @@ export default function Prune() {
                       className="h-7 text-xs border-0 bg-transparent focus-visible:ring-0 p-0"
                     />
                   </div>
-                  <ScrollArea className="h-64">
+                  <div className="h-64 overflow-y-auto overflow-x-hidden">
                     {filteredFpItems.map((item, i) => {
                       const rk = reasonKey(item.reason);
                       const isNoCounterpart = rk === "format_pair_no_counterpart";
@@ -578,20 +579,20 @@ export default function Prune() {
                               : "border-b-border/40 hover:bg-muted/20"
                           }`}
                         >
-                          <span className={`flex-1 truncate font-mono ${isNoCounterpart ? "text-amber-300/80" : "text-muted-foreground"}`}>
+                          <span className={`min-w-0 flex-1 truncate font-mono ${isNoCounterpart ? "text-amber-300/80" : "text-muted-foreground"}`}>
                             {item.rom.filename}
                           </span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>
                             {REASON_LABELS[rk] ?? rk}
                           </span>
-                          <span className="text-muted-foreground/60 shrink-0">{item.rom.console.split(" - ")[1] ?? item.rom.console}</span>
+                          <span className="text-muted-foreground/60 shrink-0">{getAbbrev(item.rom.console)}</span>
                         </div>
                       );
                     })}
                     {filteredFpItems.length === 0 && fpPreviewSearch && (
                       <div className="px-4 py-4 text-xs text-muted-foreground text-center">No matches for "{fpPreviewSearch}"</div>
                     )}
-                  </ScrollArea>
+                  </div>
                 </div>
               )}
 
@@ -659,7 +660,7 @@ export default function Prune() {
             <FilterRow
               key={row.key}
               label={row.label}
-              tooltip={row.tooltip}
+              description={row.description}
               checked={filters[row.key]}
               onToggle={() => toggle(row.key)}
             />
@@ -672,7 +673,7 @@ export default function Prune() {
             <FilterRow
               key={row.key}
               label={row.label}
-              tooltip={row.tooltip}
+              description={row.description}
               checked={filters[row.key]}
               onToggle={() => toggle(row.key)}
               destructive={row.destructive}
@@ -741,8 +742,8 @@ export default function Prune() {
             </div>
 
             {/* Deletion item list with checkboxes */}
-            <ScrollArea className="h-64">
-              {filteredItems.slice(0, 200).map((item, i) => {
+            <div className="h-72 overflow-y-auto overflow-x-hidden">
+              {(showAllPreview ? filteredItems : filteredItems.slice(0, 200)).map((item, i) => {
                 const checked = !uncheckedPaths.has(item.rom.path);
                 const rk = reasonKey(item.reason);
                 const colorClass = REASON_COLORS[rk] ?? "bg-muted/40 text-muted-foreground border-border/60";
@@ -755,23 +756,29 @@ export default function Prune() {
                     <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${checked ? "bg-primary/20 border-primary/60" : "border-border"}`}>
                       {checked && <div className="w-1.5 h-1.5 rounded-sm bg-primary" />}
                     </div>
-                    <span className="flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}
-                    >
+                    <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{item.rom.filename}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>
                       {REASON_LABELS[rk] ?? rk}
                     </span>
-                    <span className="text-muted-foreground/60 shrink-0">{item.rom.console.split(" - ")[1] ?? item.rom.console}</span>
+                    <span className="text-muted-foreground/60 shrink-0">{getAbbrev(item.rom.console)}</span>
                   </div>
                 );
               })}
-              {filteredItems.length > 200 && (
-                <div className="px-4 py-2 text-xs text-muted-foreground">…and {(filteredItems.length - 200).toLocaleString()} more</div>
+              {!showAllPreview && filteredItems.length > 200 && (
+                <div className="px-4 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                  <span>…and {(filteredItems.length - 200).toLocaleString()} more</span>
+                  <button
+                    onClick={() => setShowAllPreview(true)}
+                    className="text-primary hover:underline"
+                  >
+                    Show all
+                  </button>
+                </div>
               )}
               {filteredItems.length === 0 && previewSearch && (
                 <div className="px-4 py-4 text-xs text-muted-foreground text-center">No matches for "{previewSearch}"</div>
               )}
-            </ScrollArea>
+            </div>
           </div>
         )}
 
@@ -826,24 +833,18 @@ export default function Prune() {
   );
 }
 
-function FilterRow({ label, tooltip, checked, onToggle, destructive }: {
+function FilterRow({ label, description, checked, onToggle, destructive }: {
   label: string;
-  tooltip: string;
+  description: string;
   checked: boolean;
   onToggle: () => void;
   destructive?: boolean;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-border bg-card/50">
-      <div className="flex-1">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Label className={`text-sm cursor-default ${destructive ? "text-red-400" : "text-foreground"}`}>{label}</Label>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+    <div className="flex items-start justify-between gap-4 p-4 rounded-lg border border-border bg-card/50">
+      <div className="flex-1 space-y-0.5">
+        <Label className={`text-sm cursor-default ${destructive ? "text-red-400" : "text-foreground"}`}>{label}</Label>
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
       </div>
       <Switch
         checked={checked}

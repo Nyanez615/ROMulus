@@ -23,11 +23,25 @@ pub fn matches_preferred(rom: &RomFile, prefs: &UserPreferences) -> bool {
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
-const COLLECTION_TAGS: &[&str] = &[
-    "Virtual Console", "Wii Virtual Console", "Switch Online", "Switch",
-    "Classic Mini", "Evercade", "NP", "GameCube", "LodgeNet",
-    "Limited Run Games", "Retro-Bit Generations",
+// Distribution-format / platform variants — minor penalty.
+// These are original-era delivery mechanisms (kiosk, broadcast, download service)
+// where a standard cartridge/disk release also exists or may exist.
+const FORMAT_VARIANT_TAGS: &[&str] = &[
+    "Disk Writer",     // FDS kiosk service (Japan)
+    "Satellaview",     // SNES satellite broadcast (Japan)
+    "Sega Channel",    // Mega Drive online distribution (US/JP)
+    "64DD",            // N64 Disk Drive (Japan)
+    "Meganet",         // Mega Drive modem service (Japan)
+    "NP",              // Nintendo Power flash-cart service (Japan)
+    "Animal Crossing", // GBA games embedded in Animal Crossing (GameCube)
 ];
+
+// Third-party / non-standard collections — penalised more heavily.
+const COLLECTION_TAGS: &[&str] = &[
+    "LodgeNet", "Evercade", "Limited Run Games", "Retro-Bit Generations",
+];
+// Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
+// Switch Online, Switch, Classic Mini, GameCube) fall through to 0 — no entry needed.
 
 /// Higher score = more preferred variant.
 /// Returns (score, revision, lang_match_count) tuple — all three compared
@@ -62,12 +76,14 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // Region score from user's preferred_regions list
     let region_score = region_score(&rom.regions, prefs);
 
-    // Collection tag penalty
-    let collection_penalty: i32 = if rom.extra_tags.iter().any(|t| COLLECTION_TAGS.contains(&t.as_str())) {
-        -10
-    } else {
-        0
-    };
+    let collection_penalty: i32 =
+        if rom.extra_tags.iter().any(|t| COLLECTION_TAGS.contains(&t.as_str())) {
+            -10
+        } else if rom.extra_tags.iter().any(|t| FORMAT_VARIANT_TAGS.contains(&t.as_str())) {
+            -5
+        } else {
+            0
+        };
 
     let alt_penalty: i32 = if rom.extra_tags.iter().any(|t| t == "Alt") { -5 } else { 0 };
 
@@ -739,5 +755,49 @@ mod tests {
         let unique: Vec<_> = merged.iter().filter(|g| g.title_normalized == "unique fds title").collect();
         assert_eq!(unique.len(), 1);
         assert!(unique[0].is_format_pair);
+    }
+
+    #[test]
+    fn virtual_console_gets_no_penalty() {
+        // Official Nintendo re-releases must score identically to an untagged release.
+        let mut vc = rom("Game", &["Japan"], &["En"], &[]);
+        vc.extra_tags = vec!["Virtual Console".into()];
+        let base = rom("Game", &["Japan"], &["En"], &[]);
+        assert_eq!(score_rom(&vc, &en_prefs()), score_rom(&base, &en_prefs()));
+    }
+
+    #[test]
+    fn disk_writer_scores_below_virtual_console() {
+        let mut dw = rom("Game", &["Japan"], &["En"], &[]);
+        dw.extra_tags = vec!["Disk Writer".into()];
+        dw.filename = "Game (Japan) (En) (Disk Writer).zip".into();
+        let mut vc = rom("Game", &["Japan"], &["En"], &[]);
+        vc.extra_tags = vec!["Virtual Console".into()];
+        vc.filename = "Game (Japan) (En) (Virtual Console).zip".into();
+        assert!(
+            score_rom(&vc, &en_prefs()) > score_rom(&dw, &en_prefs()),
+            "Virtual Console must score higher than Disk Writer"
+        );
+    }
+
+    #[test]
+    fn satellaview_scores_below_standard_release() {
+        let mut sat = rom("Game", &["Japan"], &["Ja"], &[]);
+        sat.extra_tags = vec!["Satellaview".into()];
+        let base = rom("Game", &["Japan"], &["Ja"], &[]);
+        let prefs = UserPreferences {
+            preferred_languages: vec!["Ja".into()],
+            preferred_regions: vec!["Japan".into()],
+            short_console_names: false,
+        };
+        assert!(score_rom(&base, &prefs) > score_rom(&sat, &prefs));
+    }
+
+    #[test]
+    fn third_party_collection_still_penalized() {
+        let mut evercade = rom("Game", &["USA"], &[], &[]);
+        evercade.extra_tags = vec!["Evercade".into()];
+        let base = rom("Game", &["USA"], &[], &[]);
+        assert!(score_rom(&base, &en_prefs()) > score_rom(&evercade, &en_prefs()));
     }
 }

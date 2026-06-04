@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SortControl } from "@/components/SortControl";
+import type { SortDir } from "@/lib/romUtils";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -46,7 +47,8 @@ export default function Dashboard() {
   const [enrichment, setEnrichment] = useState<EnrichmentStatus | null>(null);
   const [completeness, setCompleteness] = useState<Completeness[]>([]);
   const [consoleSearch, setConsoleSearch] = useState("");
-  const [consoleSort, setConsoleSort] = useState<"alpha" | "count">("alpha");
+  const [sortField, setSortField] = useState<"name" | "count">("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [collapsedPlatforms, setCollapsedPlatforms] = useState<string[]>([]);
 
   useEffect(() => {
@@ -152,19 +154,19 @@ export default function Dashboard() {
       }
       if (entries.length === 0) continue;
       // Apply sort
-      if (consoleSort === "count") {
+      if (sortField === "count") {
         entries.sort(([, av], [, bv]) => {
           const a = av.reduce((s, v) => s + v.total_files, 0);
           const b = bv.reduce((s, v) => s + v.total_files, 0);
-          return b - a;
+          return sortDir === "desc" ? b - a : a - b;
         });
       } else {
-        entries.sort(([a], [b]) => a.localeCompare(b));
+        entries.sort(([a], [b]) => sortDir === "asc" ? a.localeCompare(b) : b.localeCompare(a));
       }
       byPlatform.set(platform, entries);
     }
     return byPlatform;
-  }, [consoles, consoleSearch, consoleSort]);
+  }, [consoles, consoleSearch, sortField, sortDir]);
 
   const totalCanonicals = useMemo(() => {
     const keys = new Set<string>();
@@ -308,15 +310,16 @@ export default function Dashboard() {
               className="max-w-xs h-7 text-xs"
             />
             <span className="text-xs text-muted-foreground ml-auto shrink-0">{totalCanonicals} consoles</span>
-            <Select value={consoleSort} onValueChange={(v) => setConsoleSort(v as "alpha" | "count")}>
-              <SelectTrigger className="h-7 text-xs w-28 shrink-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="alpha">A–Z</SelectItem>
-                <SelectItem value="count">ROM count</SelectItem>
-              </SelectContent>
-            </Select>
+            <SortControl
+              fields={[
+                { value: "name" as const, label: "Name" },
+                { value: "count" as const, label: "ROM count" },
+              ]}
+              field={sortField}
+              dir={sortDir}
+              onField={setSortField}
+              onDir={setSortDir}
+            />
           </div>
 
           {canonicalGroups.size === 0 && consoleSearch && (

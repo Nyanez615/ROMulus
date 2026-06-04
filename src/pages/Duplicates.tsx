@@ -9,6 +9,9 @@ import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { SortControl } from "@/components/SortControl";
+import type { SortDir } from "@/lib/romUtils";
+import { getAbbrev } from "@/lib/consoleUtils";
 
 const COLLECTION_TAGS = ["Virtual Console","Switch Online","Evercade","NP","Classic Mini","GameCube","LodgeNet"];
 
@@ -46,15 +49,38 @@ export default function Duplicates() {
       .catch(() => setLoadedKey(key));
   }, [selectedConsoles, cacheVersion]);
 
-  type SortKey = "az" | "count";
-  const [sort, setSort] = useState<SortKey>("az");
+  type DupSortField = "title" | "console" | "count";
+  const [sortField, setSortField] = useState<DupSortField>("title");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const effectiveSortField: DupSortField =
+    sortField === "console" && selectedConsoles !== null ? "title" : sortField;
+
+  const DUP_SORT_FIELDS_BASE = [
+    { value: "title" as const, label: "Title" },
+    { value: "count" as const, label: "Count" },
+  ];
+  const dupSortFields = selectedConsoles === null
+    ? [DUP_SORT_FIELDS_BASE[0], { value: "console" as const, label: "Console" }, DUP_SORT_FIELDS_BASE[1]]
+    : DUP_SORT_FIELDS_BASE;
 
   const sortedGroups = useMemo(() => {
     const copy = [...groups];
-    if (sort === "count") copy.sort((a, b) => b.variants.length - a.variants.length);
-    else                  copy.sort((a, b) => a.console.localeCompare(b.console));
+    if (effectiveSortField === "count") {
+      copy.sort((a, b) => sortDir === "desc"
+        ? b.variants.length - a.variants.length
+        : a.variants.length - b.variants.length);
+    } else if (effectiveSortField === "console") {
+      copy.sort((a, b) => sortDir === "asc"
+        ? a.console.localeCompare(b.console)
+        : b.console.localeCompare(a.console));
+    } else {
+      copy.sort((a, b) => sortDir === "asc"
+        ? a.title_normalized.localeCompare(b.title_normalized)
+        : b.title_normalized.localeCompare(a.title_normalized));
+    }
     return copy;
-  }, [groups, sort]);
+  }, [groups, effectiveSortField, sortDir]);
 
   const pending = sortedGroups.filter((g) => !resolved.includes(`${g.console}::${g.title_normalized}`));
 
@@ -73,14 +99,13 @@ export default function Duplicates() {
 
       {/* Sort toolbar */}
       <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3">
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-          className="h-8 px-2 rounded border border-border bg-card text-xs text-foreground"
-        >
-          <option value="az">Console A–Z</option>
-          <option value="count">Duplicate count ↓</option>
-        </select>
+        <SortControl
+          fields={dupSortFields}
+          field={effectiveSortField}
+          dir={sortDir}
+          onField={setSortField}
+          onDir={setSortDir}
+        />
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -106,7 +131,7 @@ export default function Duplicates() {
               const isResolved = resolved.includes(key);
               const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
               const hasPreferred = preferred != null;
-              const consoleName = g.console.split(" - ")[1] ?? g.console;
+              const consoleName = getAbbrev(g.console);
 
               return (
                 <div key={key} className={`border rounded-xl overflow-hidden transition-opacity ${isResolved ? "opacity-40" : ""}`}>

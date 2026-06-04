@@ -10,6 +10,7 @@ import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { cn } from "@/lib/utils";
+import { getAbbrev } from "@/lib/consoleUtils";
 
 const ACTION_ICONS: Record<string, { icon: React.ElementType; color: string; label: string }> = {
   moved_to_trash: { icon: Trash2,        color: "text-red-400",          label: "Trashed" },
@@ -182,7 +183,7 @@ export default function History() {
                   <div className="text-xs text-muted-foreground truncate font-mono">{entry.path}</div>
                 </div>
                 <div className="text-right shrink-0 space-y-0.5">
-                  <div className="text-xs text-muted-foreground">{entry.console.split(" - ")[1] ?? entry.console}</div>
+                  <div className="text-xs text-muted-foreground">{getAbbrev(entry.console)}</div>
                   <div className="text-xs text-muted-foreground/60">{entry.timestamp.slice(0, 16).replace("T", " ")}</div>
                 </div>
               </div>
