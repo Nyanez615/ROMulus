@@ -69,7 +69,18 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  const totalTitles = consoles.reduce((s, c) => s + c.total_groups, 0);
+  // Sum canonical-level title count once per canonical — all sub-folders of the same
+  // canonical (e.g. NES Headered + Headerless) carry the same total_groups value,
+  // so we skip duplicates via a seen-set keyed on canonical name.
+  const totalTitles = useMemo(() => {
+    const seen = new Set<string>();
+    let count = 0;
+    for (const c of consoles) {
+      const { canonical } = getConsoleParts(c.name);
+      if (!seen.has(canonical)) { count += c.total_groups; seen.add(canonical); }
+    }
+    return count;
+  }, [consoles]);
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
   const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
   const preferredExplicitCount = consoles.reduce((s, c) => s + c.preferred_explicit_count, 0);
@@ -124,13 +135,16 @@ export default function Dashboard() {
   // Platform summary stats (for stat tiles — unfiltered)
   const platformStats = useMemo(() => {
     const map = new Map<string, { consoles: Set<string>; titles: number; roms: number; bytes: number }>();
+    // Track (platform, canonical) pairs to add each canonical's title count only once
+    const seenTitles = new Set<string>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
       const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
       entry.consoles.add(canonical);
-      entry.titles += c.total_groups;
       entry.roms += c.total_files;
       entry.bytes += c.total_bytes;
+      const key = `${platform}\0${canonical}`;
+      if (!seenTitles.has(key)) { entry.titles += c.total_groups; seenTitles.add(key); }
       map.set(platform, entry);
     }
     return map;
@@ -259,8 +273,8 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} sub={totalRoms > 0 ? `${totalRoms.toLocaleString()} ROMs` : undefined} />
         <StatCard icon={Gamepad2} label="Total ROMs" value={totalRoms.toLocaleString()} />
+        <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
         {/* F1: Use total_bytes for collection size */}
@@ -469,7 +483,8 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
-  const totalGroups = variants.reduce((s, v) => s + v.total_groups, 0);
+  // All sub-folder variants carry the same canonical-level total_groups; take it once.
+  const totalGroups = variants[0]?.total_groups ?? 0;
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);
