@@ -268,7 +268,7 @@ export function Sidebar() {
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{allTitles.toLocaleString()} titles</div>
-          <div className="text-muted-foreground/70">{status.scanned.toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
+          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.game_files, 0).toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (

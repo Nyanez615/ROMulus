@@ -14,6 +14,7 @@ import {
   getEmptyRoots, cleanupEmptyRoots,
   getHistory, scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
   onEnrichProgress, onEnrichComplete, getEnrichmentStatus,
+  debugGameGroups,
 } from "@/lib/tauri";
 import type { InterruptedSession } from "@/lib/bindings/InterruptedSession";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
@@ -54,6 +55,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
+    // TEMP DEBUG — remove after diagnosing GBA off-by-1
+    debugGameGroups("Nintendo - Game Boy Advance").then((missing) => {
+      if (missing.length > 0) {
+        console.warn("[DEBUG] GBA titles in variant-attr but not console-attr:", missing);
+      } else {
+        console.info("[DEBUG] GBA: no discrepancy between console-attr and variant-attr");
+      }
+    }).catch(console.error);
     getInterruptedSession().then(setInterrupted).catch(console.error);
     getEmptyRoots().then(setEmptyRoots).catch(console.error);
     getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
@@ -70,6 +79,7 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
+  const totalGameFiles = consoles.reduce((s, c) => s + c.game_files, 0);
   // Game-only title count: group by canonical, then sum via canonicalTitleCount
   // so alias sub-folders (e.g. N64DD tracked under a separate Rust key) are
   // correctly added rather than dropped.
@@ -287,7 +297,7 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard icon={Gamepad2} label="Total ROMs" value={totalRoms.toLocaleString()} />
+        <StatCard icon={Gamepad2} label="Total ROMs" value={totalGameFiles > 0 ? totalGameFiles.toLocaleString() : "—"} />
         <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />

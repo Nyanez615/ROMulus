@@ -63,6 +63,10 @@ export const getScanStatus = (): Promise<ScanStatus> =>
 export const getConsoles = (): Promise<ConsoleStats[]> =>
   isTauri() ? invoke("get_consoles") : Promise.resolve([]);
 
+/** TEMP DEBUG: titles in variant-attribution but not console-attribution for `prefix`. */
+export const debugGameGroups = (prefix: string): Promise<[string, string][]> =>
+  isTauri() ? invoke("debug_game_groups", { prefix }) : Promise.resolve([]);
+
 export const scanRoots = (roots: string[]): Promise<ScanStatus> =>
   isTauri() ? invoke("scan_roots", { roots }) : Promise.resolve(DEFAULT_SCAN_STATUS);
 
