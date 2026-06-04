@@ -98,7 +98,7 @@ pub fn run() {
             scan::scan_roots,
             scan::get_format_pairs,
             scan::get_known_tags,
-            scan::debug_game_groups,
+
             // Browse — official ROMs
             group::get_roms,
             // Browse — filtered

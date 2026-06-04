@@ -14,7 +14,7 @@ import {
   getEmptyRoots, cleanupEmptyRoots,
   getHistory, scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
   onEnrichProgress, onEnrichComplete, getEnrichmentStatus,
-  debugGameGroups,
+
 } from "@/lib/tauri";
 import type { InterruptedSession } from "@/lib/bindings/InterruptedSession";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
@@ -55,14 +55,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     getConsoles().then(setConsoles).catch(console.error);
-    // TEMP DEBUG — remove after diagnosing GBA off-by-1
-    debugGameGroups("Nintendo - Game Boy Advance").then((missing) => {
-      if (missing.length > 0) {
-        console.warn("[DEBUG] GBA titles in variant-attr but not console-attr:", missing);
-      } else {
-        console.info("[DEBUG] GBA: no discrepancy between console-attr and variant-attr");
-      }
-    }).catch(console.error);
     getInterruptedSession().then(setInterrupted).catch(console.error);
     getEmptyRoots().then(setEmptyRoots).catch(console.error);
     getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
