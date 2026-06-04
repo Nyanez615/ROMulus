@@ -18,6 +18,7 @@ import type { FilterSettings } from "@/lib/bindings/FilterSettings";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import type { FileCategory } from "@/lib/bindings/FileCategory";
 import { getAbbrev } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
@@ -179,6 +180,8 @@ export default function Prune() {
   // Search within the to-delete preview list
   const [previewSearch, setPreviewSearch] = useState("");
   const [showAllPreview, setShowAllPreview] = useState(false);
+  // Category filter for the preview panel
+  const [previewCategory, setPreviewCategory] = useState<"all" | "game" | "unofficial" | "system">("all");
 
   async function preview() {
     setLoading(true);
@@ -186,6 +189,7 @@ export default function Prune() {
     setUncheckedPaths(new Set());
     setPreviewSearch("");
     setShowAllPreview(false);
+    setPreviewCategory("all");
     try {
       const p = await applyFilters(filterSettings, selectedConsoles ?? undefined);
       setPlanStore({ key: consolesKey, plan: p });
@@ -214,6 +218,7 @@ export default function Prune() {
         setPlanStore(null);
         setUncheckedPaths(new Set());
         setPreviewSearch("");
+        setPreviewCategory("all");
         return applyFilters(fs, consoles ?? undefined);
       })
       .then((p) => {
@@ -231,19 +236,35 @@ export default function Prune() {
     return formatPairs.filter((p) => consoleSet.has(p.folder_a) || consoleSet.has(p.folder_b));
   }, [formatPairs, selectedConsoles]);
 
+  function matchesCat(fc: FileCategory, cat: typeof previewCategory): boolean {
+    if (cat === "all") return true;
+    if (cat === "game") return fc === "game";
+    if (cat === "unofficial") return fc === "unofficial";
+    return fc !== "game" && fc !== "unofficial";
+  }
+
+  // Category-filtered base lists — all subsequent derivations build on these
+  const catDeleteItems = useMemo(
+    () => (plan?.to_delete ?? []).filter((item) => matchesCat(item.rom.file_category, previewCategory)),
+    [plan, previewCategory],
+  );
+  const catKeepItems = useMemo(
+    () => (plan?.to_keep ?? []).filter((rom) => matchesCat(rom.file_category, previewCategory)),
+    [plan, previewCategory],
+  );
+
   // Items visible in the preview after search filter
   const filteredItems = useMemo(() => {
-    if (!plan) return [];
     const q = previewSearch.toLowerCase();
-    return plan.to_delete.filter(
+    return catDeleteItems.filter(
       (item) => !q || item.rom.filename.toLowerCase().includes(q) || item.rom.title.toLowerCase().includes(q),
     );
-  }, [plan, previewSearch]);
+  }, [catDeleteItems, previewSearch]);
 
   // Items that are checked (approved for deletion)
   const checkedItems = useMemo(
-    () => (plan?.to_delete ?? []).filter((item) => !uncheckedPaths.has(item.rom.path)),
-    [plan, uncheckedPaths],
+    () => catDeleteItems.filter((item) => !uncheckedPaths.has(item.rom.path)),
+    [catDeleteItems, uncheckedPaths],
   );
 
   function toggleCheck(path: string) {
@@ -254,10 +275,26 @@ export default function Prune() {
     });
   }
 
-  function selectAll() { setUncheckedPaths(new Set()); }
-  function deselectAll() {
-    setUncheckedPaths(new Set((plan?.to_delete ?? []).map((i) => i.rom.path)));
+  function selectAll() {
+    setUncheckedPaths((prev) => {
+      const next = new Set(prev);
+      catDeleteItems.forEach((i) => next.delete(i.rom.path));
+      return next;
+    });
   }
+  function deselectAll() {
+    setUncheckedPaths((prev) => {
+      const next = new Set(prev);
+      catDeleteItems.forEach((i) => next.add(i.rom.path));
+      return next;
+    });
+  }
+
+  const noPreferredCount = useMemo(() => {
+    if (!plan) return 0;
+    if (previewCategory === "all") return plan.no_preferred_version_count;
+    return catDeleteItems.filter((i) => i.reason === "no_preferred_version").length;
+  }, [plan, previewCategory, catDeleteItems]);
 
   async function doExportCsv() {
     if (!plan) return;
@@ -704,7 +741,7 @@ export default function Prune() {
                 <div className="text-xs text-muted-foreground">approved to delete</div>
               </div>
               <div>
-                <div className="text-xl font-bold text-green-400">{plan.to_keep.length.toLocaleString()}</div>
+                <div className="text-xl font-bold text-green-400">{catKeepItems.length.toLocaleString()}</div>
                 <div className="text-xs text-muted-foreground">to keep</div>
               </div>
               <div>
@@ -715,9 +752,32 @@ export default function Prune() {
               </div>
             </div>
 
-            {plan.no_preferred_version_count > 0 && (
+            {/* Category filter tabs */}
+            {(() => {
+              const tabs = [
+                { key: "all" as const,        label: "All",                 count: plan.to_delete.length },
+                { key: "game" as const,        label: "ROMs",                count: plan.to_delete.filter(i => i.rom.file_category === "game").length },
+                { key: "unofficial" as const,  label: "Hacks & Unofficial",  count: plan.to_delete.filter(i => i.rom.file_category === "unofficial").length },
+                { key: "system" as const,      label: "System Files",        count: plan.to_delete.filter(i => i.rom.file_category !== "game" && i.rom.file_category !== "unofficial").length },
+              ].filter(t => t.key === "all" || t.count > 0 || (plan.to_keep.filter(r => matchesCat(r.file_category, t.key)).length > 0));
+              return tabs.length > 1 ? (
+                <div className="px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap">
+                  {tabs.map(({ key, label, count }) => (
+                    <button
+                      key={key}
+                      onClick={() => { setPreviewCategory(key); setPreviewSearch(""); setShowAllPreview(false); }}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${previewCategory === key ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {label}{key !== "all" && <span className="ml-1 opacity-60">({count})</span>}
+                    </button>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+
+            {(previewCategory === "all" || previewCategory === "game") && noPreferredCount > 0 && (
               <div className="px-4 py-2 text-xs text-amber-400 bg-amber-500/10 border-b border-border">
-                {plan.no_preferred_version_count} game{plan.no_preferred_version_count !== 1 ? "s" : ""} deleted — no preferred-language version exists
+                {noPreferredCount} game{noPreferredCount !== 1 ? "s" : ""} deleted — no preferred-language version exists
               </div>
             )}
 
