@@ -21,8 +21,44 @@ pub fn get_scan_status(state: State<'_, AppState>) -> ScanStatus {
 
 #[tauri::command]
 pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
+    use crate::models::FileCategory;
+    use std::collections::{HashMap, HashSet};
+
     let cache = state.scan_cache.lock().unwrap();
-    compute_console_stats(&cache.roms)
+    let mut stats = compute_console_stats(&cache.roms);
+
+    // Recompute game_groups from cache.groups (authoritative post-merge_format_pairs
+    // data) so the counts exactly match what get_roms() returns.  The raw-file
+    // computation in compute_console_stats can be slightly off when merged format-pair
+    // groups span two sub-folders that have different sets of game titles.
+    //
+    // Strategy: for every game group, attribute its title_normalized to the canonical
+    // base-name of its primary console (strip_format_suffix).  All sub-folders that
+    // share the same base-name get the same canonical count.
+    let mut canonical_game: HashMap<String, HashSet<&str>> = HashMap::new();
+    for group in &cache.groups {
+        if group
+            .variants
+            .iter()
+            .any(|v| matches!(v.file_category, FileCategory::Game))
+        {
+            let base = strip_format_suffix(&group.console).to_owned();
+            canonical_game
+                .entry(base)
+                .or_default()
+                .insert(&group.title_normalized);
+        }
+    }
+
+    for s in &mut stats {
+        let base = strip_format_suffix(&s.name);
+        s.game_groups = canonical_game
+            .get(base)
+            .map(|t| t.len() as u32)
+            .unwrap_or(0);
+    }
+
+    stats
 }
 
 #[tauri::command]
