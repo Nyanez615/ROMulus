@@ -69,15 +69,13 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  // Sum canonical-level title count once per canonical — all sub-folders of the same
-  // canonical (e.g. NES Headered + Headerless) carry the same total_groups value,
-  // so we skip duplicates via a seen-set keyed on canonical name.
+  // Game-only title count, deduplicated per canonical (matches the ROMs-tab total).
   const totalTitles = useMemo(() => {
     const seen = new Set<string>();
     let count = 0;
     for (const c of consoles) {
       const { canonical } = getConsoleParts(c.name);
-      if (!seen.has(canonical)) { count += c.total_groups; seen.add(canonical); }
+      if (!seen.has(canonical)) { count += c.game_groups; seen.add(canonical); }
     }
     return count;
   }, [consoles]);
@@ -132,19 +130,18 @@ export default function Dashboard() {
     setConsoles(updated);
   }
 
-  // Platform summary stats (for stat tiles — unfiltered)
+  // Platform summary stats — game-only counts to match the ROMs tab
   const platformStats = useMemo(() => {
     const map = new Map<string, { consoles: Set<string>; titles: number; roms: number; bytes: number }>();
-    // Track (platform, canonical) pairs to add each canonical's title count only once
     const seenTitles = new Set<string>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
       const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
       entry.consoles.add(canonical);
-      entry.roms += c.total_files;
-      entry.bytes += c.total_bytes;
+      entry.roms += c.game_files;    // game ROMs only
+      entry.bytes += c.total_bytes;  // storage is full collection
       const key = `${platform}\0${canonical}`;
-      if (!seenTitles.has(key)) { entry.titles += c.total_groups; seenTitles.add(key); }
+      if (!seenTitles.has(key)) { entry.titles += c.game_groups; seenTitles.add(key); }
       map.set(platform, entry);
     }
     return map;
@@ -171,8 +168,8 @@ export default function Dashboard() {
       // Apply sort
       if (sortField === "count") {
         entries.sort(([, av], [, bv]) => {
-          const a = av.reduce((s, v) => s + v.total_groups, 0);
-          const b = bv.reduce((s, v) => s + v.total_groups, 0);
+          const a = av[0]?.game_groups ?? 0;
+          const b = bv[0]?.game_groups ?? 0;
           return sortDir === "desc" ? b - a : a - b;
         });
       } else {
@@ -482,9 +479,9 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   onClick: () => void;
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
-  // All sub-folder variants carry the same canonical-level total_groups; take it once.
-  const totalGroups = variants[0]?.total_groups ?? 0;
+  const totalFiles = variants.reduce((s, v) => s + v.game_files, 0);
+  // All sub-folder variants carry the same canonical-level game_groups; take it once.
+  const totalGroups = variants[0]?.game_groups ?? 0;
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);

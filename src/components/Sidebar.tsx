@@ -55,12 +55,12 @@ export function Sidebar() {
     return map;
   }, [consoles]);
 
-  // Sum canonical-level title counts once per canonical across all platforms.
+  // Game-only title counts once per canonical — matches the ROMs-tab totals.
   const allTitles = useMemo(() => {
     let total = 0;
     for (const canonicalMap of platformGroups.values())
       for (const variants of canonicalMap.values())
-        total += variants[0]?.total_groups ?? 0;
+        total += variants[0]?.game_groups ?? 0;
     return total;
   }, [platformGroups]);
 
@@ -194,9 +194,9 @@ export function Sidebar() {
             {/* Per-platform collapsible groups */}
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.includes(platform);
-              // Sum canonical title count once per canonical (not per sub-folder)
+              // Game-only title count, once per canonical
               const platformTotal = Array.from(canonicalMap.values())
-                .reduce((s, variants) => s + (variants[0]?.total_groups ?? 0), 0);
+                .reduce((s, variants) => s + (variants[0]?.game_groups ?? 0), 0);
               const platformColor = getConsoleColor(canonicalMap.values().next().value?.[0]?.name ?? "");
 
               return (
@@ -225,7 +225,7 @@ export function Sidebar() {
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
                       {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
-                        const rowTotal = variants[0]?.total_groups ?? 0;
+                        const rowTotal = variants[0]?.game_groups ?? 0;
                         const selected = isCanonicalSelected(variants);
                         const representativeName = variants[0]?.name ?? "";
                         const accentColor = getConsoleColor(representativeName);

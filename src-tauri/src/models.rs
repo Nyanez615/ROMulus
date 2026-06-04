@@ -186,8 +186,14 @@ pub struct DeletionPlan {
 #[ts(export)]
 pub struct ConsoleStats {
     pub name: String,
+    /// All ROM files regardless of category (games + hacks + BIOS + demos + …)
     pub total_files: u32,
+    /// Unique title groups across all categories (canonical-level, deduplicated)
     pub total_groups: u32,
+    /// ROM files that are FileCategory::Game only (matches ROMs-tab counts)
+    pub game_files: u32,
+    /// Unique game title groups (canonical-level, game category only)
+    pub game_groups: u32,
     pub preferred_count: u32,
     /// Subset of preferred_count where the ROM has an explicit language tag matching the preference.
     pub preferred_explicit_count: u32,

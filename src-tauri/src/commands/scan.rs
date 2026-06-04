@@ -297,17 +297,22 @@ fn strip_format_suffix(s: &str) -> &str {
 }
 
 pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
+    use crate::models::FileCategory;
     use std::collections::{HashMap, HashSet};
 
     let mut map: HashMap<&str, ConsoleStats> = HashMap::new();
-    // canonical base-name → union of title_normalized values across all sub-folders
+    // canonical base-name → union of title_normalized values (all categories)
     let mut canonical_titles: HashMap<String, HashSet<String>> = HashMap::new();
+    // canonical base-name → union of title_normalized values (game category only)
+    let mut canonical_game_titles: HashMap<String, HashSet<String>> = HashMap::new();
 
     for rom in roms {
         let stats = map.entry(&rom.console).or_insert_with(|| ConsoleStats {
             name: rom.console.clone(),
             total_files: 0,
             total_groups: 0,
+            game_files: 0,
+            game_groups: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -325,20 +330,33 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
                 stats.preferred_explicit_count += 1;
             }
         }
+        let base = strip_format_suffix(&rom.console).to_owned();
         canonical_titles
-            .entry(strip_format_suffix(&rom.console).to_owned())
+            .entry(base.clone())
             .or_default()
             .insert(rom.title_normalized.clone());
+        if rom.file_category == FileCategory::Game {
+            stats.game_files += 1;
+            canonical_game_titles
+                .entry(base)
+                .or_default()
+                .insert(rom.title_normalized.clone());
+        }
     }
 
-    // Assign canonical-level title count to every sub-folder in the group.
-    // This means "NES (Headered)" and "NES (Headerless)" both report the same
-    // deduplicated count instead of inflating it by summing independently.
+    // Assign canonical-level title counts to every sub-folder in the group.
+    // "NES (Headered)" and "NES (Headerless)" both report the same deduplicated
+    // count so the frontend can use variants[0].x_groups without summing.
     for stats in map.values_mut() {
         let base = strip_format_suffix(&stats.name);
-        if let Some(titles) = canonical_titles.get(base) {
-            stats.total_groups = titles.len() as u32;
-        }
+        stats.total_groups = canonical_titles
+            .get(base)
+            .map(|t| t.len() as u32)
+            .unwrap_or(0);
+        stats.game_groups = canonical_game_titles
+            .get(base)
+            .map(|t| t.len() as u32)
+            .unwrap_or(0);
     }
 
     let mut result: Vec<ConsoleStats> = map.into_values().collect();
