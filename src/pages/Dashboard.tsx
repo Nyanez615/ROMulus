@@ -289,7 +289,7 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard icon={Gamepad2} label="Total ROMs" value={totalGameFiles > 0 ? totalGameFiles.toLocaleString() : "—"} />
+        <StatCard icon={Gamepad2} label="ROMs" value={totalGameFiles > 0 ? totalGameFiles.toLocaleString() : "—"} />
         <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
