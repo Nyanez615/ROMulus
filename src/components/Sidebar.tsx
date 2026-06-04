@@ -176,7 +176,7 @@ export function Sidebar() {
                 >
                   <span className="flex-1 text-left">All ROMs</span>
                   <span className="text-muted-foreground/60 tabular-nums">
-                    {consoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()}
+                    {consoles.reduce((s, c) => s + c.total_groups, 0).toLocaleString()}
                   </span>
                 </button>
               </li>
@@ -186,7 +186,7 @@ export function Sidebar() {
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.includes(platform);
               const allVariants = Array.from(canonicalMap.values()).flat();
-              const platformTotal = allVariants.reduce((s, c) => s + c.total_files, 0);
+              const platformTotal = allVariants.reduce((s, c) => s + c.total_groups, 0);
               const platformColor = getConsoleColor(allVariants[0]?.name ?? "");
 
               return (
@@ -215,7 +215,7 @@ export function Sidebar() {
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
                       {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
-                        const rowTotal = variants.reduce((s, v) => s + v.total_files, 0);
+                        const rowTotal = variants.reduce((s, v) => s + v.total_groups, 0);
                         const selected = isCanonicalSelected(variants);
                         const representativeName = variants[0]?.name ?? "";
                         const accentColor = getConsoleColor(representativeName);
@@ -255,8 +255,8 @@ export function Sidebar() {
       {/* Scan stats footer */}
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
-          <div className="font-medium text-foreground">{status.scanned.toLocaleString()} ROMs</div>
-          <div className="text-muted-foreground/70">across {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
+          <div className="font-medium text-foreground">{consoles.reduce((s, c) => s + c.total_groups, 0).toLocaleString()} titles</div>
+          <div className="text-muted-foreground/70">{status.scanned.toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (

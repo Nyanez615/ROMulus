@@ -286,14 +286,16 @@ pub fn get_known_tags(
 // ── Stats computation ─────────────────────────────────────────────────────────
 
 pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     let mut map: HashMap<&str, ConsoleStats> = HashMap::new();
+    let mut title_sets: HashMap<&str, HashSet<&str>> = HashMap::new();
 
     for rom in roms {
         let stats = map.entry(&rom.console).or_insert_with(|| ConsoleStats {
             name: rom.console.clone(),
             total_files: 0,
+            total_groups: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -310,6 +312,16 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             } else {
                 stats.preferred_explicit_count += 1;
             }
+        }
+        title_sets
+            .entry(&rom.console)
+            .or_default()
+            .insert(&rom.title_normalized);
+    }
+
+    for (console, titles) in &title_sets {
+        if let Some(stats) = map.get_mut(*console) {
+            stats.total_groups = titles.len() as u32;
         }
     }
 
@@ -412,9 +424,30 @@ mod tests {
         let stats = compute_console_stats(&roms);
         let gba = stats.iter().find(|s| s.name == "GBA").unwrap();
         assert_eq!(gba.total_files, 3);
+        assert_eq!(gba.total_groups, 1); // all share title_normalized "game"
         assert_eq!(gba.preferred_count, 2);
         let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
         assert_eq!(snes.total_files, 1);
+        assert_eq!(snes.total_groups, 1);
+    }
+
+    #[test]
+    fn total_groups_counts_distinct_titles() {
+        let mut rom_a = make_rom("NES", true);
+        rom_a.title_normalized = "mario".into();
+        let mut rom_b = make_rom("NES", false);
+        rom_b.title_normalized = "mario".into(); // same title, different variant
+        let mut rom_c = make_rom("NES", true);
+        rom_c.title_normalized = "zelda".into();
+        let mut rom_d = make_rom("SNES", true);
+        rom_d.title_normalized = "mario".into();
+
+        let stats = compute_console_stats(&[rom_a, rom_b, rom_c, rom_d]);
+        let nes = stats.iter().find(|s| s.name == "NES").unwrap();
+        assert_eq!(nes.total_files, 3);
+        assert_eq!(nes.total_groups, 2); // mario + zelda
+        let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
+        assert_eq!(snes.total_groups, 1);
     }
 
     #[test]

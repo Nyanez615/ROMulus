@@ -57,7 +57,8 @@ const GROUPS: RomGroup[] = [
 ];
 
 function countText(): string {
-  return screen.getByText(/\d+ titles/).textContent ?? "";
+  const full = screen.getByText(/\d+ titles/).textContent?.trim() ?? "";
+  return full.match(/\d[\d,]* titles/)?.[0] ?? full;
 }
 
 beforeEach(() => {
@@ -74,30 +75,30 @@ beforeEach(() => {
 describe("ROMs sort", () => {
   it("Name (asc): total count is unchanged", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "name" } });
-    expect(screen.getByText("3 titles")).toBeInTheDocument();
+    expect(screen.getByText(/3 titles/)).toBeInTheDocument();
   });
 
   it("Name (desc): toggling direction keeps total count unchanged", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Sort direction" }));
-    expect(screen.getByText("3 titles")).toBeInTheDocument();
+    expect(screen.getByText(/3 titles/)).toBeInTheDocument();
   });
 
   it("Variants sort: total count is unchanged", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "variants" } });
-    expect(screen.getByText("3 titles")).toBeInTheDocument();
+    expect(screen.getByText(/3 titles/)).toBeInTheDocument();
   });
 
   it("Preferred sort: total count is unchanged", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "preferred" } });
-    expect(screen.getByText("3 titles")).toBeInTheDocument();
+    expect(screen.getByText(/3 titles/)).toBeInTheDocument();
   });
 });
 
@@ -106,7 +107,7 @@ describe("ROMs sort", () => {
 describe("ROMs region filter (ANY within type)", () => {
   it("USA chip shows only groups with a USA variant (2 of 3)", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
@@ -116,7 +117,7 @@ describe("ROMs region filter (ANY within type)", () => {
 
   it("USA+Japan chips show all 3 groups (ANY logic)", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
@@ -128,7 +129,7 @@ describe("ROMs region filter (ANY within type)", () => {
 
   it("region AND status chips use AND logic (0 groups match USA ∧ Beta)", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     // Select USA from Region panel
     fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
@@ -145,7 +146,7 @@ describe("ROMs region filter (ANY within type)", () => {
 describe("ROMs chip population from useTagStore", () => {
   it("renders region chips from the tag store", async () => {
     render(<Roms />);
-    await waitFor(() => expect(screen.getByText("3 titles")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => {
       expect(screen.getByText("USA")).toBeInTheDocument();

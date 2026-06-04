@@ -187,6 +187,7 @@ pub struct DeletionPlan {
 pub struct ConsoleStats {
     pub name: String,
     pub total_files: u32,
+    pub total_groups: u32,
     pub preferred_count: u32,
     /// Subset of preferred_count where the ROM has an explicit language tag matching the preference.
     pub preferred_explicit_count: u32,

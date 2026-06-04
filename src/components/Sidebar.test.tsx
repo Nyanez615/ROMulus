@@ -8,7 +8,7 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeConsole(name: string, total_files = 10): ConsoleStats {
-  return { name, total_files, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
+  return { name, total_files, total_groups: total_files, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
 const GBA_CONSOLES: ConsoleStats[] = [
