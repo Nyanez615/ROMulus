@@ -14,7 +14,7 @@ import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
 import { usePreferencesStore } from "@/store/preferences";
-import { getShortConsoleName, getConsoleDisplayName } from "@/lib/consoleUtils";
+import { getShortConsoleName, getConsoleDisplayName, stripFormatSuffix } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { FilterBar } from "@/components/FilterBar";
@@ -136,6 +136,15 @@ export default function Roms() {
   const expandedSet = new Set(expanded);
   const allExpanded = displayGroups.length > 0 && displayGroups.every(g => expandedSet.has(`${g.console}::${g.title_normalized}`));
 
+  const uniqueTitleCount = useMemo(
+    () => new Set(displayGroups.map(g => `${stripFormatSuffix(g.console)}::${g.title_normalized}`)).size,
+    [displayGroups]
+  );
+  const gameFileCount = useMemo(
+    () => displayGroups.reduce((s, g) => s + g.variants.filter(v => v.file_category === "game").length, 0),
+    [displayGroups]
+  );
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
@@ -197,7 +206,7 @@ export default function Roms() {
               </button>
             )}
             <span className="text-xs text-muted-foreground">
-              {displayGroups.length.toLocaleString()} titles · {displayGroups.reduce((s, g) => s + g.variants.length, 0).toLocaleString()} ROMs
+              {uniqueTitleCount.toLocaleString()} titles · {gameFileCount.toLocaleString()} ROMs
             </span>
           </div>
         }
