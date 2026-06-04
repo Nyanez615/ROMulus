@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2 } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2, LibraryBig } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SortControl } from "@/components/SortControl";
 import type { SortDir } from "@/lib/romUtils";
@@ -69,7 +69,7 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  // F1: Use total_bytes (actual file sizes) instead of bytes_to_free
+  const totalTitles = consoles.reduce((s, c) => s + c.total_groups, 0);
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
   const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
   const preferredExplicitCount = consoles.reduce((s, c) => s + c.preferred_explicit_count, 0);
@@ -123,11 +123,12 @@ export default function Dashboard() {
 
   // Platform summary stats (for stat tiles — unfiltered)
   const platformStats = useMemo(() => {
-    const map = new Map<string, { consoles: Set<string>; roms: number; bytes: number }>();
+    const map = new Map<string, { consoles: Set<string>; titles: number; roms: number; bytes: number }>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
-      const entry = map.get(platform) ?? { consoles: new Set(), roms: 0, bytes: 0 };
+      const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
       entry.consoles.add(canonical);
+      entry.titles += c.total_groups;
       entry.roms += c.total_files;
       entry.bytes += c.total_bytes;
       map.set(platform, entry);
@@ -156,8 +157,8 @@ export default function Dashboard() {
       // Apply sort
       if (sortField === "count") {
         entries.sort(([, av], [, bv]) => {
-          const a = av.reduce((s, v) => s + v.total_files, 0);
-          const b = bv.reduce((s, v) => s + v.total_files, 0);
+          const a = av.reduce((s, v) => s + v.total_groups, 0);
+          const b = bv.reduce((s, v) => s + v.total_groups, 0);
           return sortDir === "desc" ? b - a : a - b;
         });
       } else {
@@ -257,7 +258,8 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} sub={totalRoms > 0 ? `${totalRoms.toLocaleString()} ROMs` : undefined} />
         <StatCard icon={Gamepad2} label="Total ROMs" value={totalRoms.toLocaleString()} />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
@@ -313,7 +315,7 @@ export default function Dashboard() {
             <SortControl
               fields={[
                 { value: "name" as const, label: "Name" },
-                { value: "count" as const, label: "ROM count" },
+                { value: "count" as const, label: "Title count" },
               ]}
               field={sortField}
               dir={sortDir}
@@ -343,6 +345,7 @@ export default function Dashboard() {
                   </span>
                   <span className="text-xs text-muted-foreground">
                     · {pStats?.consoles.size ?? 0} console{(pStats?.consoles.size ?? 0) !== 1 ? "s" : ""}
+                    · {(pStats?.titles ?? 0).toLocaleString()} titles
                     · {(pStats?.roms ?? 0).toLocaleString()} ROMs
                     · {pStats && pStats.bytes > 0 ? formatBytes(pStats.bytes) : "—"}
                   </span>
@@ -466,6 +469,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.total_files, 0);
+  const totalGroups = variants.reduce((s, v) => s + v.total_groups, 0);
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);
@@ -478,7 +482,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
     >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
-        <div className="text-xs text-muted-foreground">{totalFiles.toLocaleString()} ROMs</div>
+        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs</div>
         {variants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {

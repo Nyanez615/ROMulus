@@ -161,6 +161,7 @@ pub(crate) fn apply_filters_inner(
         let e = console_map.entry(item.rom.console.clone()).or_insert(ConsoleStats {
             name: item.rom.console.clone(),
             total_files: 0,
+            total_groups: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -175,6 +176,7 @@ pub(crate) fn apply_filters_inner(
         let e = console_map.entry(rom.console.clone()).or_insert(ConsoleStats {
             name: rom.console.clone(),
             total_files: 0,
+            total_groups: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,

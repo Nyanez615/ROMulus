@@ -196,7 +196,9 @@ export default function Roms() {
                 {allExpanded ? "Collapse all" : "Expand all"}
               </button>
             )}
-            <span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>
+            <span className="text-xs text-muted-foreground">
+              {displayGroups.length.toLocaleString()} titles · {displayGroups.reduce((s, g) => s + g.variants.length, 0).toLocaleString()} ROMs
+            </span>
           </div>
         }
       />
