@@ -55,6 +55,15 @@ export function Sidebar() {
     return map;
   }, [consoles]);
 
+  // Sum canonical-level title counts once per canonical across all platforms.
+  const allTitles = useMemo(() => {
+    let total = 0;
+    for (const canonicalMap of platformGroups.values())
+      for (const variants of canonicalMap.values())
+        total += variants[0]?.total_groups ?? 0;
+    return total;
+  }, [platformGroups]);
+
   function togglePlatform(platform: string) {
     setCollapsedPlatforms((prev) =>
       prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform]
@@ -174,9 +183,9 @@ export function Sidebar() {
                   )}
                   title="Show ROMs from all consoles"
                 >
-                  <span className="flex-1 text-left">All ROMs</span>
+                  <span className="flex-1 text-left">All</span>
                   <span className="text-muted-foreground/60 tabular-nums">
-                    {consoles.reduce((s, c) => s + c.total_groups, 0).toLocaleString()}
+                    {allTitles.toLocaleString()}
                   </span>
                 </button>
               </li>
@@ -185,9 +194,10 @@ export function Sidebar() {
             {/* Per-platform collapsible groups */}
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.includes(platform);
-              const allVariants = Array.from(canonicalMap.values()).flat();
-              const platformTotal = allVariants.reduce((s, c) => s + c.total_groups, 0);
-              const platformColor = getConsoleColor(allVariants[0]?.name ?? "");
+              // Sum canonical title count once per canonical (not per sub-folder)
+              const platformTotal = Array.from(canonicalMap.values())
+                .reduce((s, variants) => s + (variants[0]?.total_groups ?? 0), 0);
+              const platformColor = getConsoleColor(canonicalMap.values().next().value?.[0]?.name ?? "");
 
               return (
                 <div key={platform} className="mt-2">
@@ -215,7 +225,7 @@ export function Sidebar() {
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
                       {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
-                        const rowTotal = variants.reduce((s, v) => s + v.total_groups, 0);
+                        const rowTotal = variants[0]?.total_groups ?? 0;
                         const selected = isCanonicalSelected(variants);
                         const representativeName = variants[0]?.name ?? "";
                         const accentColor = getConsoleColor(representativeName);
@@ -255,7 +265,7 @@ export function Sidebar() {
       {/* Scan stats footer */}
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
-          <div className="font-medium text-foreground">{consoles.reduce((s, c) => s + c.total_groups, 0).toLocaleString()} titles</div>
+          <div className="font-medium text-foreground">{allTitles.toLocaleString()} titles</div>
           <div className="text-muted-foreground/70">{status.scanned.toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}

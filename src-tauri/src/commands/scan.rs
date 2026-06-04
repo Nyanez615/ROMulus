@@ -285,11 +285,23 @@ pub fn get_known_tags(
 
 // ── Stats computation ─────────────────────────────────────────────────────────
 
+/// Strip the last parenthetical suffix from a console folder name, matching the
+/// same heuristic used by `detect_format_pairs` to identify format-variant
+/// sub-folders (e.g. "NES (Headered)" and "NES (Headerless)" → "NES").
+fn strip_format_suffix(s: &str) -> &str {
+    if let Some(idx) = s.rfind('(') {
+        s[..idx].trim()
+    } else {
+        s
+    }
+}
+
 pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
     use std::collections::{HashMap, HashSet};
 
     let mut map: HashMap<&str, ConsoleStats> = HashMap::new();
-    let mut title_sets: HashMap<&str, HashSet<&str>> = HashMap::new();
+    // canonical base-name → union of title_normalized values across all sub-folders
+    let mut canonical_titles: HashMap<String, HashSet<String>> = HashMap::new();
 
     for rom in roms {
         let stats = map.entry(&rom.console).or_insert_with(|| ConsoleStats {
@@ -313,14 +325,18 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
                 stats.preferred_explicit_count += 1;
             }
         }
-        title_sets
-            .entry(&rom.console)
+        canonical_titles
+            .entry(strip_format_suffix(&rom.console).to_owned())
             .or_default()
-            .insert(&rom.title_normalized);
+            .insert(rom.title_normalized.clone());
     }
 
-    for (console, titles) in &title_sets {
-        if let Some(stats) = map.get_mut(*console) {
+    // Assign canonical-level title count to every sub-folder in the group.
+    // This means "NES (Headered)" and "NES (Headerless)" both report the same
+    // deduplicated count instead of inflating it by summing independently.
+    for stats in map.values_mut() {
+        let base = strip_format_suffix(&stats.name);
+        if let Some(titles) = canonical_titles.get(base) {
             stats.total_groups = titles.len() as u32;
         }
     }
@@ -448,6 +464,32 @@ mod tests {
         assert_eq!(nes.total_groups, 2); // mario + zelda
         let snes = stats.iter().find(|s| s.name == "SNES").unwrap();
         assert_eq!(snes.total_groups, 1);
+    }
+
+    #[test]
+    fn total_groups_deduplicates_format_variant_sub_folders() {
+        // NES (Headered) and NES (Headerless) both strip to canonical "NES".
+        // A title present in both sub-folders should be counted once.
+        let headered = "NES (Headered)";
+        let headerless = "NES (Headerless)";
+
+        let mut mario_h = make_rom(headered, true);
+        mario_h.title_normalized = "mario".into();
+        let mut mario_hl = make_rom(headerless, true);
+        mario_hl.title_normalized = "mario".into(); // same game, different format
+        let mut zelda_h = make_rom(headered, true);
+        zelda_h.title_normalized = "zelda".into(); // only in Headered
+
+        let stats = compute_console_stats(&[mario_h, mario_hl, zelda_h]);
+        let h = stats.iter().find(|s| s.name == headered).unwrap();
+        let hl = stats.iter().find(|s| s.name == headerless).unwrap();
+
+        // Canonical union = {mario, zelda} = 2; both sub-folders report that count
+        assert_eq!(h.total_groups, 2);
+        assert_eq!(hl.total_groups, 2);
+        // But file counts are per-folder, not merged
+        assert_eq!(h.total_files, 2);
+        assert_eq!(hl.total_files, 1);
     }
 
     #[test]

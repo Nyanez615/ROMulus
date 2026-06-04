@@ -11,10 +11,13 @@ function makeConsole(name: string, total_files = 10): ConsoleStats {
   return { name, total_files, total_groups: total_files, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
+// Backend computes canonical-level total_groups for all sub-folders of the same
+// canonical (union of titles across Multiboot + Video + base = 108 unique titles).
+const GBA_CANONICAL_COUNT = 108;
 const GBA_CONSOLES: ConsoleStats[] = [
-  makeConsole("Nintendo - Game Boy Advance", 100),
-  makeConsole("Nintendo - Game Boy Advance (Multiboot)", 5),
-  makeConsole("Nintendo - Game Boy Advance (Video)", 3),
+  { ...makeConsole("Nintendo - Game Boy Advance", 100), total_groups: GBA_CANONICAL_COUNT },
+  { ...makeConsole("Nintendo - Game Boy Advance (Multiboot)", 5), total_groups: GBA_CANONICAL_COUNT },
+  { ...makeConsole("Nintendo - Game Boy Advance (Video)", 3), total_groups: GBA_CANONICAL_COUNT },
 ];
 
 // Reset stores before each test
@@ -59,7 +62,7 @@ describe("Sidebar console deduplication", () => {
     expect(screen.getAllByTitle("Game Boy Advance")).toHaveLength(1);
   });
 
-  it("shows ROM count as sum of all variants (100+5+3=108)", () => {
+  it("shows canonical title count (108) for GBA row — shared across all sub-folders", () => {
     useScanStore.setState({ consoles: GBA_CONSOLES });
     render(<Sidebar />);
     const gbaRow = screen.getByTitle("Game Boy Advance");
