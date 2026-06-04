@@ -10,6 +10,7 @@ import {
   getConsoleColor,
   getConsoleDisplayName,
   resolveConsoleVariants,
+  canonicalTitleCount,
 } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore, type TabId } from "@/store/ui";
@@ -55,12 +56,13 @@ export function Sidebar() {
     return map;
   }, [consoles]);
 
-  // Game-only title counts once per canonical — matches the ROMs-tab totals.
+  // Game-only title counts, accounting for alias sub-folders like N64DD that
+  // have a different strip_format_suffix base from the main canonical variants.
   const allTitles = useMemo(() => {
     let total = 0;
     for (const canonicalMap of platformGroups.values())
       for (const variants of canonicalMap.values())
-        total += variants[0]?.game_groups ?? 0;
+        total += canonicalTitleCount(variants);
     return total;
   }, [platformGroups]);
 
@@ -194,9 +196,9 @@ export function Sidebar() {
             {/* Per-platform collapsible groups */}
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.includes(platform);
-              // Game-only title count, once per canonical
+              // Sum canonical title counts; canonicalTitleCount handles N64DD-style aliases
               const platformTotal = Array.from(canonicalMap.values())
-                .reduce((s, variants) => s + (variants[0]?.game_groups ?? 0), 0);
+                .reduce((s, variants) => s + canonicalTitleCount(variants), 0);
               const platformColor = getConsoleColor(canonicalMap.values().next().value?.[0]?.name ?? "");
 
               return (
@@ -225,7 +227,7 @@ export function Sidebar() {
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
                       {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
-                        const rowTotal = variants[0]?.game_groups ?? 0;
+                        const rowTotal = canonicalTitleCount(variants);
                         const selected = isCanonicalSelected(variants);
                         const representativeName = variants[0]?.name ?? "";
                         const accentColor = getConsoleColor(representativeName);

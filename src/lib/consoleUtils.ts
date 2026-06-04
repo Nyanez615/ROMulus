@@ -196,6 +196,45 @@ export function resolveConsoleVariants(canonical: string, allConsoles: ConsoleSt
 }
 
 /**
+ * Strip the last parenthetical format-variant suffix from a full No-Intro
+ * folder name.  Mirrors the Rust `strip_format_suffix` used in ConsoleStats
+ * game_groups computation.
+ *
+ * @example
+ * stripFormatSuffix("Nintendo - Nintendo 64 (BigEndian)") // → "Nintendo - Nintendo 64"
+ * stripFormatSuffix("Nintendo - Nintendo 64DD")           // → "Nintendo - Nintendo 64DD"
+ */
+export function stripFormatSuffix(name: string): string {
+  const idx = name.lastIndexOf("(");
+  return idx >= 0 ? name.slice(0, idx).trim() : name;
+}
+
+/**
+ * Compute the total game-title count for a canonical console's sub-folder
+ * variants, correctly handling cases where some sub-folders use a non-paren
+ * naming convention (e.g. "Nintendo 64DD") and are therefore tracked under a
+ * separate Rust canonical key.
+ *
+ * Within each `stripFormatSuffix` base-group (e.g. all "NES (Headered/less)"
+ * sub-folders share the same deduplicated `game_groups`) we take one count.
+ * Across base-groups (e.g. N64 BigEndian/ByteSwapped vs. N64DD) we sum.
+ *
+ * @example
+ * // variants = [N64_BigEndian(game_groups=510), N64_ByteSwapped(510), N64DD(12)]
+ * canonicalTitleCount(variants) // → 522
+ */
+export function canonicalTitleCount(variants: ConsoleStats[]): number {
+  const seen = new Map<string, number>();
+  for (const v of variants) {
+    const base = stripFormatSuffix(v.name);
+    if (!seen.has(base)) seen.set(base, v.game_groups);
+  }
+  let total = 0;
+  for (const n of seen.values()) total += n;
+  return total;
+}
+
+/**
  * Returns the display name for a console — full short name or abbreviation
  * depending on the toggle.  fullName is a raw No-Intro folder name.
  *
