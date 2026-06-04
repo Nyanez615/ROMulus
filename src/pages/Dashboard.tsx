@@ -30,6 +30,7 @@ import {
   resolveConsoleVariants,
   getPlatform,
   PLATFORMS,
+  canonicalTitleCount,
 } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { refreshTagStore } from "@/components/Layout";
@@ -69,15 +70,20 @@ export default function Dashboard() {
   }, [setConsoles]);
 
   const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  // Game-only title count, deduplicated per canonical (matches the ROMs-tab total).
+  // Game-only title count: group by canonical, then sum via canonicalTitleCount
+  // so alias sub-folders (e.g. N64DD tracked under a separate Rust key) are
+  // correctly added rather than dropped.
   const totalTitles = useMemo(() => {
-    const seen = new Set<string>();
-    let count = 0;
+    const byCanonical = new Map<string, typeof consoles>();
     for (const c of consoles) {
       const { canonical } = getConsoleParts(c.name);
-      if (!seen.has(canonical)) { count += c.game_groups; seen.add(canonical); }
+      const arr = byCanonical.get(canonical) ?? [];
+      arr.push(c);
+      byCanonical.set(canonical, arr);
     }
-    return count;
+    let total = 0;
+    for (const variants of byCanonical.values()) total += canonicalTitleCount(variants);
+    return total;
   }, [consoles]);
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
   const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
@@ -130,19 +136,30 @@ export default function Dashboard() {
     setConsoles(updated);
   }
 
-  // Platform summary stats — game-only counts to match the ROMs tab
+  // Platform summary stats — game-only counts to match the ROMs tab.
+  // We accumulate sub-folders per (platform, canonical) and call canonicalTitleCount
+  // once per canonical so alias sub-folders like N64DD are included correctly.
   const platformStats = useMemo(() => {
     const map = new Map<string, { consoles: Set<string>; titles: number; roms: number; bytes: number }>();
-    const seenTitles = new Set<string>();
+    // Also collect variants per (platform, canonical) for canonicalTitleCount
+    const variantsByCanonical = new Map<string, typeof consoles>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
       const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
       entry.consoles.add(canonical);
-      entry.roms += c.game_files;    // game ROMs only
-      entry.bytes += c.total_bytes;  // storage is full collection
-      const key = `${platform}\0${canonical}`;
-      if (!seenTitles.has(key)) { entry.titles += c.game_groups; seenTitles.add(key); }
+      entry.roms += c.game_files;
+      entry.bytes += c.total_bytes;
       map.set(platform, entry);
+      const key = `${platform}\0${canonical}`;
+      const arr = variantsByCanonical.get(key) ?? [];
+      arr.push(c);
+      variantsByCanonical.set(key, arr);
+    }
+    // Add title counts once per canonical (after all sub-folders collected)
+    for (const [key, variants] of variantsByCanonical) {
+      const platform = key.split("\0")[0]!;
+      const entry = map.get(platform);
+      if (entry) entry.titles += canonicalTitleCount(variants);
     }
     return map;
   }, [consoles]);
@@ -168,8 +185,8 @@ export default function Dashboard() {
       // Apply sort
       if (sortField === "count") {
         entries.sort(([, av], [, bv]) => {
-          const a = av[0]?.game_groups ?? 0;
-          const b = bv[0]?.game_groups ?? 0;
+          const a = canonicalTitleCount(av);
+          const b = canonicalTitleCount(bv);
           return sortDir === "desc" ? b - a : a - b;
         });
       } else {
@@ -480,8 +497,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.game_files, 0);
-  // All sub-folder variants carry the same canonical-level game_groups; take it once.
-  const totalGroups = variants[0]?.game_groups ?? 0;
+  const totalGroups = canonicalTitleCount(variants);
   const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
   const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);
