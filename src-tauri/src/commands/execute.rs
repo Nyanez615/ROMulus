@@ -615,7 +615,7 @@ mod tests {
         let conn = db::open_in_memory();
         let session_id = "test-session";
 
-        let roms: Vec<RomFile> = vec!["a.zip", "b.zip"]
+        let roms: Vec<RomFile> = ["a.zip", "b.zip"]
             .iter()
             .map(|name| make_rom(dir.join(name).to_str().unwrap()))
             .collect();
