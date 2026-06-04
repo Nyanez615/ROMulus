@@ -34,7 +34,7 @@ function SkeletonRow() {
 export default function Duplicates() {
   const { selectedConsoles, cacheVersion } = useScanStore();
   const [groups, setGroups] = useState<RomGroup[]>([]);
-  const [resolved, setResolved] = useState<Set<string>>(new Set());
+  const [resolved, setResolved] = useState<string[]>([]);
   const [loadedKey, setLoadedKey] = useState("");
   const currentKey = selectedConsoles ? selectedConsoles.join("\0") : "\0all";
   const isLoading = loadedKey !== currentKey;
@@ -56,10 +56,10 @@ export default function Duplicates() {
     return copy;
   }, [groups, sort]);
 
-  const pending = sortedGroups.filter((g) => !resolved.has(`${g.console}::${g.title_normalized}`));
+  const pending = sortedGroups.filter((g) => !resolved.includes(`${g.console}::${g.title_normalized}`));
 
   function markResolved(key: string) {
-    setResolved((prev) => new Set([...prev, key]));
+    setResolved((prev) => [...prev, key]);
   }
 
   return (
@@ -103,7 +103,7 @@ export default function Duplicates() {
           <div className="p-6 space-y-4 max-w-4xl mx-auto">
             {sortedGroups.map((g) => {
               const key = `${g.console}::${g.title_normalized}`;
-              const isResolved = resolved.has(key);
+              const isResolved = resolved.includes(key);
               const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
               const hasPreferred = preferred != null;
               const consoleName = g.console.split(" - ")[1] ?? g.console;

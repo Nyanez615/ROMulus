@@ -692,6 +692,8 @@ mod tests {
             folder_a: fds.into(),
             folder_b: qd.into(),
             overlap_percent: 1.0,
+            folder_a_count: 0,
+            folder_b_count: 0,
         };
 
         let make = |console: &str, title: &str| -> RomFile {

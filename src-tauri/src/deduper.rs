@@ -31,7 +31,9 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
             let titles_a = &by_console[a];
             let titles_b = &by_console[b];
             let overlap = titles_a.intersection(titles_b).count();
-            let smaller = titles_a.len().min(titles_b.len());
+            let count_a = titles_a.len();
+            let count_b = titles_b.len();
+            let smaller = count_a.min(count_b);
 
             if smaller == 0 {
                 continue;
@@ -39,11 +41,21 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
 
             let overlap_percent = overlap as f32 / smaller as f32;
             if overlap_percent >= 0.8 {
+                // Assign folder_a as the subset (smaller or equal) folder so the frontend
+                // always knows which direction the containment goes.
+                let (folder_a, folder_b, folder_a_count, folder_b_count) =
+                    if count_a <= count_b {
+                        (a, b, count_a, count_b)
+                    } else {
+                        (b, a, count_b, count_a)
+                    };
                 pairs.push(FormatPair {
-                    console_group: derive_group_name(a),
-                    folder_a: a.to_string(),
-                    folder_b: b.to_string(),
+                    console_group: derive_group_name(folder_a),
+                    folder_a: folder_a.to_string(),
+                    folder_b: folder_b.to_string(),
                     overlap_percent,
+                    folder_a_count,
+                    folder_b_count,
                 });
             }
         }

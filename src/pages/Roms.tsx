@@ -49,8 +49,7 @@ export default function Roms() {
   const [activeRegions, setActiveRegions] = useState<string[]>([]);
   const [activeStatus, setActiveStatus] = useState<string[]>([]);
   const [activeLangs, setActiveLangs] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState<string[]>([]);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -113,21 +112,10 @@ export default function Roms() {
     return sorted;
   }, [groups, sort, activeRegions, activeStatus, activeLangs]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer from @tanstack/react-virtual is intentional
-  const virtualizer = useVirtualizer({
-    count: displayGroups.length,
-    getScrollElement: () => containerRef.current,
-    estimateSize: () => 52,
-    overscan: 10,
-    measureElement: (el) => el?.getBoundingClientRect().height ?? 52,
-  });
-
   function toggleExpand(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+    setExpanded((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
   }
 
   return (
@@ -185,76 +173,12 @@ export default function Roms() {
         trailing={<span className="text-xs text-muted-foreground">{displayGroups.length.toLocaleString()} titles</span>}
       />
 
-      <div ref={containerRef} className="flex-1 overflow-auto">
-        {displayGroups.length === 0 && (
-          <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="ROMs">
-            <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
-          </ConsoleEmptyState>
-        )}
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-          {virtualizer.getVirtualItems().map((vItem) => {
-            const g = displayGroups[vItem.index];
-            const key = `${g.console}::${g.title_normalized}`;
-            const isOpen = expanded.has(key);
-            const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
-            const displayTitle = preferred?.title ?? g.variants[0]?.title ?? g.title_normalized;
-
-            return (
-              <div
-                key={vItem.key}
-                data-index={vItem.index}
-                ref={virtualizer.measureElement}
-                style={{ position: "absolute", top: vItem.start, left: 0, right: 0 }}
-              >
-                <div
-                  className="flex items-center gap-2 px-6 py-3 hover:bg-muted/30 cursor-pointer border-b border-border/40 text-sm"
-                  onClick={() => toggleExpand(key)}
-                >
-                  {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  {isOpen && preferred && (
-                    <RomThumbnail title={preferred.title} consoleName={g.console} />
-                  )}
-                  <span className="flex-1 font-medium text-foreground truncate" title={displayTitle}>{displayTitle}</span>
-                  {selectedConsoles === null && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
-                      {getConsoleDisplayName(g.console, useShort)}
-                    </span>
-                  )}
-                  {preferred && (
-                    <TagList regions={preferred.regions} statusFlags={preferred.status_flags} max={2} />
-                  )}
-                  <DiscBadge count={g.disc_count} />
-                  {!g.has_preferred_version && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">no preferred</span>
-                  )}
-                  <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variant{g.variants.length !== 1 ? "s" : ""}</span>
-                </div>
-                {isOpen && (() => {
-                  const uniqueConsoles = [...new Set(g.variants.map((v) => v.console))];
-                  if (g.is_format_pair && uniqueConsoles.length > 1) {
-                    return uniqueConsoles.map((console_) => {
-                      const consoleVariants = g.variants.filter((v) => v.console === console_);
-                      const short = getShortConsoleName(console_);
-                      const label = short.match(/\(([^)]+)\)$/)?.[1] ?? short;
-                      return (
-                        <div key={console_}>
-                          <div className="px-6 py-1 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider bg-muted/5 border-b border-border/20">{label}</div>
-                          {consoleVariants.map((v, vi) => (
-                            <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === g.variants.indexOf(v)} />
-                          ))}
-                        </div>
-                      );
-                    });
-                  }
-                  return g.variants.map((v, vi) => (
-                    <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} />
-                  ));
-                })()}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {displayGroups.length === 0 && (
+        <ConsoleEmptyState selectedConsoles={selectedConsoles} noun="ROMs">
+          <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
+        </ConsoleEmptyState>
+      )}
+      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} />
     </div>
   );
 }
@@ -268,6 +192,93 @@ function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; is
       <VerificationBadge status={verificationStatus} />
       <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
       {isPreferred && <span className="text-green-400 shrink-0">★</span>}
+    </div>
+  );
+}
+
+interface VirtualRomListProps {
+  items: RomGroup[];
+  expanded: string[];
+  onToggle: (key: string) => void;
+  selectedConsoles: string[] | null;
+  useShort: boolean;
+}
+
+function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort }: VirtualRomListProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns non-memoizable functions; known React Compiler v7 limitation, isolated here
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 52,
+    overscan: 10,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 52,
+  });
+  return (
+    <div ref={containerRef} className="flex-1 overflow-auto">
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const g = items[vItem.index];
+          const key = `${g.console}::${g.title_normalized}`;
+          const isOpen = expanded.includes(key);
+          const preferred = g.preferred_idx != null ? g.variants[g.preferred_idx] : null;
+          const displayTitle = preferred?.title ?? g.variants[0]?.title ?? g.title_normalized;
+
+          return (
+            <div
+              key={vItem.key}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
+              style={{ position: "absolute", top: vItem.start, left: 0, right: 0 }}
+            >
+              <div
+                className="flex items-center gap-2 px-6 py-3 hover:bg-muted/30 cursor-pointer border-b border-border/40 text-sm"
+                onClick={() => onToggle(key)}
+              >
+                {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                {isOpen && preferred && (
+                  <RomThumbnail title={preferred.title} consoleName={g.console} />
+                )}
+                <span className="flex-1 font-medium text-foreground truncate" title={displayTitle}>{displayTitle}</span>
+                {selectedConsoles === null && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
+                    {getConsoleDisplayName(g.console, useShort)}
+                  </span>
+                )}
+                {preferred && (
+                  <TagList regions={preferred.regions} statusFlags={preferred.status_flags} max={2} />
+                )}
+                <DiscBadge count={g.disc_count} />
+                {!g.has_preferred_version && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">no preferred</span>
+                )}
+                <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variant{g.variants.length !== 1 ? "s" : ""}</span>
+              </div>
+              {isOpen && (() => {
+                const uniqueConsoles = [...new Set(g.variants.map((v) => v.console))];
+                if (g.is_format_pair && uniqueConsoles.length > 1) {
+                  return uniqueConsoles.map((console_) => {
+                    const consoleVariants = g.variants.filter((v) => v.console === console_);
+                    const short = getShortConsoleName(console_);
+                    const label = short.match(/\(([^)]+)\)$/)?.[1] ?? short;
+                    return (
+                      <div key={console_}>
+                        <div className="px-6 py-1 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider bg-muted/5 border-b border-border/20">{label}</div>
+                        {consoleVariants.map((v, vi) => (
+                          <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === g.variants.indexOf(v)} />
+                        ))}
+                      </div>
+                    );
+                  });
+                }
+                return g.variants.map((v, vi) => (
+                  <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} />
+                ));
+              })()}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

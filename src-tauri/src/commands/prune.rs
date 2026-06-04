@@ -477,6 +477,8 @@ mod tests {
             folder_a: fds.into(),
             folder_b: qd.into(),
             overlap_percent: 1.0,
+            folder_a_count: 0,
+            folder_b_count: 0,
         }];
 
         let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
@@ -512,6 +514,8 @@ mod tests {
             folder_a: fds.into(),
             folder_b: qd.into(),
             overlap_percent: 1.0,
+            folder_a_count: 0,
+            folder_b_count: 0,
         }];
 
         let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
@@ -541,6 +545,8 @@ mod tests {
             folder_a: fds.into(),
             folder_b: qd.into(),
             overlap_percent: 0.95,
+            folder_a_count: 0,
+            folder_b_count: 0,
         }];
 
         let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
@@ -575,6 +581,8 @@ mod tests {
             folder_a: fds.into(),
             folder_b: qd.into(),
             overlap_percent: 1.0,
+            folder_a_count: 0,
+            folder_b_count: 0,
         }];
 
         let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);

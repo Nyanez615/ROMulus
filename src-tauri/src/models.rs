@@ -297,9 +297,15 @@ pub struct OnboardingState {
 #[ts(export)]
 pub struct FormatPair {
     pub console_group: String,
+    /// The smaller (subset) folder — every title here also appears in folder_b.
     pub folder_a: String,
+    /// The larger (superset) folder, or equal-sized when counts match.
     pub folder_b: String,
     pub overlap_percent: f32,
+    /// Number of distinct normalized titles in folder_a (the subset).
+    pub folder_a_count: usize,
+    /// Number of distinct normalized titles in folder_b (the superset).
+    pub folder_b_count: usize,
 }
 
 // ── History filter ───────────────────────────────────────────────────────────
