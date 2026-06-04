@@ -1,7 +1,8 @@
-export const ROM_SORT_OPTIONS = [
-  { value: "az",       label: "Name A–Z" },
-  { value: "za",       label: "Name Z–A" },
-  { value: "variants", label: "Most variants" },
+export const ROM_SORT_FIELDS = [
+  { value: "name",      label: "Name" },
+  { value: "variants",  label: "Variants" },
+  { value: "preferred", label: "Preferred" },
 ] as const;
 
-export type RomSortKey = (typeof ROM_SORT_OPTIONS)[number]["value"];
+export type RomSortField = (typeof ROM_SORT_FIELDS)[number]["value"];
+export type SortDir = "asc" | "desc";

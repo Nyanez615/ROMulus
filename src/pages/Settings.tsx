@@ -33,6 +33,7 @@ import type { DatFile } from "@/lib/bindings/DatFile";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
 import { getRegionsForLanguage } from "@/lib/regionUtils";
+import { getAbbrev } from "@/lib/consoleUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const COMMON_LANGUAGES = ["En", "Ja", "Fr", "De", "Es", "It", "Pt", "Zh", "Ko", "Ru", "Nl", "Sv"];
@@ -475,7 +476,7 @@ export default function Settings() {
             {datFiles.map((dat) => (
               <div key={dat.console} className="flex items-center gap-3 px-4 py-3 bg-card text-sm">
                 <div className="flex-1 min-w-0">
-                  <div className="text-foreground truncate">{dat.console.split(" - ")[1] ?? dat.console}</div>
+                  <div className="text-foreground truncate">{getAbbrev(dat.console)}</div>
                   <div className="text-xs text-muted-foreground">{dat.entry_count.toLocaleString()} entries {dat.version ? `· ${dat.version}` : ""}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
