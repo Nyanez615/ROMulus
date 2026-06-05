@@ -150,7 +150,12 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             .unwrap_or(0)
     };
 
-    (lang_priority + region_score + collection_penalty + alt_penalty, rom.revision, lang_matches)
+    // Revision bonus: each revision increment is worth one full USA-equivalent (100 pts).
+    // This ensures Rev 1 from any region always beats the unrevised original from any region,
+    // including the best-scoring USA original (1000 + 100 = 1100 < 1000 + 5 + 100 = 1105).
+    let revision_bonus = rom.revision as i32 * 100;
+
+    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus, rom.revision, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
@@ -942,6 +947,30 @@ mod tests {
             "Japan (En) original {:?} must beat World (Collection) {:?}",
             score_rom(&japan_en, &en_prefs()),
             score_rom(&world_collection, &en_prefs()),
+        );
+    }
+
+    #[test]
+    fn rev1_beats_unrevised_original_regardless_of_region() {
+        // Real-world case: Donkey Kong (World) (Rev 1) must beat Donkey Kong (Japan, USA) (En).
+        // Revision bonus (100 per rev) must overcome the USA region advantage (100 pts)
+        // so that any revised version beats the unrevised original from any region.
+        let mut world_rev1 = rom("Donkey Kong", &["World"], &[], &[]);
+        world_rev1.revision = 1;
+        let japan_usa_en = rom("Donkey Kong", &["Japan", "USA"], &["En"], &[]);
+        assert!(
+            score_rom(&world_rev1, &en_prefs()) > score_rom(&japan_usa_en, &en_prefs()),
+            "World (Rev 1) {:?} must beat Japan/USA (En) original {:?}",
+            score_rom(&world_rev1, &en_prefs()),
+            score_rom(&japan_usa_en, &en_prefs()),
+        );
+        // Also verify Japan Rev 1 beats USA original (worst-case region gap).
+        let mut japan_rev1 = rom("Game", &["Japan"], &["En"], &[]);
+        japan_rev1.revision = 1;
+        let usa_orig = rom("Game", &["USA"], &["En"], &[]);
+        assert!(
+            score_rom(&japan_rev1, &en_prefs()) > score_rom(&usa_orig, &en_prefs()),
+            "Japan (En) (Rev 1) must beat USA (En) original",
         );
     }
 
