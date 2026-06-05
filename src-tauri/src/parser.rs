@@ -176,6 +176,21 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
     ParsedTags { regions, languages, status_flags, extra_tags, bad_dump, revision, disc_number, version }
 }
 
+/// Returns true for No-Intro catalog/product codes like "4B-003", "8B-001".
+/// Rule: exactly one hyphen; prefix = non-empty, all ASCII uppercase/digits,
+/// at least one uppercase letter; suffix = non-empty, all ASCII digits.
+/// "Sachen-Commin" → false (suffix has letters). "EEPROM" → false (no hyphen).
+fn is_catalog_code(s: &str) -> bool {
+    match s.split_once('-') {
+        Some((pre, suf)) if !pre.is_empty() && !suf.is_empty() => {
+            pre.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                && pre.chars().any(|c| c.is_ascii_uppercase())
+                && suf.chars().all(|c| c.is_ascii_digit())
+        }
+        _ => false,
+    }
+}
+
 fn is_language_tag(s: &str) -> bool {
     // Accept any comma-separated sequence where every part is a known single-language code.
     // Handles "En", "En,Fr", "Fr,De", "Ja,Zh", "Sv,No,Da", etc. without an exhaustive list.
@@ -315,6 +330,20 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
     }
 
     let tags = parse_tags(&paren_tags, &bracket_tags);
+
+    // If a catalog code is present (e.g. "4B-003"), append it to the title so
+    // same-named compilations produce distinct title_normalized values and form
+    // separate groups. "4 in 1 (4B-003)" and "4 in 1 (4B-001)" are different games.
+    // Extra tags like "(4B-003, Sachen-Commin)" are stored whole; split on ", " to
+    // examine each comma-separated component individually.
+    let title = if let Some(code) = tags.extra_tags.iter()
+        .flat_map(|t| t.split(", "))
+        .find(|part| is_catalog_code(part))
+    {
+        format!("{} ({})", title, code)
+    } else {
+        title
+    };
     let title_normalized = normalize_title(&title);
 
     let file_category = detect_category(is_bios, &tags.status_flags, &tags.extra_tags, console);
@@ -555,5 +584,32 @@ mod tests {
         let r = parse("Pokemon Puzzle Collection (USA) (GameCube Preview).zip");
         assert!(r.status_flags.contains(&"GameCube Preview".to_string()), "(GameCube Preview) must be a status flag");
         assert!(r.extra_tags.is_empty(), "(GameCube Preview) must not leak into extra_tags");
+    }
+
+    // ── Catalog number split tests ─────────────────────────────────────────────
+
+    #[test]
+    fn catalog_code_appended_to_title() {
+        // "4B-003" is a catalog code → appended to title.
+        // "Sachen-Commin" is a publisher name (non-digit suffix) → not appended.
+        let r = parse("4 in 1 (Taiwan) (En,Zh) (4B-003, Sachen-Commin) (Unl).zip");
+        assert_eq!(r.title, "4 in 1 (4B-003)");
+        assert!(r.title_normalized.contains("4b003"), "normalized title must include catalog code");
+    }
+
+    #[test]
+    fn catalog_code_splits_groups() {
+        // Two "4 in 1" compilations with different catalog codes must have distinct
+        // title_normalized values so group_roms() puts them in separate groups.
+        let a = parse("4 in 1 (Europe) (4B-001, Sachen-Commin) (Unl).zip");
+        let b = parse("4 in 1 (Taiwan) (En,Zh) (4B-003, Sachen-Commin) (Unl).zip");
+        assert_ne!(a.title_normalized, b.title_normalized);
+    }
+
+    #[test]
+    fn publisher_name_not_catalog_code() {
+        // "Sachen-Commin" has a non-digit suffix → not a catalog code → title unchanged.
+        let r = parse("Some Game (Europe) (Sachen-Commin) (Unl).zip");
+        assert_eq!(r.title, "Some Game");
     }
 }
