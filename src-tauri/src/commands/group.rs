@@ -40,6 +40,8 @@ const FORMAT_VARIANT_TAGS: &[&str] = &[
 const COLLECTION_TAGS: &[&str] = &[
     "LodgeNet", "Evercade", "Limited Run Games", "Retro-Bit Generations",
     "Disney Classic Games",
+    "Castlevania Anniversary Collection", "Contra Anniversary Collection",
+    "Arcade Classics Anniversary Collection",
 ];
 // Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
 // Switch Online, Switch, Classic Mini, GameCube) fall through to 0 — no entry needed.
