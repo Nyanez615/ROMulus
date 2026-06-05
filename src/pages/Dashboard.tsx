@@ -32,6 +32,8 @@ import {
   getPlatform,
   PLATFORMS,
   canonicalTitleCount,
+  canonicalAllTitleCount,
+  canonicalFieldSum,
 } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { refreshTagStore } from "@/components/Layout";
@@ -70,12 +72,7 @@ export default function Dashboard() {
     return () => { unlistenProgress?.(); unlistenComplete?.(); };
   }, [setConsoles]);
 
-  const totalRoms = consoles.reduce((s, c) => s + c.total_files, 0);
-  const totalGameFiles = consoles.reduce((s, c) => s + c.game_files, 0);
-  // Game-only title count: group by canonical, then sum via canonicalTitleCount
-  // so alias sub-folders (e.g. N64DD tracked under a separate Rust key) are
-  // correctly added rather than dropped.
-  const totalTitles = useMemo(() => {
+  const { totalTitles, officialTitles, preferredGroupsTotal, allGroupsTotal } = useMemo(() => {
     const byCanonical = new Map<string, typeof consoles>();
     for (const c of consoles) {
       const { canonical } = getConsoleParts(c.name);
@@ -83,15 +80,27 @@ export default function Dashboard() {
       arr.push(c);
       byCanonical.set(canonical, arr);
     }
-    let total = 0;
-    for (const variants of byCanonical.values()) total += canonicalTitleCount(variants);
-    return total;
+    let titles = 0, official = 0, preferred = 0, all = 0;
+    for (const variants of byCanonical.values()) {
+      titles    += canonicalAllTitleCount(variants);
+      official  += canonicalTitleCount(variants);   // game_groups only
+      preferred += canonicalFieldSum(variants, "preferred_groups");
+      all       += canonicalFieldSum(variants, "all_groups");
+    }
+    return { totalTitles: titles, officialTitles: official, preferredGroupsTotal: preferred, allGroupsTotal: all };
   }, [consoles]);
+
+  const totalPlayableFiles = useMemo(
+    () => consoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0),
+    [consoles],
+  );
+  const unofficialRomCount = useMemo(
+    () => consoles.reduce((s, c) => s + c.unofficial_files, 0),
+    [consoles],
+  );
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
-  const preferredCount = consoles.reduce((s, c) => s + c.preferred_count, 0);
-  const preferredExplicitCount = consoles.reduce((s, c) => s + c.preferred_explicit_count, 0);
-  const preferredInferredCount = consoles.reduce((s, c) => s + c.preferred_inferred_count, 0);
-  const healthPct = totalRoms > 0 ? Math.round((preferredCount / totalRoms) * 100) : 0;
+  const healthPct = allGroupsTotal > 0
+    ? Math.round(preferredGroupsTotal / allGroupsTotal * 100) : 0;
 
   async function handleScan() {
     setScanning(true);
@@ -103,6 +112,7 @@ export default function Dashboard() {
       const updated = await getConsoles();
       setConsoles(updated);
       refreshTagStore();
+      bumpCacheVersion();
     } finally {
       setScanning(false);
     }
@@ -149,7 +159,7 @@ export default function Dashboard() {
       const { platform, canonical } = getConsoleParts(c.name);
       const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
       entry.consoles.add(canonical);
-      entry.roms += c.game_files;
+      entry.roms += c.game_files + c.unofficial_files;
       entry.bytes += c.total_bytes;
       map.set(platform, entry);
       const key = `${platform}\0${canonical}`;
@@ -161,7 +171,7 @@ export default function Dashboard() {
     for (const [key, variants] of variantsByCanonical) {
       const platform = key.split("\0")[0]!;
       const entry = map.get(platform);
-      if (entry) entry.titles += canonicalTitleCount(variants);
+      if (entry) entry.titles += canonicalAllTitleCount(variants);
     }
     return map;
   }, [consoles]);
@@ -289,8 +299,42 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard icon={Gamepad2} label="ROMs" value={totalGameFiles > 0 ? totalGameFiles.toLocaleString() : "—"} />
-        <StatCard icon={LibraryBig} label="Titles" value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"} />
+        <StatCard
+          icon={Gamepad2}
+          label="ROMs"
+          value={totalPlayableFiles > 0 ? totalPlayableFiles.toLocaleString() : "—"}
+          labelSuffix={unofficialRomCount > 0 ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="text-xs space-y-0.5 text-muted-foreground">
+                  <p>{(totalPlayableFiles - unofficialRomCount).toLocaleString()} official</p>
+                  <p>{unofficialRomCount.toLocaleString()} unofficial</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : undefined}
+        />
+        <StatCard
+          icon={LibraryBig}
+          label="Titles"
+          value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"}
+          labelSuffix={totalTitles > officialTitles ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="text-xs space-y-0.5 text-muted-foreground">
+                  <p>{officialTitles.toLocaleString()} official</p>
+                  <p>{(totalTitles - officialTitles).toLocaleString()} unofficial</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : undefined}
+        />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
         {/* F1: Use total_bytes for collection size */}
@@ -306,25 +350,24 @@ export default function Dashboard() {
                   <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs space-y-1">
-                  {totalRoms > 0 ? (
+                  {allGroupsTotal > 0 ? (
                     <>
                       <p className="font-medium text-foreground">Language match breakdown</p>
                       <div className="space-y-0.5 text-muted-foreground">
-                        <p>{preferredExplicitCount.toLocaleString()} — matched by explicit language tag</p>
-                        <p>{preferredInferredCount.toLocaleString()} — matched by region inference</p>
-                        <p>{(totalRoms - preferredCount).toLocaleString()} — no preferred-language match</p>
-                        <p className="border-t border-border/60 pt-0.5 mt-0.5 text-foreground">{totalRoms.toLocaleString()} total ROMs</p>
+                        <p>{preferredGroupsTotal.toLocaleString()} titles — preferred language matched</p>
+                        <p>{(allGroupsTotal - preferredGroupsTotal).toLocaleString()} titles — no preferred match</p>
+                        <p className="border-t border-border/60 pt-0.5 mt-0.5 text-foreground">{allGroupsTotal.toLocaleString()} total playable titles</p>
                       </div>
                     </>
                   ) : (
-                    <p>Percentage of your ROMs matching your preferred language/region setting.</p>
+                    <p>Percentage of your playable titles matching your preferred language/region setting.</p>
                   )}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           }
-          value={totalRoms > 0 ? `${healthPct}%` : "—"}
-          sub={totalRoms > 0 ? "preferred language" : "Scan to see"}
+          value={allGroupsTotal > 0 ? `${healthPct}%` : "—"}
+          sub={allGroupsTotal > 0 ? "preferred language" : "Scan to see"}
           accent={healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-red-400"}
         />
       </div>
@@ -498,10 +541,11 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   onClick: () => void;
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const totalFiles = variants.reduce((s, v) => s + v.game_files, 0);
-  const totalGroups = canonicalTitleCount(variants);
-  const preferredCount = variants.reduce((s, v) => s + v.preferred_count, 0);
-  const healthPct = totalFiles > 0 ? Math.round((preferredCount / totalFiles) * 100) : 0;
+  const totalFiles = variants.reduce((s, v) => s + v.game_files + v.unofficial_files, 0);
+  const totalGroups = canonicalAllTitleCount(variants);
+  const preferredGroups = canonicalFieldSum(variants, "preferred_groups");
+  const allGroups = canonicalFieldSum(variants, "all_groups");
+  const healthPct = allGroups > 0 ? Math.round((preferredGroups / allGroups) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);
 
   return (
@@ -516,14 +560,16 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
         {variants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {
+              const playable = v.game_files + v.unofficial_files;
+              if (playable === 0) return null;
               const suffix = v.name.slice(v.name.indexOf(canonicalName) + canonicalName.length).trim();
               return suffix ? (
                 <span key={v.name} className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
-                  {suffix} {v.total_files.toLocaleString()}
+                  {suffix} {playable.toLocaleString()}
                 </span>
               ) : (
                 <span key={v.name} className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
-                  base {v.total_files.toLocaleString()}
+                  base {playable.toLocaleString()}
                 </span>
               );
             })}

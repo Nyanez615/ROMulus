@@ -194,6 +194,12 @@ pub struct ConsoleStats {
     pub game_files: u32,
     /// Unique game title groups (canonical-level, game category only)
     pub game_groups: u32,
+    /// Unique game-or-unofficial title groups with ≥1 preferred-language variant
+    pub preferred_groups: u32,
+    /// Unique game-or-unofficial title groups — main title denominator
+    pub all_groups: u32,
+    /// Files that are FileCategory::Unofficial
+    pub unofficial_files: u32,
     pub preferred_count: u32,
     /// Subset of preferred_count where the ROM has an explicit language tag matching the preference.
     pub preferred_explicit_count: u32,

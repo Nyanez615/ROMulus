@@ -234,6 +234,33 @@ export function canonicalTitleCount(variants: ConsoleStats[]): number {
   return total;
 }
 
+/** Like canonicalTitleCount but reads all_groups (game + unofficial titles). */
+export function canonicalAllTitleCount(variants: ConsoleStats[]): number {
+  const seen = new Map<string, number>();
+  for (const v of variants) {
+    const base = stripFormatSuffix(v.name);
+    if (!seen.has(base)) seen.set(base, v.all_groups);
+  }
+  let total = 0;
+  for (const n of seen.values()) total += n;
+  return total;
+}
+
+/** Canonical-dedup sum for preferred_groups or all_groups. */
+export function canonicalFieldSum(
+  variants: ConsoleStats[],
+  field: "preferred_groups" | "all_groups",
+): number {
+  const seen = new Map<string, number>();
+  for (const v of variants) {
+    const base = stripFormatSuffix(v.name);
+    if (!seen.has(base)) seen.set(base, v[field]);
+  }
+  let total = 0;
+  for (const n of seen.values()) total += n;
+  return total;
+}
+
 /**
  * Returns the display name for a console — full short name or abbreviation
  * depending on the toggle.  fullName is a raw No-Intro folder name.

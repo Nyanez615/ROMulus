@@ -31,8 +31,8 @@
 - **Atomic crash recovery** — SQLite `pending → deleted/failed` transaction; interrupted sessions detected on next launch
 - **Full action log** — every decision recorded, paginated History tab, CSV export
 
-### 8 tabs
-Dashboard · ROMs · Hacks & Unofficial · System Files · Duplicates · Prune · History · Settings
+### 7 tabs
+Dashboard · ROMs · System Files · Duplicates · Prune · History · Settings
 
 ## Tech Stack
 
@@ -57,13 +57,13 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 124 unit tests + regenerates TypeScript bindings
+cargo test             # 137 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 
 From project root:
 ```bash
-npm run test:run       # 113 Vitest tests
+npm run test:run       # 114 Vitest tests
 npx tsc --noEmit       # TypeScript type-check
 ```
 

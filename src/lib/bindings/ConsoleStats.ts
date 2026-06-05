@@ -16,7 +16,19 @@ game_files: number,
 /**
  * Unique game title groups (canonical-level, game category only)
  */
-game_groups: number, preferred_count: number, 
+game_groups: number, 
+/**
+ * Unique game-or-unofficial title groups with ≥1 preferred-language variant
+ */
+preferred_groups: number, 
+/**
+ * Unique game-or-unofficial title groups — main title denominator
+ */
+all_groups: number, 
+/**
+ * Files that are FileCategory::Unofficial
+ */
+unofficial_files: number, preferred_count: number, 
 /**
  * Subset of preferred_count where the ROM has an explicit language tag matching the preference.
  */

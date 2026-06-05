@@ -8,16 +8,16 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeConsole(name: string, total_files = 10): ConsoleStats {
-  return { name, total_files, total_groups: total_files, game_files: total_files, game_groups: total_files, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
+  return { name, total_files, total_groups: total_files, game_files: total_files, game_groups: total_files, preferred_groups: total_files, all_groups: total_files, unofficial_files: 0, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
 // Backend computes canonical-level total_groups for all sub-folders of the same
 // canonical (union of titles across Multiboot + Video + base = 108 unique titles).
 const GBA_CANONICAL_COUNT = 108;
 const GBA_CONSOLES: ConsoleStats[] = [
-  { ...makeConsole("Nintendo - Game Boy Advance", 100), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT },
-  { ...makeConsole("Nintendo - Game Boy Advance (Multiboot)", 5), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT },
-  { ...makeConsole("Nintendo - Game Boy Advance (Video)", 3), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT },
+  { ...makeConsole("Nintendo - Game Boy Advance", 100), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT, all_groups: GBA_CANONICAL_COUNT, preferred_groups: GBA_CANONICAL_COUNT },
+  { ...makeConsole("Nintendo - Game Boy Advance (Multiboot)", 5), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT, all_groups: GBA_CANONICAL_COUNT, preferred_groups: GBA_CANONICAL_COUNT },
+  { ...makeConsole("Nintendo - Game Boy Advance (Video)", 3), total_groups: GBA_CANONICAL_COUNT, game_groups: GBA_CANONICAL_COUNT, all_groups: GBA_CANONICAL_COUNT, preferred_groups: GBA_CANONICAL_COUNT },
 ];
 
 // Reset stores before each test
@@ -34,18 +34,20 @@ beforeEach(() => {
 // ── NAV_ITEMS order ───────────────────────────────────────────────────────────
 
 describe("Sidebar NAV_ITEMS order", () => {
-  it("Duplicates appears between Hacks & Unofficial and System Files", () => {
+  it("Duplicates appears between ROMs and System Files; no Hacks tab", () => {
     render(<Sidebar />);
     const allButtons = screen.getAllByRole("button");
     const labels = allButtons.map((b) => b.textContent?.trim() ?? "");
-    const hacksIdx = labels.findIndex((t) => t.includes("Hacks"));
+    const romsIdx = labels.findIndex((t) => t === "ROMs");
     const dupsIdx = labels.findIndex((t) => t === "Duplicates");
     const sysIdx = labels.findIndex((t) => t.includes("System Files"));
-    expect(hacksIdx).toBeGreaterThanOrEqual(0);
+    expect(romsIdx).toBeGreaterThanOrEqual(0);
     expect(dupsIdx).toBeGreaterThanOrEqual(0);
     expect(sysIdx).toBeGreaterThanOrEqual(0);
-    expect(hacksIdx).toBeLessThan(dupsIdx);
+    expect(romsIdx).toBeLessThan(dupsIdx);
     expect(dupsIdx).toBeLessThan(sysIdx);
+    // Hacks tab must be gone
+    expect(labels.findIndex((t) => t.includes("Hacks"))).toBe(-1);
   });
 });
 

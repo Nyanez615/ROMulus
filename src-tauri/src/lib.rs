@@ -99,10 +99,9 @@ pub fn run() {
             scan::get_format_pairs,
             scan::get_known_tags,
 
-            // Browse — official ROMs
+            // Browse — playable ROMs (game + unofficial)
             group::get_roms,
             // Browse — filtered
-            group::get_unofficial,
             group::get_system_files,
             group::get_duplicates,
             // Prune

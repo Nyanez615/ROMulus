@@ -53,24 +53,46 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         return (-9999, rom.revision, 0);
     }
 
-    // Pre-release → never keep unless sole copy
+    // Alt penalty: non-Alt is always preferred over Alt within the same tier.
+    // "Alt" is stored in status_flags by the parser.
+    let is_alt = rom.status_flags.iter().any(|f| f == "Alt");
+    let alt_penalty: i32 = if is_alt { -5 } else { 0 };
+
+    // Pre-release → never keep unless sole copy.
+    // Still use lang+region as a tiebreaker so USA Proto beats Europe Proto for English users;
+    // apply alt_penalty so non-Alt beats Alt within the same pre-release tier.
     if rom.status_flags.iter().any(|f| {
         matches!(
             f.as_str(),
             "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk" | "Preview" | "GameCube Preview"
         )
     }) {
-        return (-100, rom.revision, 0);
+        let r_score = region_score(&rom.regions, prefs).max(0) as usize;
+        let lang_count = rom.languages.iter()
+            .filter(|l| prefs.preferred_languages.contains(*l))
+            .count();
+        return (-100 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
     }
 
-    // Bad dump → very low
+    // Bad dump → very low; same lang+region+alt tiebreaker for consistency.
     if rom.bad_dump {
-        return (-80, rom.revision, 0);
+        let r_score = region_score(&rom.regions, prefs).max(0) as usize;
+        let lang_count = rom.languages.iter()
+            .filter(|l| prefs.preferred_languages.contains(*l))
+            .count();
+        return (-80 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
     }
 
-    // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease
+    // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease.
+    // Base -30 keeps unofficial below all official content (min official score ≈ -10).
+    // Tiebreaker encodes both priorities: explicit lang match >> region preference.
+    // Multiplier 1000 exceeds any realistic region score (~200 max with 10 preferred regions).
     if matches!(rom.file_category, FileCategory::Unofficial) {
-        return (-30, rom.revision, 0);
+        let r_score = region_score(&rom.regions, prefs).max(0) as usize;
+        let lang_count = rom.languages.iter()
+            .filter(|l| prefs.preferred_languages.contains(*l))
+            .count();
+        return (-30 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
@@ -85,10 +107,10 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             0
         };
 
-    let alt_penalty: i32 = if rom.extra_tags.iter().any(|t| t == "Alt") { -5 } else { 0 };
+    // alt_penalty already computed above (status_flags check); reuse it here.
 
     // Count how many of the user's preferred languages this ROM explicitly matches —
-    // used as a tiebreaker when two variants have the same region score and revision.
+    // used as a fine-grained tiebreaker after lang_priority and region are applied.
     let lang_matches = if prefs.preferred_languages.is_empty() {
         0
     } else {
@@ -98,7 +120,32 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             .count()
     };
 
-    (region_score + collection_penalty + alt_penalty, rom.revision, lang_matches)
+    // Language-priority bonus: matching a higher-priority preferred language always wins
+    // over a lower-priority one, regardless of region.
+    // ROMs with no explicit language tag fall back to region inference so that e.g.
+    // USA (inferred En) scores identically to Spain (explicit En) and region then
+    // decides — preserving the existing USA > Europe ordering for same-language variants.
+    // ROMs with explicit tags that don't include a preferred language get priority 0
+    // (they already passed `matches_preferred` via region inference; region decides).
+    let lang_priority: i32 = if !rom.languages.is_empty() {
+        // Explicit language tags present — use those only.
+        prefs.preferred_languages
+            .iter()
+            .position(|l| rom.languages.contains(l))
+            .map(|pos| (prefs.preferred_languages.len() - pos) as i32 * 1000)
+            .unwrap_or(0)
+    } else {
+        // No explicit tags — compute priority from the region-inferred language.
+        let primary = rom.regions.first().map(|s| s.as_str()).unwrap_or("");
+        let inferred = region_default_languages(primary);
+        prefs.preferred_languages
+            .iter()
+            .position(|l| inferred.contains(&l.as_str()))
+            .map(|pos| (prefs.preferred_languages.len() - pos) as i32 * 1000)
+            .unwrap_or(0)
+    };
+
+    (lang_priority + region_score + collection_penalty + alt_penalty, rom.revision, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
@@ -117,6 +164,22 @@ pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
         })
         .max()
         .unwrap_or(5)
+}
+
+/// Converts a version string like "v2.1" or "v1.0.3" into a comparable u64.
+/// None / unparseable → 0.  Used as a sort tiebreaker so newer versions rank first.
+fn version_ord(v: &Option<String>) -> u64 {
+    let s = match v.as_deref().and_then(|s| s.strip_prefix('v')) {
+        Some(s) => s,
+        None => return 0,
+    };
+    let parts: Vec<u64> = s.split('.').filter_map(|p| p.parse().ok()).collect();
+    match parts.as_slice() {
+        [major]               => major * 1_000_000,
+        [major, minor]        => major * 1_000_000 + minor * 1_000,
+        [major, minor, patch] => major * 1_000_000 + minor * 1_000 + patch,
+        _                     => 0,
+    }
 }
 
 fn default_region_score(region: &str) -> i32 {
@@ -165,11 +228,13 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     let max_disc = variants.iter().filter_map(|r| r.disc_number).max().unwrap_or(0);
     let disc_count = if max_disc > 0 { max_disc } else { 1 };
 
-    // Sort variants: (score, revision, lang_matches) descending; filename ascending as
-    // the final deterministic tiebreaker so groups are stable across runs.
+    // Sort variants: (score, revision, lang_matches) descending; then version descending
+    // so "v2.1" beats "v1.0" when everything else ties; filename ascending as the final
+    // deterministic tiebreaker so groups are stable across runs.
     variants.sort_by(|a, b| {
         score_rom(b, prefs)
             .cmp(&score_rom(a, prefs))
+            .then_with(|| version_ord(&b.version).cmp(&version_ord(&a.version)))
             .then_with(|| a.filename.cmp(&b.filename))
     });
 
@@ -307,38 +372,7 @@ pub fn get_roms(
         .groups
         .iter()
         .filter(|g| {
-            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game)) {
-                return false;
-            }
-            if !group_matches_consoles(g, &consoles) { return false; }
-            if let Some(ref q) = search_lower {
-                if !g.title_normalized.contains(q.as_str()) { return false; }
-            }
-            true
-        })
-        .collect();
-
-    filtered.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
-    paginate(filtered, page, per_page)
-}
-
-/// Returns unofficial ROM groups (Pirate/Unl/Aftermarket/Hack).
-#[tauri::command]
-pub fn get_unofficial(
-    state: State<'_, AppState>,
-    consoles: Option<Vec<String>>,
-    search: Option<String>,
-    page: u32,
-    per_page: u32,
-) -> PagedGroups {
-    let cache = state.scan_cache.lock().unwrap();
-    let search_lower = search.as_deref().map(|s| s.to_lowercase());
-
-    let mut filtered: Vec<&RomGroup> = cache
-        .groups
-        .iter()
-        .filter(|g| {
-            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Unofficial)) {
+            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)) {
                 return false;
             }
             if !group_matches_consoles(g, &consoles) { return false; }
@@ -402,6 +436,9 @@ pub fn get_duplicates(
         .groups
         .iter()
         .filter(|g| {
+            if !g.variants.iter().any(|v|
+                matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)
+            ) { return false; }
             // Format pairs are not true duplicates — they represent different
             // formats of the same game (e.g. FDS/QD, Headered/Headerless).
             // Those are handled by Prune; the Duplicates tab shows only cases
@@ -530,6 +567,92 @@ mod tests {
         let eu = rom("Game", &["Europe"], &[], &[]);
         let prefs = en_prefs();
         assert!(score_rom(&usa, &prefs) > score_rom(&eu, &prefs));
+    }
+
+    #[test]
+    fn higher_version_preferred_when_score_tied() {
+        // All four are Aftermarket (unofficial) World ROMs — identical scores.
+        // Version tiebreaker must pick v2.1 over v2.0, v1.0, and no-version.
+        let make_unofficial = |filename: &str, version: Option<&str>| -> RomFile {
+            let mut r = rom("Ciao Nonna", &["World"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.version = version.map(|s| s.to_string());
+            r
+        };
+        let bare  = make_unofficial("Ciao Nonna (World) (Aftermarket) (Unl).zip", None);
+        let v11   = make_unofficial("Ciao Nonna (World) (v1.1) (Aftermarket) (Unl).zip", Some("v1.1"));
+        let v20   = make_unofficial("Ciao Nonna (World) (v2.0) (Aftermarket) (Unl).zip", Some("v2.0"));
+        let v21   = make_unofficial("Ciao Nonna (World) (v2.1) (Aftermarket) (Unl).zip", Some("v2.1"));
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let groups = group_roms(vec![bare, v11, v20, v21], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.filename.contains("v2.1"),
+            "v2.1 must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn non_alt_preferred_over_alt_pre_release() {
+        // (Demo) (Unl) (Alt) must score lower than (Demo) (Unl) with no Alt tag.
+        let mut alt = rom("Doctor GB Card Demo", &["World"], &[], &[]);
+        alt.status_flags = vec!["Demo".into(), "Unl".into(), "Alt".into()];
+        alt.file_category = FileCategory::Unofficial;
+        alt.filename = "Doctor GB Card Demo (World) (Demo) (Unl) (Alt).zip".into();
+
+        let mut base = rom("Doctor GB Card Demo", &["World"], &[], &[]);
+        base.status_flags = vec!["Demo".into(), "Unl".into()];
+        base.file_category = FileCategory::Unofficial;
+        base.filename = "Doctor GB Card Demo (World) (Demo) (Unl).zip".into();
+
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        assert!(
+            score_rom(&base, &prefs) > score_rom(&alt, &prefs),
+            "non-Alt {:?} must score above Alt {:?}",
+            score_rom(&base, &prefs),
+            score_rom(&alt, &prefs),
+        );
+
+        let groups = group_roms(vec![alt, base], &prefs);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            !preferred.status_flags.contains(&"Alt".to_string()),
+            "non-Alt must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn usa_proto_scores_higher_than_europe_proto() {
+        // Both are pre-release; region tiebreaker must still apply so USA beats Europe.
+        let mut usa = rom("Game", &["USA"], &[], &["Proto"]);
+        usa.status_flags = vec!["Proto".into()];
+        let mut eu = rom("Game", &["Europe"], &[], &["Proto"]);
+        eu.status_flags = vec!["Proto".into()];
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        assert!(
+            score_rom(&usa, &prefs) > score_rom(&eu, &prefs),
+            "USA Proto {:?} must score above Europe Proto {:?}",
+            score_rom(&usa, &prefs),
+            score_rom(&eu, &prefs),
+        );
     }
 
     #[test]
@@ -799,5 +922,52 @@ mod tests {
         evercade.extra_tags = vec!["Evercade".into()];
         let base = rom("Game", &["USA"], &[], &[]);
         assert!(score_rom(&base, &en_prefs()) > score_rom(&evercade, &en_prefs()));
+    }
+
+    #[test]
+    fn spain_en_es_beats_europe_fr_de_for_english_user() {
+        // Scoring logic test (ROMs are hand-constructed with explicit language arrays,
+        // bypassing the parser). The parser regression is covered in parser.rs tests.
+        // Real-world case: user prefs = En only, no preferred regions.
+        // Spain (En,Es) must be preferred over Europe (Fr,De).
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let spain = rom("Asterix & Obelix", &["Spain"], &["En", "Es"], &[]);
+        let europe = rom("Asterix & Obelix", &["Europe"], &["Fr", "De"], &[]);
+
+        // Europe (Fr,De) must not match an En-only user at all
+        assert!(!matches_preferred(&europe, &prefs), "Europe (Fr,De) must not match En prefs");
+        assert!(matches_preferred(&spain, &prefs), "Spain (En,Es) must match En prefs");
+
+        // Spain must score strictly higher than Europe
+        assert!(
+            score_rom(&spain, &prefs) > score_rom(&europe, &prefs),
+            "Spain (En,Es) {:?} must score above Europe (Fr,De) {:?}",
+            score_rom(&spain, &prefs),
+            score_rom(&europe, &prefs),
+        );
+
+        // In a group, Spain must be the preferred variant
+        let mut spain_with_filename = spain.clone();
+        spain_with_filename.filename = "Asterix & Obelix (Spain) (En,Es) (SGB Enhanced).zip".into();
+        let mut europe_with_filename = europe.clone();
+        europe_with_filename.filename = "Asterix & Obelix (Europe) (Fr,De) (SGB Enhanced).zip".into();
+
+        let groups = group_roms(vec![spain_with_filename, europe_with_filename], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]);
+        assert!(
+            preferred.is_some(),
+            "group must have a preferred variant"
+        );
+        assert!(
+            preferred.unwrap().filename.contains("Spain"),
+            "preferred must be Spain (En,Es), got: {}",
+            preferred.unwrap().filename,
+        );
     }
 }

@@ -52,6 +52,12 @@ function reasonKey(r: DeletionItem["reason"]): string {
   return typeof r === "string" ? r : Object.keys(r)[0] ?? "unknown";
 }
 
+function matchesCat(fc: FileCategory, cat: "all" | "game" | "system"): boolean {
+  if (cat === "all") return true;
+  if (cat === "game") return fc === "game" || fc === "unofficial";
+  return fc !== "game" && fc !== "unofficial";
+}
+
 // ── Filter toggle definitions ─────────────────────────────────────────────────
 
 const FILTER_ROWS: Array<{
@@ -140,6 +146,7 @@ export default function Prune() {
   const [fpLoading, setFpLoading] = useState(false);
   const [fpExecuting, setFpExecuting] = useState(false);
   const [fpScanState, setFpScanState] = useState<"idle" | "scanning" | "done">("idle");
+  const [pruneScanState, setPruneScanState] = useState<"idle" | "scanning" | "done">("idle");
 
   // Load format pairs + AppSettings on mount / cache change
   useEffect(() => {
@@ -181,7 +188,7 @@ export default function Prune() {
   const [previewSearch, setPreviewSearch] = useState("");
   const [showAllPreview, setShowAllPreview] = useState(false);
   // Category filter for the preview panel
-  const [previewCategory, setPreviewCategory] = useState<"all" | "game" | "unofficial" | "system">("all");
+  const [previewCategory, setPreviewCategory] = useState<"all" | "game" | "system">("all");
 
   async function preview() {
     setLoading(true);
@@ -236,13 +243,6 @@ export default function Prune() {
     return formatPairs.filter((p) => consoleSet.has(p.folder_a) || consoleSet.has(p.folder_b));
   }, [formatPairs, selectedConsoles]);
 
-  function matchesCat(fc: FileCategory, cat: typeof previewCategory): boolean {
-    if (cat === "all") return true;
-    if (cat === "game") return fc === "game";
-    if (cat === "unofficial") return fc === "unofficial";
-    return fc !== "game" && fc !== "unofficial";
-  }
-
   // Category-filtered base lists — all subsequent derivations build on these
   const catDeleteItems = useMemo(
     () => (plan?.to_delete ?? []).filter((item) => matchesCat(item.rom.file_category, previewCategory)),
@@ -293,7 +293,11 @@ export default function Prune() {
   const noPreferredCount = useMemo(() => {
     if (!plan) return 0;
     if (previewCategory === "all") return plan.no_preferred_version_count;
-    return catDeleteItems.filter((i) => i.reason === "no_preferred_version").length;
+    return new Set(
+      catDeleteItems
+        .filter((i) => i.reason === "no_preferred_version")
+        .map((i) => i.rom.title_normalized)
+    ).size;
   }, [plan, previewCategory, catDeleteItems]);
 
   async function doExportCsv() {
@@ -309,13 +313,30 @@ export default function Prune() {
   async function doExecute() {
     if (!plan) return;
     setExecuting(true);
+    setPruneScanState("idle");
+    let settings = appSettings;
     try {
       const toDelete = checkedItems.map((item) => item.rom);
       const res = await executePrune(toDelete);
       setResultStore({ key: consolesKey, success: res.success_count, failed: res.failed.length });
       setPlanStore(null);
+      settings = await getSettings().catch(() => appSettings);
+      if (settings) setAppSettings(settings);
     } finally {
       setExecuting(false);
+    }
+    // Auto-rescan: flush deleted entries from cache and update all counts everywhere.
+    if (!settings?.rom_roots.length) return;
+    setPruneScanState("scanning");
+    try {
+      const scanResult = await scanRoots(settings.rom_roots);
+      setStatus(scanResult);
+      setConsoles(await getConsoles());
+      refreshTagStore();
+      bumpCacheVersion();
+      setPruneScanState("done");
+    } catch {
+      setPruneScanState("idle");
     }
   }
 
@@ -466,8 +487,13 @@ export default function Prune() {
 
         {result && (
           <Alert className="border-green-500/40 bg-green-500/10">
-            <AlertDescription className="text-green-300 text-sm">
+            <AlertDescription className="text-green-300 text-sm flex items-center gap-2">
               ✓ Permanently deleted {result.success} files. {result.failed > 0 && `${result.failed} failed.`}
+              {pruneScanState === "scanning" && (
+                <span className="flex items-center gap-1 text-xs text-green-300/70 ml-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Rescanning…
+                </span>
+              )}
             </AlertDescription>
           </Alert>
         )}
@@ -756,9 +782,8 @@ export default function Prune() {
             {(() => {
               const tabs = [
                 { key: "all" as const,        label: "All",                 count: plan.to_delete.length },
-                { key: "game" as const,        label: "ROMs",                count: plan.to_delete.filter(i => i.rom.file_category === "game").length },
-                { key: "unofficial" as const,  label: "Hacks & Unofficial",  count: plan.to_delete.filter(i => i.rom.file_category === "unofficial").length },
-                { key: "system" as const,      label: "System Files",        count: plan.to_delete.filter(i => i.rom.file_category !== "game" && i.rom.file_category !== "unofficial").length },
+                { key: "game" as const,   label: "ROMs",         count: plan.to_delete.filter(i => i.rom.file_category === "game" || i.rom.file_category === "unofficial").length },
+                { key: "system" as const, label: "System Files", count: plan.to_delete.filter(i => i.rom.file_category !== "game" && i.rom.file_category !== "unofficial").length },
               ].filter(t => t.key === "all" || t.count > 0 || (plan.to_keep.filter(r => matchesCat(r.file_category, t.key)).length > 0));
               return tabs.length > 1 ? (
                 <div className="px-4 py-2 border-b border-border flex items-center gap-1 flex-wrap">
@@ -777,7 +802,7 @@ export default function Prune() {
 
             {(previewCategory === "all" || previewCategory === "game") && noPreferredCount > 0 && (
               <div className="px-4 py-2 text-xs text-amber-400 bg-amber-500/10 border-b border-border">
-                {noPreferredCount} game{noPreferredCount !== 1 ? "s" : ""} deleted — no preferred-language version exists
+                {noPreferredCount} title{noPreferredCount !== 1 ? "s" : ""} deleted — no preferred-language version exists
               </div>
             )}
 

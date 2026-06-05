@@ -10,7 +10,6 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import Dashboard from "@/pages/Dashboard";
 import Roms from "@/pages/Roms";
-import HacksUnofficial from "@/pages/HacksUnofficial";
 import SystemFiles from "@/pages/SystemFiles";
 import Duplicates from "@/pages/Duplicates";
 import Prune from "@/pages/Prune";
@@ -20,7 +19,6 @@ import Settings from "@/pages/Settings";
 const PAGES: Record<string, React.ComponentType> = {
   dashboard: Dashboard,
   roms: Roms,
-  hacks: HacksUnofficial,
   system: SystemFiles,
   duplicates: Duplicates,
   prune: Prune,

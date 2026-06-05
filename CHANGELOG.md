@@ -6,22 +6,58 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-06-05
+
 ### Added
-- **Format pair subset indicator** — `FormatPair` now carries `folder_a_count` and `folder_b_count` (title counts for each folder). `deduper.rs` assigns `folder_a` as the smaller (subset) folder and `folder_b` as the larger, so the frontend always knows the containment direction. Pair cards in the Prune tab now show: a `folder_a ⊂ folder_b · X of Y titles` header when it is a proper subset, `X titles each · 100% overlap` when both are equal, and `XX% overlap · X / Y titles` for partial overlap. Each folder row shows its title count; the subset folder gets a sky-blue "subset" badge.
-- **Auto-rescan after format pair execution** — after `execute_format_pairs` completes, Prune automatically calls `scanRoots` → `setStatus` → `setConsoles` → `refreshTagStore` → `bumpCacheVersion`. The success banner shows a spinning "Rescanning collection…" indicator during the scan, then settles to "Collection updated." when done. All tabs (sidebar counts, Dashboard, ROMs, Prune pair list) update without any user action.
+- **Alphabet scrubber** — narrow `#` / A–Z strip on the left edge of the ROMs list when sorted by Name (ascending or descending). Active-letter highlight tracks scroll; clicking a letter jumps to the first matching group. Tooltip shows title count per letter (e.g. "B — 183 titles"). Hidden when a search query is active or there are fewer than 50 results. Strip reverses to Z→# in descending order.
+- **Variant count scrubber** — analogous strip showing distinct variant counts in sort order when sorted by Variants. Tooltip shows "3 variants — 142 titles".
+- **Titles Count Architecture** — `ConsoleStats` gains four count fields: `total_files`, `total_groups` (all categories), `game_files`, `game_groups` (game category only). The Dashboard adds a sixth **Titles** stat tile positioned between ROMs and Consoles. Console cards show "X titles · Y ROMs". Platform header rows show "· X titles · Y ROMs · Z GB". Dashboard sort-by-count now ranks by title count. Sidebar All/platform/console rows show title counts (via `canonicalTitleCount`). ROMs tab header counts "X titles · Y ROMs" using only game + unofficial files.
+- **Prune category filter tabs** — "All / Games / System Files" tabs above the deletion preview list, allowing focused review of each category.
+
+### Fixed
+- **Multi-language tag parsing** — `is_language_tag()` in `parser.rs` was a pure whitelist lookup; combined codes like `(Fr,De)` were not recognised and the ROM was assigned `languages = []`. The function now accepts any comma-separated sequence of valid ISO 639-1 single codes, so `Asterix & Obelix (Europe)(Fr,De)` is correctly parsed and no longer incorrectly preferred over the Spanish (En,Es) release for English users.
+- **`alt_penalty` was dead code** — the Alt penalty read `rom.extra_tags` but `"Alt"` is stored in `status_flags` by the parser, so the penalty was always 0. Fixed: `is_alt = rom.status_flags.iter().any(|f| f == "Alt")` is now computed at the top of `score_rom` and applied in every scoring path (official, unofficial, pre-release, bad-dump). Non-Alt variants are now correctly preferred over Alt variants at the same tier.
+- **Pre-release and bad-dump tiebreakers** — both early-return paths returned a two-element score `(-100 + alt_penalty, rom.revision)`, so USA (Proto) and Europe (Proto) could tie and be resolved by filename. The third tuple element now includes `lang_count * 1000 + r_score`, matching the tiebreaker used for unofficial ROMs. USA (Proto) now beats Europe (Proto) for English users.
+- **Version tiebreaker** — `build_group` sort had no way to distinguish `v2.1` from `v1.0` when score and revision tied. A `version_ord()` helper (v`major.minor.patch` → u64) is now inserted between the score tuple and filename, so newer versioned ROMs beat older ones and versioned beats unversioned.
 
 ### Changed
-- **Format pair pair cards** — folder rows are now ordered subset-first (folder_a) rather than alphabetically. Title counts are displayed next to each folder name.
+- **Hacks & Unofficial merged into ROMs tab** — `HacksUnofficial.tsx` removed; all unofficial ROMs (Hack / Pirate / Aftermarket / Unl) now appear in the single unified ROMs tab with coloured category badges on each row. The Hacks & Unofficial navigation entry is gone; the tab count drops from 8 to 7.
+- **"Preferred" moved from sort to filter** — the "Preferred" sort option (which was ambiguous with the alphabet scrubber) is replaced by a **Preferred** chip group in the Filter Bar with "Has preferred" and "No preferred" options.
+- **`LANGUAGE_CODES` cleaned** — redundant hardcoded multi-language combinations (e.g. `"En,Fr"`, `"En,De"`) removed; only single ISO 639-1 codes remain. `is_language_tag` now dynamically accepts any comma-separated sequence.
 
 ### Technical
-- `FormatPair` struct: two new fields `folder_a_count: usize`, `folder_b_count: usize`. TS binding regenerated.
-- `deduper.rs`: `folder_a`/`folder_b` assignment now canonical (smaller ≤ larger). All 5 test fixtures in `group.rs` and `prune.rs` updated with `folder_a_count: 0, folder_b_count: 0`.
-- **React Compiler v7 hardening** (proactive — lint was already clean):
-  - `Prune.tsx` — removed `folderToGroup` (Record useMemo) and `activeGroupArr` (string[] useMemo); replaced with `formatPairFolderSet` (Set useMemo) and `activeFpItems` rewritten as an inline expression (no `useMemo` wrapper) so the React Compiler can auto-memoize without conflict with a manual memo.
-  - `SystemFiles.tsx`, `Sidebar.tsx`, `Dashboard.tsx`, `Duplicates.tsx`, `Roms.tsx`, `HacksUnofficial.tsx` — all `Set<T>` state variables converted to immutable arrays (`T[]`). Toggle functions use the `prev.includes(k) ? prev.filter(…) : […prev, k]` pattern. All `.has()` → `.includes()`, `.size` → `.length` at every read site.
-  - `Dashboard.tsx` — `totalCanonicals` rewritten to depend on `[consoles]` directly (builds composite `"platform\0canonical"` keys in a local Set) instead of chaining through the `platformStats` Map useMemo.
-  - `Roms.tsx`, `HacksUnofficial.tsx` — `useVirtualizer` isolated in private `VirtualRomList` / `VirtualHacksList` child components so the React Compiler exclusion is scoped to the child only. `expanded` state converted from `Set<string>` to `string[]` in both parent and child. `eslint-disable-next-line react-hooks/incompatible-library` comment moved to the line immediately above the `useVirtualizer(` call inside each child.
-- Rust tests: 124 (unchanged). Vitest: 113 (unchanged).
+- `AlphabetScrubber.tsx` (new) — `src/components/AlphabetScrubber.tsx`
+- `VariantCountScrubber.tsx` (new) — `src/components/VariantCountScrubber.tsx`
+- `VirtualRomList` now accepts `showScrubber`, `reverseStrip`, `showCountScrubber`, `sortDir` props; `onChange` callback on `useVirtualizer` updates `firstVisibleIndex` state for scrubber synchronisation.
+- `ConsoleStats` in `models.rs`: new fields `preferred_groups: u32`, `all_groups: u32`, `unofficial_files: u32`. TS binding regenerated.
+- `consoleUtils.ts`: `stripFormatSuffix`, `canonicalTitleCount` helpers exported.
+- Rust tests: 128 → 137 (4 parser tests for multi-language tag parsing; 4 group tests for tiebreaker correctness; 1 existing test comment updated). Vitest: 114 (unchanged).
+
+## [0.2.5] - 2026-06-04
+
+### Added
+- **Sort controls** — `SortControl` component: a field `<select>` and direction `<button>` (ArrowUp/Down icons) joined as a pill. Used on ROMs, Hacks & Unofficial, Duplicates, and Dashboard tabs, replacing the previous shadcn `<Select>` controls.
+- **Bidirectional sort on all browse tabs** — ROMs and Hacks & Unofficial: Name (A–Z / Z–A), Variants (most/least), Preferred (starred first/last). Duplicates: Title, Console (hidden when a console is selected), Count. Dashboard: Name, Count (by title count).
+- **Expand/Collapse all** — "Expand all" / "Collapse all" button in the FilterBar `trailing` slot on ROMs and Hacks & Unofficial. Computed from `displayGroups.every(g => expandedSet.has(key))`; resets automatically when the displayed list changes.
+- **Format pair subset indicator** — `FormatPair` carries `folder_a_count` and `folder_b_count` (title counts per folder). `deduper.rs` assigns `folder_a` as the smaller (subset) folder and `folder_b` as the larger. Pair cards show `A ⊂ B · X of Y titles` when it is a proper subset, `X titles each · 100% overlap` when equal, and `XX% overlap · X / Y titles` for partial overlap. Subset folder gets a sky-blue "subset" badge.
+- **Auto-rescan after format pair execution** — after `execute_format_pairs` completes, Prune triggers `scanRoots → setStatus → setConsoles → refreshTagStore → bumpCacheVersion`. The success banner shows "Rescanning collection…" during the scan, then "Collection updated." All tabs update without manual action.
+
+### Fixed
+- **Collection tag over-penalisation** — `COLLECTION_TAGS` (−10 each) previously included official Nintendo re-release platforms (Virtual Console, Wii VC, Switch Online, Classic Mini, GameCube). These are now split into three tiers: Official Nintendo digital re-releases get **0 penalty** (fall-through). `FORMAT_VARIANT_TAGS` (Disk Writer, Satellaview, Sega Channel, 64DD, Meganet, NP, Animal Crossing) get **−5**. Third-party / non-standard collections (LodgeNet, Evercade, Limited Run Games, Retro-Bit Generations) keep **−10**.
+- **`matchesCat` in Prune was defined inside component body** — moved to module scope; the two `useMemo` hooks that called it now have a correct dependency array.
+
+### Changed
+- **Prune filter descriptions** — previously shown on hover via `<Tooltip>`; now always visible as a `<p className="text-xs text-muted-foreground">` line below each toggle label. `TooltipProvider` removed from `Prune.tsx`.
+- **Prune preview scroll** — `ScrollArea` replaced with plain `div overflow-y-auto overflow-x-hidden`; `min-w-0` on filename spans prevents horizontal overflow in flex rows; preview list height `h-64` → `h-72`; "Show all" button in the footer reveals all items without a hard cap.
+- **Console name abbreviations** — `xxx.split(" - ")[1] ?? xxx` patterns replaced with `getAbbrev(xxx)` from `consoleUtils.ts` in Prune, SystemFiles, History, Duplicates, and Settings (5 + existing callsites).
+- **Format pair cards** — folder rows ordered subset-first (folder_a) rather than alphabetically; title counts shown next to each folder name.
+
+### Technical
+- `SortControl.tsx` (new) — `src/components/SortControl.tsx`; `ROM_SORT_FIELDS` / `RomSortField` / `SortDir` types in `romUtils.ts` (replaces `ROM_SORT_OPTIONS` / `RomSortKey`)
+- `FormatPair` struct: `folder_a_count: usize`, `folder_b_count: usize` added. TS binding regenerated.
+- `deduper.rs`: `folder_a`/`folder_b` canonical assignment (smaller ≤ larger).
+- React Compiler v7 hardening (proactive — lint was already clean): all `Set<T>` state → `T[]` arrays in SystemFiles, Sidebar, Dashboard, Duplicates, Roms, HacksUnofficial; `useVirtualizer` isolated in `VirtualRomList`/`VirtualHacksList` child components; `Dashboard.totalCanonicals` deps `[consoles]` (plain array) instead of `[platformStats]` (Map).
+- Rust tests: 128 (4 new scoring tests; prior 124 unchanged). Vitest: 114 (+1 Preferred sort test).
 
 ## [0.2.4] - 2026-06-02
 

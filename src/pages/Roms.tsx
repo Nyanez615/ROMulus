@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { getRoms } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
 import { ROM_SORT_FIELDS, type RomSortField, type SortDir } from "@/lib/romUtils";
@@ -19,6 +20,8 @@ import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { FilterBar } from "@/components/FilterBar";
 import { RomThumbnail } from "@/components/RomThumbnail";
+import { AlphabetScrubber } from "@/components/AlphabetScrubber";
+import { VariantCountScrubber } from "@/components/VariantCountScrubber";
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -28,22 +31,34 @@ function VerificationBadge({ status }: { status?: string }) {
   return <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" aria-label="Unverified" />;
 }
 
+// ── Unofficial category colours (mirrors former HacksUnofficial.tsx) ──────────
+const CATEGORY_FLAGS = ["Pirate", "Unl", "Aftermarket", "Hack"] as const;
+type CategoryFlag = (typeof CATEGORY_FLAGS)[number];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Pirate:      "bg-red-600/20 text-red-300 border-red-600/40",
+  Unl:         "bg-orange-600/20 text-orange-300 border-orange-600/40",
+  Aftermarket: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
+  Hack:        "bg-purple-600/20 text-purple-300 border-purple-600/40",
+};
+const CATEGORY_PRIORITY: CategoryFlag[] = ["Aftermarket", "Pirate", "Hack", "Unl"];
+
+function getCategoryFlag(statusFlags: string[]): string {
+  return statusFlags.find((f) => (CATEGORY_FLAGS as readonly string[]).includes(f)) ?? "Unl";
+}
 
 // Load all groups for client-side sort/filter. Must exceed the largest realistic
 // collection — 100k covers any local library; SQLite returns this quickly.
 const ALL_GROUPS = 100_000;
 
-// Status flags that belong in the ROMs tab Category filter (Unl excluded — those live in Hacks).
-const STATUS_PRIORITY = ["Beta", "Proto", "Demo", "Sample", "Kiosk", "Promo", "Alt"];
-
 export default function Roms() {
   const { selectedConsoles, cacheVersion } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const { region: knownRegions, status: knownStatus, language: knownLanguages } = useTagStore();
-  const sortedStatus = [
-    ...STATUS_PRIORITY.filter((t) => knownStatus.includes(t)),
-    ...knownStatus.filter((t) => !STATUS_PRIORITY.includes(t)),
-  ];
+  const { region: knownRegions, status: knownStatus, language: knownLanguages, category: knownCategories } = useTagStore();
+  const allCategoryTags = useMemo(
+    () => [...new Set([...knownStatus, ...knownCategories])].sort(),
+    [knownStatus, knownCategories],
+  );
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<RomSortField>("name");
@@ -51,6 +66,7 @@ export default function Roms() {
   const [activeRegions, setActiveRegions] = useState<string[]>([]);
   const [activeStatus, setActiveStatus] = useState<string[]>([]);
   const [activeLangs, setActiveLangs] = useState<string[]>([]);
+  const [activePreferred, setActivePreferred] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -106,26 +122,25 @@ export default function Roms() {
         g.variants.some((v) => v.status_flags.some((s) => activeStatus.includes(s))),
       );
     }
+    if (activePreferred.includes("Has preferred")) {
+      result = result.filter((g) => g.has_preferred_version);
+    }
+    if (activePreferred.includes("No preferred")) {
+      result = result.filter((g) => !g.has_preferred_version);
+    }
 
     const sorted = [...result];
     if (sortField === "variants") {
       sorted.sort((a, b) => sortDir === "desc"
         ? b.variants.length - a.variants.length
         : a.variants.length - b.variants.length);
-    } else if (sortField === "preferred") {
-      sorted.sort((a, b) => {
-        const aHas = a.preferred_idx != null ? 1 : 0;
-        const bHas = b.preferred_idx != null ? 1 : 0;
-        const primary = sortDir === "desc" ? bHas - aHas : aHas - bHas;
-        return primary !== 0 ? primary : a.title_normalized.localeCompare(b.title_normalized);
-      });
     } else {
       sorted.sort((a, b) => sortDir === "asc"
         ? a.title_normalized.localeCompare(b.title_normalized)
         : b.title_normalized.localeCompare(a.title_normalized));
     }
     return sorted;
-  }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs]);
+  }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs, activePreferred]);
 
   function toggleExpand(key: string) {
     setExpanded((prev) =>
@@ -140,9 +155,10 @@ export default function Roms() {
     () => new Set(displayGroups.map(g => `${stripFormatSuffix(g.console)}::${g.title_normalized}`)).size,
     [displayGroups]
   );
-  const gameFileCount = useMemo(
-    () => displayGroups.reduce((s, g) => s + g.variants.filter(v => v.file_category === "game").length, 0),
-    [displayGroups]
+  const playableFileCount = useMemo(
+    () => displayGroups.reduce((s, g) =>
+      s + g.variants.filter(v => v.file_category === "game" || v.file_category === "unofficial").length, 0),
+    [displayGroups],
   );
 
   return (
@@ -156,7 +172,7 @@ export default function Roms() {
           {
             key: "status",
             label: "Category",
-            items: sortedStatus,
+            items: allCategoryTags,
             active: activeStatus,
             onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus),
             onClear: () => setActiveStatus([]),
@@ -176,6 +192,14 @@ export default function Roms() {
             active: activeRegions,
             onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
             onClear: () => setActiveRegions([]),
+          },
+          {
+            key: "preferred",
+            label: "Preferred",
+            items: ["Has preferred", "No preferred"],
+            active: activePreferred,
+            onToggle: (v) => toggleChip(activePreferred, v, setActivePreferred),
+            onClear: () => setActivePreferred([]),
           },
         ]}
         leading={
@@ -206,7 +230,7 @@ export default function Roms() {
               </button>
             )}
             <span className="text-xs text-muted-foreground">
-              {uniqueTitleCount.toLocaleString()} titles · {gameFileCount.toLocaleString()} ROMs
+              {uniqueTitleCount.toLocaleString()} titles · {playableFileCount.toLocaleString()} ROMs
             </span>
           </div>
         }
@@ -217,15 +241,34 @@ export default function Roms() {
           <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
         </ConsoleEmptyState>
       )}
-      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} />
+      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} />
     </div>
   );
 }
 
 function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; isPreferred: boolean; verificationStatus?: string }) {
   const statusColor = rom.is_bios ? "border-l-orange-400" : isPreferred ? "border-l-green-500" : "border-l-transparent";
+  const baseClass = `flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`;
+
+  if (rom.file_category === "unofficial") {
+    const flag = getCategoryFlag(rom.status_flags);
+    const colorClass = CATEGORY_COLORS[flag] ?? CATEGORY_COLORS.Unl;
+    return (
+      <div className={baseClass}>
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>{flag}</span>
+        <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
+        <TagList regions={rom.regions} languages={rom.languages} max={3} />
+        {rom.is_unofficial_preferred_fallback && (
+          <Badge variant="outline" className="text-xs border-blue-500/40 text-blue-400 shrink-0">fallback</Badge>
+        )}
+        <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
+        {isPreferred && <span className="text-green-400 shrink-0">★</span>}
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`}>
+    <div className={baseClass}>
       <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
       <TagList regions={rom.regions} languages={rom.languages} statusFlags={rom.status_flags} max={3} />
       <VerificationBadge status={verificationStatus} />
@@ -241,10 +284,15 @@ interface VirtualRomListProps {
   onToggle: (key: string) => void;
   selectedConsoles: string[] | null;
   useShort: boolean;
+  showScrubber: boolean;
+  reverseStrip: boolean;
+  showCountScrubber: boolean;
+  sortDir: "asc" | "desc";
 }
 
-function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort }: VirtualRomListProps) {
+function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir }: VirtualRomListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
   // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns non-memoizable functions; known React Compiler v7 limitation, isolated here
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -252,8 +300,29 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort 
     estimateSize: () => 52,
     overscan: 10,
     measureElement: (el) => el?.getBoundingClientRect().height ?? 52,
+    onChange: (instance) => {
+      const first = instance.getVirtualItems()[0];
+      if (first !== undefined) setFirstVisibleIndex(first.index);
+    },
   });
   return (
+    <div className="flex-1 overflow-hidden flex flex-row min-h-0">
+    {showScrubber && (
+      <AlphabetScrubber
+        items={items}
+        firstVisibleIndex={firstVisibleIndex}
+        onJump={(idx) => virtualizer.scrollToIndex(idx, { align: "start" })}
+        reverseStrip={reverseStrip}
+      />
+    )}
+    {showCountScrubber && (
+      <VariantCountScrubber
+        items={items}
+        firstVisibleIndex={firstVisibleIndex}
+        onJump={(idx) => virtualizer.scrollToIndex(idx, { align: "start" })}
+        sortDir={sortDir}
+      />
+    )}
     <div ref={containerRef} className="flex-1 overflow-auto">
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((vItem) => {
@@ -275,6 +344,17 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort 
                 onClick={() => onToggle(key)}
               >
                 {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                {(() => {
+                  const flags = (preferred ?? g.variants[0])?.status_flags ?? [];
+                  const catFlag = CATEGORY_PRIORITY.find(f => flags.includes(f));
+                  if (!catFlag) return null;
+                  const colorClass = CATEGORY_COLORS[catFlag];
+                  return (
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>
+                      {catFlag}
+                    </span>
+                  );
+                })()}
                 {isOpen && preferred && (
                   <RomThumbnail title={preferred.title} consoleName={g.console} />
                 )}
@@ -318,6 +398,7 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort 
           );
         })}
       </div>
+    </div>
     </div>
   );
 }
