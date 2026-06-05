@@ -87,7 +87,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     }
 
     // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease.
-    // Base -30 keeps unofficial below all official content (min official score ≈ -10).
+    // Base -30 keeps unofficial below all official content (min official score ≥ 0).
     // Tiebreaker encodes both priorities: explicit lang match >> region preference.
     // Multiplier 1000 exceeds any realistic region score (~200 max with 10 preferred regions).
     if matches!(rom.file_category, FileCategory::Unofficial) {
@@ -103,7 +103,9 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
 
     let collection_penalty: i32 =
         if rom.extra_tags.iter().any(|t| COLLECTION_TAGS.contains(&t.as_str())) {
-            -10
+            // −80: large enough to ensure any original regional release (even Japan = 5)
+            // beats a collection re-release (even World = 80). 80 − 80 = 0 < 5.
+            -80
         } else if rom.extra_tags.iter().any(|t| FORMAT_VARIANT_TAGS.contains(&t.as_str())) {
             -5
         } else {
@@ -925,6 +927,22 @@ mod tests {
         evercade.extra_tags = vec!["Evercade".into()];
         let base = rom("Game", &["USA"], &[], &[]);
         assert!(score_rom(&base, &en_prefs()) > score_rom(&evercade, &en_prefs()));
+    }
+
+    #[test]
+    fn japan_en_beats_world_collection_for_english_user() {
+        // Real-world case: Contra (Japan) (En) vs Contra (World) (Contra Anniversary Collection).
+        // Both are English-playable, but the Japan original must be preferred over the
+        // World compilation re-release. Requires collection penalty ≥ 76 (80 − 5 + 1).
+        let japan_en = rom("Contra", &["Japan"], &["En"], &[]);
+        let mut world_collection = rom("Contra", &["World"], &[], &[]);
+        world_collection.extra_tags = vec!["Contra Anniversary Collection".into()];
+        assert!(
+            score_rom(&japan_en, &en_prefs()) > score_rom(&world_collection, &en_prefs()),
+            "Japan (En) original {:?} must beat World (Collection) {:?}",
+            score_rom(&japan_en, &en_prefs()),
+            score_rom(&world_collection, &en_prefs()),
+        );
     }
 
     #[test]
