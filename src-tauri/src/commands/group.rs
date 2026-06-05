@@ -952,6 +952,22 @@ mod tests {
     }
 
     #[test]
+    fn proto2_preferred_over_proto1() {
+        // Proto 2 is a later, more complete prototype than Proto 1.
+        // Both score (−100, revision, r_score); higher revision wins.
+        let mut proto1 = rom("John Madden Football", &["USA"], &[], &["Proto"]);
+        proto1.revision = 1;
+        let mut proto2 = rom("John Madden Football", &["USA"], &[], &["Proto"]);
+        proto2.revision = 2;
+        assert!(
+            score_rom(&proto2, &en_prefs()) > score_rom(&proto1, &en_prefs()),
+            "Proto 2 {:?} must beat Proto 1 {:?}",
+            score_rom(&proto2, &en_prefs()),
+            score_rom(&proto1, &en_prefs()),
+        );
+    }
+
+    #[test]
     fn rev1_beats_unrevised_original_regardless_of_region() {
         // Real-world case: Donkey Kong (World) (Rev 1) must beat Donkey Kong (Japan, USA) (En).
         // Revision bonus (100 per rev) must overcome the USA region advantage (100 pts)
