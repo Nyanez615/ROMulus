@@ -166,6 +166,16 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
         // Status flags (allow numeric suffix: "Beta 1", "Proto 2")
         if let Some(flag) = STATUS_FLAGS.iter().find(|&&f| content == f || content.starts_with(&format!("{f} "))) {
             status_flags.push((*flag).to_string());
+            // Capture the sequence number (e.g. 1 from "Proto 1") into revision so that
+            // Proto 2 scores higher than Proto 1 in the pre-release tiebreaker.
+            // Only set when no "Rev N" was already parsed (revision == 0).
+            if revision == 0 {
+                if let Some(num_str) = content.strip_prefix(&format!("{flag} ")) {
+                    if let Ok(n) = num_str.parse::<u32>() {
+                        revision = n;
+                    }
+                }
+            }
             continue;
         }
 
@@ -584,6 +594,28 @@ mod tests {
         let r = parse("Pokemon Puzzle Collection (USA) (GameCube Preview).zip");
         assert!(r.status_flags.contains(&"GameCube Preview".to_string()), "(GameCube Preview) must be a status flag");
         assert!(r.extra_tags.is_empty(), "(GameCube Preview) must not leak into extra_tags");
+    }
+
+    // ── Pre-release sequence number tests ─────────────────────────────────────
+
+    #[test]
+    fn proto_sequence_number_stored_in_revision() {
+        let r = parse("John Madden Football (USA) (Proto 2) (SGB Enhanced).zip");
+        assert!(r.status_flags.contains(&"Proto".to_string()));
+        assert_eq!(r.revision, 2, "Proto 2 → revision = 2");
+    }
+
+    #[test]
+    fn beta_sequence_number_stored_in_revision() {
+        let r = parse("Some Game (USA) (Beta 3).zip");
+        assert!(r.status_flags.contains(&"Beta".to_string()));
+        assert_eq!(r.revision, 3, "Beta 3 → revision = 3");
+    }
+
+    #[test]
+    fn plain_proto_leaves_revision_zero() {
+        let r = parse("Some Game (USA) (Proto).zip");
+        assert_eq!(r.revision, 0);
     }
 
     // ── Catalog number split tests ─────────────────────────────────────────────
