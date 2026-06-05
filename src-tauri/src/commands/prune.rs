@@ -70,11 +70,8 @@ pub(crate) fn apply_filters_inner(
     let mut no_preferred_count = 0u32;
 
     for group in &groups {
-        let all_unofficial = group.variants.iter().all(|v| matches!(v.file_category, FileCategory::Unofficial));
-
-        // No preferred version → delete all if flag set (official groups only; unofficial have
-        // no meaningful "preferred version" concept so don't nuke them on this criterion).
-        if !all_unofficial && !group.has_preferred_version && settings.remove_if_no_preferred_version {
+        // No preferred version → delete all variants (game or unofficial) if flag set.
+        if !group.has_preferred_version && settings.remove_if_no_preferred_version {
             no_preferred_count += 1;
             for rom in &group.variants {
                 to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NoPreferredVersion });
@@ -164,6 +161,9 @@ pub(crate) fn apply_filters_inner(
             total_groups: 0,
             game_files: 0,
             game_groups: 0,
+            preferred_groups: 0,
+            all_groups: 0,
+            unofficial_files: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -181,6 +181,9 @@ pub(crate) fn apply_filters_inner(
             total_groups: 0,
             game_files: 0,
             game_groups: 0,
+            preferred_groups: 0,
+            all_groups: 0,
+            unofficial_files: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -416,25 +419,28 @@ mod tests {
 
     #[test]
     fn unofficial_group_kept_when_remove_unofficial_off() {
-        let group = make_group(vec![
-            make_rom("Hack (En)", FileCategory::Unofficial),
-            make_rom("Hack (Ja)", FileCategory::Unofficial),
-        ]);
+        // When the group has a preferred version, remove_unofficial=false must keep it
+        // regardless of any other toggle.
+        let mut preferred = make_rom("Hack (En)", FileCategory::Unofficial);
+        preferred.matches_preferred_language = true;
+        let mut group = make_group(vec![preferred, make_rom("Hack (Ja)", FileCategory::Unofficial)]);
+        group.has_preferred_version = true;
         let mut filters = default_filters();
         filters.remove_unofficial = false;
         let plan = apply_filters_inner(vec![group], &filters);
-        assert!(plan.to_delete.is_empty(), "unofficial variants should be kept");
+        assert!(plan.to_delete.is_empty(), "unofficial variants should be kept when remove_unofficial is off");
         assert_eq!(plan.to_keep.len(), 2);
     }
 
     #[test]
-    fn unofficial_group_not_deleted_by_no_preferred_version_flag() {
+    fn unofficial_group_deleted_by_no_preferred_version_flag() {
+        // Unified ROMs+unofficial: the no_preferred_version rule applies to unofficial groups too.
         let group = make_group(vec![make_rom("Hack (Ja)", FileCategory::Unofficial)]);
         let mut filters = default_filters();
         filters.remove_unofficial = false;
         filters.remove_if_no_preferred_version = true;
         let plan = apply_filters_inner(vec![group], &filters);
-        assert!(plan.to_delete.is_empty(), "unofficial group must not be nuked by remove_if_no_preferred_version");
+        assert_eq!(plan.to_delete.len(), 1, "unofficial group with no preferred version should be deleted");
     }
 
     #[test]

@@ -58,6 +58,25 @@ pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
             .unwrap_or(0);
     }
 
+    let mut canonical_preferred: HashMap<String, HashSet<&str>> = HashMap::new();
+    let mut canonical_all: HashMap<String, HashSet<&str>> = HashMap::new();
+    for group in &cache.groups {
+        let has_playable = group.variants.iter().any(|v|
+            matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)
+        );
+        if !has_playable { continue; }
+        let base = strip_format_suffix(&group.console).to_owned();
+        canonical_all.entry(base.clone()).or_default().insert(&group.title_normalized);
+        if group.variants.iter().any(|v| v.matches_preferred_language) {
+            canonical_preferred.entry(base).or_default().insert(&group.title_normalized);
+        }
+    }
+    for s in &mut stats {
+        let base = strip_format_suffix(&s.name);
+        s.preferred_groups = canonical_preferred.get(base).map(|t| t.len() as u32).unwrap_or(0);
+        s.all_groups       = canonical_all.get(base).map(|t| t.len() as u32).unwrap_or(0);
+    }
+
     stats
 }
 
@@ -349,6 +368,9 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             total_groups: 0,
             game_files: 0,
             game_groups: 0,
+            preferred_groups: 0,
+            all_groups: 0,
+            unofficial_files: 0,
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
@@ -377,6 +399,8 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
                 .entry(base)
                 .or_default()
                 .insert(rom.title_normalized.clone());
+        } else if rom.file_category == FileCategory::Unofficial {
+            stats.unofficial_files += 1;
         }
     }
 

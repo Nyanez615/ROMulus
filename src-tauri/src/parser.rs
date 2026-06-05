@@ -22,20 +22,15 @@ const STATUS_FLAGS: &[&str] = &[
     "Aftermarket", "Unl", "Pirate", "Hack", "Alt",
 ];
 
-/// ISO 639-1 codes + common multi-language combos seen in No-Intro filenames.
-/// Explicit whitelist — anything not here falls through to status_flags or extra_tags.
+/// ISO 639-1 single-language codes seen in No-Intro filenames.
+/// Multi-language combos (e.g. "En,Fr", "Fr,De") are accepted dynamically by
+/// `is_language_tag` — no need to list them exhaustively here.
 const LANGUAGE_CODES: &[&str] = &[
-    "Af", "Ar", "Be", "Bg", "Ca", "Cs", "Cy", "Da", "De", "El", "En",
-    "Eo", "Es", "Et", "Eu", "Fi", "Fr", "Ga", "Gl", "He", "Hr", "Hu",
-    "Hy", "Id", "Is", "It", "Ja", "Ka", "Ko", "Lt", "Lv", "Mk", "Ms",
-    "Mt", "Nl", "No", "Pl", "Pt", "Ro", "Ru", "Sk", "Sl", "Sq", "Sr",
+    "Af", "Ar", "Be", "Bg", "Br", "Ca", "Co", "Cs", "Cy", "Da", "De", "El", "En",
+    "Eo", "Es", "Et", "Eu", "Fi", "Fr", "Ga", "Gd", "Gl", "He", "Hr", "Hu",
+    "Hy", "Id", "Is", "It", "Ja", "Ka", "Ko", "Kw", "Lt", "Lv", "Mk", "Ms",
+    "Mt", "Nl", "No", "Oc", "Pl", "Pt", "Ro", "Ru", "Sk", "Sl", "Sq", "Sr",
     "Sv", "Sw", "Th", "Tl", "Tr", "Uk", "Ur", "Vi", "Yi", "Zh",
-    // Multi-language combos
-    "En,Fr", "En,De", "En,Es", "En,It", "En,Pt", "En,Nl",
-    "En,Fr,De", "En,Fr,De,Es", "En,Fr,De,Es,It",
-    "En,Ja", "En,Zh", "En,Ko", "Zh,En",
-    // Rare but valid
-    "Kw", "Gd", "Br", "Co", "Oc",
 ];
 
 /// Tags that mark a utility / non-game ROM.
@@ -182,7 +177,9 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
 }
 
 fn is_language_tag(s: &str) -> bool {
-    LANGUAGE_CODES.contains(&s)
+    // Accept any comma-separated sequence where every part is a known single-language code.
+    // Handles "En", "En,Fr", "Fr,De", "Ja,Zh", "Sv,No,Da", etc. without an exhaustive list.
+    s.split(',').all(|part| LANGUAGE_CODES.contains(&part))
 }
 
 fn parse_revision(s: &str) -> Option<u32> {
@@ -380,6 +377,28 @@ mod tests {
         let r = parse("Lucky Luke (Europe) (En,Fr,De,Es).zip");
         assert_eq!(r.regions, vec!["Europe"]);
         assert_eq!(r.languages, vec!["En", "Fr", "De", "Es"]);
+    }
+
+    #[test]
+    fn non_en_multi_language_tag() {
+        // "Fr,De" must be stored as explicit languages, not dropped.
+        // Bug regression: previously `languages=[]`, causing Europe to infer English
+        // and outscore an explicit Spain (En,Es) variant for English-only users.
+        let r = parse("Asterix & Obelix (Europe) (Fr,De) (SGB Enhanced).zip");
+        assert_eq!(r.regions, vec!["Europe"]);
+        assert_eq!(r.languages, vec!["Fr", "De"]);
+    }
+
+    #[test]
+    fn non_en_two_lang_combo() {
+        let r = parse("Game (Brazil, Portugal) (Es,Pt).zip");
+        assert_eq!(r.languages, vec!["Es", "Pt"]);
+    }
+
+    #[test]
+    fn non_en_three_lang_combo() {
+        let r = parse("Game (Scandinavia) (Sv,No,Da).zip");
+        assert_eq!(r.languages, vec!["Sv", "No", "Da"]);
     }
 
     #[test]

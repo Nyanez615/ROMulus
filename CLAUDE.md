@@ -15,7 +15,8 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Dogfood Round 2** ✅ Dashboard overhaul, cross-console title merging, collapsible FilterBar, platform multi-select, short console names toggle, `v0.2.0` published
 - **Dogfood Rounds 3–4 + Bug Groups S–T** ✅ Settings persistence fixes, Language Match cache bug, region/language inference overhaul, Prune UX (checkboxes, reasons, search), format pairs in apply_filters, `v0.2.1`–`v0.2.3` published
 - **Bug Groups U–X** ✅ Scoring fixes, format pair dedicated workflow, BIOS inclusion, no-counterpart reason, permanent-only deletion, cloud root blocking, `v0.2.4` published
-- **React Compiler v7 Hardening + Format Pair UX** ✅ Set→array state conversions, virtualizer child isolation, subset indicator on pair cards, auto-rescan after format pair execution
+- **v0.2.5** ✅ Sort UX overhaul (SortControl, bidirectional sort), scoring tier split (Format Variant/Collection), Prune filter descriptions + preview scroll fix, format pair subset indicator, auto-rescan, React Compiler v7 hardening
+- **v0.2.6** ✅ Titles Count Architecture (game_groups sidebar/Dashboard), scoring overhaul (multi-language tag parsing, alt_penalty fix, version tiebreaker), AlphabetScrubber + VariantCountScrubber, Hacks merged into ROMs tab, Preferred filter chip
 
 ## Dev setup
 
@@ -27,7 +28,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 107 unit tests + regenerates src/lib/bindings/
+cargo test                    # 137 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -35,7 +36,7 @@ From project root:
 ```bash
 npx tsc --noEmit       # TypeScript type-check
 npm run lint           # ESLint
-npm run test:run       # Vitest
+npm run test:run       # 114 Vitest tests
 ```
 
 ## Architecture
@@ -47,7 +48,10 @@ src/                             React frontend (Vite root)
     ConsoleIcon.tsx              Manufacturer/console icon + accent color (wraps consoleUtils.ts)
     ConsolePageTitle.tsx         Colored console heading shared by all console-filtered tabs
     ConsoleEmptyState.tsx        Empty state for console-filtered views with no results
-    FilterBar.tsx                Collapsible Category/Language/Region filter panel (ROMs + Hacks tabs)
+    AlphabetScrubber.tsx         A–Z # strip for ROMs tab (name sort); reverses in desc order
+    VariantCountScrubber.tsx     Numeric variant-count strip for ROMs tab (variants sort)
+    FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab)
+    SortControl.tsx              Field <select> + direction <button> pill; used on ROMs/Duplicates/Dashboard
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -57,11 +61,11 @@ src/                             React frontend (Vite root)
     bindings/                    Auto-generated TS types from Rust structs (never edit)
     consoleUtils.ts              SINGLE SOURCE OF TRUTH for all console data/logic — never import colors or abbreviations from ConsoleIcon.tsx in new code
     regionUtils.ts               REGION_DEFAULT_LANGUAGES map + helpers — mirrors parser.rs::region_default_languages; keep in sync
-    romUtils.ts                  ROM_SORT_OPTIONS + RomSortKey shared between ROMs and Hacks tabs
+    romUtils.ts                  ROM_SORT_FIELDS / RomSortField / SortDir shared by ROMs tab — import from here, never inline
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
-  pages/                         One component per tab (Dashboard.tsx, Roms.tsx, HacksUnofficial.tsx, SystemFiles.tsx, Duplicates.tsx, Prune.tsx, History.tsx, Settings.tsx)
+  pages/                         One component per tab (Dashboard.tsx, Roms.tsx, SystemFiles.tsx, Duplicates.tsx, Prune.tsx, History.tsx, Settings.tsx)
   store/                         scan.ts · preferences.ts · onboarding.ts · ui.ts
   onboarding/                    4-step wizard (Terms → Prefs → Roots → Scan)
 
@@ -111,7 +115,7 @@ src-tauri/
 - **All Rust browse commands take `consoles: Option<Vec<String>>`** — use `group_matches_consoles()` (not the old `console_matches()`) so cross-console merged groups are handled correctly.
 - **`FilterBar` component** — takes `groups`, `leading`, and `trailing` ReactNode props. Renders collapsible chip panels (Category → Language → Region order) with active-count badges. Filter chips are bidirectional: Language chip also matches region-inferred ROMs via `regionUtils.ts`.
 - **`regionUtils.ts`** — `REGION_DEFAULT_LANGUAGES` and `getRegionDefaultLanguages()` are the TS mirror of `parser.rs::region_default_languages`. Always keep in sync. Used by filter chips and the Settings inferred-regions note.
-- **`romUtils.ts`** — `ROM_SORT_OPTIONS` / `RomSortKey` shared by ROMs and Hacks tabs — import from here, never inline.
+- **`romUtils.ts`** — `ROM_SORT_FIELDS` / `RomSortField` / `SortDir` shared by the ROMs tab — import from here, never inline.
 - **`DeletionPlan`** — `to_delete` is `DeletionItem[]` (not `RomFile[]`). Each item has `{ rom: RomFile, reason: DeletionReason }`. Frontend must extract `.rom` when passing to `execute_prune` or `export_csv`.
 - **Prune filter settings** — persisted via dedicated `get_filter_settings` / `save_filter_settings` commands (KV `settings` table). Not bundled in `AppSettings`. Prune.tsx loads on mount and saves on each toggle.
 

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import {
-  LayoutDashboard, Gamepad2, Skull, Cpu,
+  LayoutDashboard, Gamepad2, Cpu,
   CopyX, Scissors, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import {
   getConsoleColor,
   getConsoleDisplayName,
   resolveConsoleVariants,
-  canonicalTitleCount,
+  canonicalAllTitleCount,
 } from "@/lib/consoleUtils";
 import { usePreferencesStore } from "@/store/preferences";
 import { useUIStore, type TabId } from "@/store/ui";
@@ -24,17 +24,16 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard",  label: "Dashboard",          icon: LayoutDashboard },
-  { id: "roms",       label: "ROMs",                icon: Gamepad2        },
-  { id: "hacks",      label: "Hacks & Unofficial",  icon: Skull           },
-  { id: "duplicates", label: "Duplicates",          icon: CopyX           },
-  { id: "system",     label: "System Files",        icon: Cpu             },
-  { id: "prune",      label: "Prune",               icon: Scissors        },
-  { id: "history",    label: "History",             icon: History         },
-  { id: "settings",   label: "Settings",            icon: Settings        },
+  { id: "dashboard",  label: "Dashboard",   icon: LayoutDashboard },
+  { id: "roms",       label: "ROMs",         icon: Gamepad2        },
+  { id: "duplicates", label: "Duplicates",   icon: CopyX           },
+  { id: "system",     label: "System Files", icon: Cpu             },
+  { id: "prune",      label: "Prune",        icon: Scissors        },
+  { id: "history",    label: "History",      icon: History         },
+  { id: "settings",   label: "Settings",     icon: Settings        },
 ];
 
-const CONSOLE_AWARE_TABS: TabId[] = ["roms", "hacks", "system", "duplicates", "prune", "history"];
+const CONSOLE_AWARE_TABS: TabId[] = ["roms", "system", "duplicates", "prune", "history"];
 
 export function Sidebar() {
   const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();
@@ -62,7 +61,7 @@ export function Sidebar() {
     let total = 0;
     for (const canonicalMap of platformGroups.values())
       for (const variants of canonicalMap.values())
-        total += canonicalTitleCount(variants);
+        total += canonicalAllTitleCount(variants);
     return total;
   }, [platformGroups]);
 
@@ -196,9 +195,9 @@ export function Sidebar() {
             {/* Per-platform collapsible groups */}
             {Array.from(platformGroups.entries()).map(([platform, canonicalMap]) => {
               const isCollapsed = collapsedPlatforms.includes(platform);
-              // Sum canonical title counts; canonicalTitleCount handles N64DD-style aliases
+              // Sum canonical title counts; canonicalAllTitleCount handles N64DD-style aliases
               const platformTotal = Array.from(canonicalMap.values())
-                .reduce((s, variants) => s + canonicalTitleCount(variants), 0);
+                .reduce((s, variants) => s + canonicalAllTitleCount(variants), 0);
               const platformColor = getConsoleColor(canonicalMap.values().next().value?.[0]?.name ?? "");
 
               return (
@@ -227,7 +226,7 @@ export function Sidebar() {
                   {!isCollapsed && (
                     <ul className="mt-0.5 space-y-0.5 pl-2">
                       {Array.from(canonicalMap.entries()).map(([canonical, variants]) => {
-                        const rowTotal = canonicalTitleCount(variants);
+                        const rowTotal = canonicalAllTitleCount(variants);
                         const selected = isCanonicalSelected(variants);
                         const representativeName = variants[0]?.name ?? "";
                         const accentColor = getConsoleColor(representativeName);
@@ -268,7 +267,7 @@ export function Sidebar() {
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{allTitles.toLocaleString()} titles</div>
-          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.game_files, 0).toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
+          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (

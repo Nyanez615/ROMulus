@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Gamepad2, Skull, Cpu,
+  LayoutDashboard, Gamepad2, Cpu,
   CopyX, Scissors, History, Settings, Zap,
 } from "lucide-react";
 import {
@@ -12,14 +12,13 @@ import { scanRoots, getSettings, enrichAllGames } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 
 const NAV_COMMANDS = [
-  { label: "Dashboard",           tab: "dashboard"  as TabId, icon: LayoutDashboard },
-  { label: "ROMs",                 tab: "roms"       as TabId, icon: Gamepad2        },
-  { label: "Hacks & Unofficial",  tab: "hacks"      as TabId, icon: Skull           },
-  { label: "System Files",        tab: "system"     as TabId, icon: Cpu             },
-  { label: "Duplicates",          tab: "duplicates" as TabId, icon: CopyX           },
-  { label: "Prune",               tab: "prune"      as TabId, icon: Scissors        },
-  { label: "History",             tab: "history"    as TabId, icon: History         },
-  { label: "Settings",            tab: "settings"   as TabId, icon: Settings        },
+  { label: "Dashboard",    tab: "dashboard"  as TabId, icon: LayoutDashboard },
+  { label: "ROMs",          tab: "roms"       as TabId, icon: Gamepad2        },
+  { label: "System Files", tab: "system"     as TabId, icon: Cpu             },
+  { label: "Duplicates",   tab: "duplicates" as TabId, icon: CopyX           },
+  { label: "Prune",        tab: "prune"      as TabId, icon: Scissors        },
+  { label: "History",      tab: "history"    as TabId, icon: History         },
+  { label: "Settings",     tab: "settings"   as TabId, icon: Settings        },
 ];
 
 export function CommandPalette() {

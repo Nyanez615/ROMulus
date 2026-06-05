@@ -129,11 +129,6 @@ export const applyFormatPairs = (): Promise<DeletionPlan> =>
 export const exportCsv = (toDelete: DeletionItem[], path: string): Promise<void> =>
   isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
 
-export const getUnofficial = (params: GetGamesParams): Promise<PagedGroups> =>
-  isTauri()
-    ? invoke("get_unofficial", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
-    : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
-
 export const getSystemFiles = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
     ? invoke("get_system_files", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
