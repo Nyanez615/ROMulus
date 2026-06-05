@@ -39,6 +39,7 @@ const FORMAT_VARIANT_TAGS: &[&str] = &[
 // Third-party / non-standard collections — penalised more heavily.
 const COLLECTION_TAGS: &[&str] = &[
     "LodgeNet", "Evercade", "Limited Run Games", "Retro-Bit Generations",
+    "Disney Classic Games",
 ];
 // Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
 // Switch Online, Switch, Classic Mini, GameCube) fall through to 0 — no entry needed.
