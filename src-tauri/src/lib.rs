@@ -11,6 +11,11 @@ mod models;
 mod parser;
 mod watcher;
 
+// Re-exports for the audit binary target
+pub use commands::group::{group_roms, score_rom, COLLECTION_TAGS};
+pub use models::{FileCategory, RomFile, RomGroup, UserPreferences};
+pub use parser::parse_file;
+
 use commands::{dat, execute, group, history, metadata, prune, scan, settings, thumbnail};
 use db::AppState;
 
@@ -122,8 +127,6 @@ pub fn run() {
             settings::get_settings,
             settings::save_settings,
             settings::reapply_preferences,
-            settings::get_filter_settings,
-            settings::save_filter_settings,
             settings::get_onboarding_state,
             settings::complete_onboarding_step,
             // Metadata (IGDB)

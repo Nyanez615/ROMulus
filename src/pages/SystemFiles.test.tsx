@@ -12,6 +12,11 @@ const mockGetSystemFiles = vi.fn();
 vi.mock("@/lib/tauri", () => ({
   getSystemFiles: (params: import("@/lib/tauri").GetGamesParams) => mockGetSystemFiles(params),
   formatBytes: (b: number) => `${b} B`,
+  applyFilters: vi.fn(() => Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0 })),
+  executePrune: vi.fn(() => Promise.resolve({ success_count: 0, failed: [] })),
+  scanRoots: vi.fn(() => Promise.resolve({ scanning: false, scanned: 0, total_estimate: 0, current_console: null, cached: false })),
+  getSettings: vi.fn(() => Promise.resolve({ rom_roots: [], theme: "dark", permanent_delete: false })),
+  getConsoles: vi.fn(() => Promise.resolve([])),
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -28,7 +33,6 @@ function makeFile(filename: string, category: string, consoleName: string): RomF
     filesize: 512,
     matches_preferred_language: true,
     matches_preferred_region: true,
-    is_unofficial_preferred_fallback: false,
   };
 }
 
@@ -56,7 +60,11 @@ const GBA_FILES: RomFile[] = [
 
 const MIXED_FILES: RomFile[] = [
   makeFile("BIOS.bin", "bios", "Nintendo - NES"),
-  makeFile("Utility.zip", "utility", "Nintendo - NES"),
+  makeFile("Video.bin", "video", "Nintendo - NES"),
+];
+
+const DEMO_FILES: RomFile[] = [
+  makeFile("Pocket Monsters (Japan) (Demo).zip", "demo", "Nintendo - Game Boy"),
 ];
 
 beforeEach(() => {
@@ -107,11 +115,11 @@ describe("SystemFiles (Group D)", () => {
     await waitFor(() => expect(screen.getByText("BIOS.bin")).toBeInTheDocument());
 
     fireEvent.change(screen.getByPlaceholderText("Search files…"), {
-      target: { value: "Utility" },
+      target: { value: "Video" },
     });
 
     expect(screen.queryByText("BIOS.bin")).toBeNull();
-    expect(screen.getByText("Utility.zip")).toBeInTheDocument();
+    expect(screen.getByText("Video.bin")).toBeInTheDocument();
   });
 
   it("category chips filter to the selected category", async () => {
@@ -121,12 +129,27 @@ describe("SystemFiles (Group D)", () => {
     render(<SystemFiles />);
     await waitFor(() => expect(screen.getByText("BIOS.bin")).toBeInTheDocument());
 
-    // Click the "Utilities" chip (it's a button in the toolbar)
-    const chips = screen.getAllByRole("button").filter((b) => b.textContent === "Utilities");
+    // Click the "Video" chip (it's a button in the toolbar)
+    const chips = screen.getAllByRole("button").filter((b) => b.textContent === "Video");
     fireEvent.click(chips[0]);
 
     expect(screen.queryByText("BIOS.bin")).toBeNull();
-    expect(screen.getByText("Utility.zip")).toBeInTheDocument();
+    expect(screen.getByText("Video.bin")).toBeInTheDocument();
+  });
+
+  it("demo files are not rendered in System Files (moved to ROMs tab)", async () => {
+    useScanStore.setState({ selectedConsoles: null });
+    mockGetSystemFiles.mockResolvedValue(pagedGroups(DEMO_FILES));
+
+    render(<SystemFiles />);
+
+    // The component receives demo files from the server but must not render
+    // a "Demos" section — that category was removed from ALL_CATEGORIES.
+    await waitFor(() => {
+      expect(mockGetSystemFiles).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Demos")).toBeNull();
+    expect(screen.queryByText("Pocket Monsters (Japan) (Demo).zip")).toBeNull();
   });
 
   it("title shows plain 'System Files' when no console is selected", async () => {

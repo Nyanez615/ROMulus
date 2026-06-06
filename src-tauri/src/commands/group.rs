@@ -34,18 +34,51 @@ const FORMAT_VARIANT_TAGS: &[&str] = &[
     "Meganet",         // Mega Drive modem service (Japan)
     "NP",              // Nintendo Power flash-cart service (Japan)
     "Animal Crossing", // GBA games embedded in Animal Crossing (GameCube)
+    "Batteryless",     // Modified to remove battery-backed save; prefer standard version
+    "Netcard",         // Famicom Disk System network service (same tier as Disk Writer)
+    "Arcade",          // Arcade-cabinet variant (PlayChoice-10 style); prefer standard release
 ];
 
 // Third-party / non-standard collections — penalised more heavily.
-const COLLECTION_TAGS: &[&str] = &[
-    "LodgeNet", "Evercade", "Limited Run Games", "Retro-Bit Generations",
-    "Disney Classic Games",
-    "Castlevania Anniversary Collection", "Contra Anniversary Collection",
-    "Arcade Classics Anniversary Collection",
+pub const COLLECTION_TAGS: &[&str] = &[
+    // Hardware re-release platforms
+    "LodgeNet", "FamicomBox",
+    "Evercade", "Atari Flashback", "Retro-Bit", "Retro-Bit Generations",
+    "Limited Run Games", "iam8bit", "Strictly Limited Games",
+    "GameCube Edition",
+    // Digital re-release services
+    "Capcom Town", "Project EGG",
+    // Nintendo compilations / peripheral re-releases
+    "Disney Classic Games", "Collection of Mana", "e-Reader", "e-Reader Edition",
+    "Seiken Densetsu Collection", "Collection of SaGa",
+    "Zelda Collection",
+    // Capcom compilations
+    "The Disney Afternoon Collection", "Capcom Classics Mini Mix",
+    "Mega Man Legacy Collection", "Mega Man X Legacy Collection",
+    "Mega Man Battle Network Legacy Collection",
+    "Castlevania Anniversary Collection", "Castlevania Advance Collection",
+    "Contra Anniversary Collection", "Arcade Classics Anniversary Collection",
+    "Rockman 123",
+    // Konami compilations
+    "Konami Collector's Series", "Metal Gear Solid Collection",
+    // Namco compilations
+    "Namcot Collection", "Namco Museum Archives Vol 1", "Namco Museum Archives Vol 2",
+    "Namco Anthology 1",
+    // SNK / Taito / Square compilations
+    "SNK 40th Anniversary Collection", "Darius Cozmic Collection",
+    // TMNT / other compilations — both article forms are used by No-Intro
+    "The Cowabunga Collection", "Cowabunga Collection",
+    "Ninja JaJaMaru Retro Collection",
+    "8-bit Adventure Anthology - Volume I",
+    // Misc
     "QUByte Classics",
+    "Genteiban!",                            // Japanese limited edition re-release
+    "Phantasy Star Online Episode I & II",  // Mini-game extracted from PSO disc
+    "Pixel Heart",                           // French limited physical release label
 ];
 // Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
-// Switch Online, Switch, Classic Mini, GameCube) fall through to 0 — no entry needed.
+// Switch Online, Switch, Classic Mini, GameCube) are not listed here — they receive
+// the generic extra_tag penalty below (-5) so plain cartridge releases are preferred.
 
 /// Higher score = more preferred variant.
 /// Returns (score, revision, lang_match_count) tuple — all three compared
@@ -68,7 +101,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     if rom.status_flags.iter().any(|f| {
         matches!(
             f.as_str(),
-            "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk" | "Preview" | "GameCube Preview"
+            "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Demo" | "Sample" | "Promo" | "Kiosk" | "Preview" | "GameCube Preview"
         )
     }) {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
@@ -96,18 +129,33 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         let lang_count = rom.languages.iter()
             .filter(|l| prefs.preferred_languages.contains(*l))
             .count();
-        return (-30 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
+        let format_penalty: i32 =
+            if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| COLLECTION_TAGS.contains(&part)) {
+                -80
+            } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
+                -5
+            } else {
+                0
+            };
+        return (-30 + alt_penalty + format_penalty, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
     let region_score = region_score(&rom.regions, prefs);
 
+    // Split each extra_tag on ", " before matching so compound tags like
+    // "Namcot Collection, Namco Museum Archives Vol 1" hit the penalty correctly.
     let collection_penalty: i32 =
-        if rom.extra_tags.iter().any(|t| COLLECTION_TAGS.contains(&t.as_str())) {
-            // −80: large enough to ensure any original regional release (even Japan = 5)
-            // beats a collection re-release (even World = 80). 80 − 80 = 0 < 5.
-            -80
-        } else if rom.extra_tags.iter().any(|t| FORMAT_VARIANT_TAGS.contains(&t.as_str())) {
+        if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| COLLECTION_TAGS.contains(&part)) {
+            // −100: large enough to ensure ANY original release (even Japan = 5) beats
+            // ANY collection re-release (even USA = 100): 100 − 100 = 0 < 5.
+            -100
+        } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
+            -5
+        } else if !rom.extra_tags.is_empty() {
+            // Any unrecognised extra_tag (e.g. platform-specific variants like (GameCube)
+            // or mode variants like (GBC Mode)) gets a minor penalty so the plain release
+            // is always preferred when both exist and all other scoring is equal.
             -5
         } else {
             0
@@ -151,10 +199,11 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             .unwrap_or(0)
     };
 
-    // Revision bonus: each revision increment is worth one full USA-equivalent (100 pts).
-    // This ensures Rev 1 from any region always beats the unrevised original from any region,
-    // including the best-scoring USA original (1000 + 100 = 1100 < 1000 + 5 + 100 = 1105).
-    let revision_bonus = rom.revision as i32 * 100;
+    // Revision bonus applies only to original (non-penalised) releases.
+    // For collection re-releases and distribution-format variants, suppressing the bonus
+    // prevents high-revision re-releases from outranking unrevised originals.
+    // The score tuple's `revision` field still provides within-tier tiebreaking.
+    let revision_bonus = if collection_penalty == 0 { rom.revision as i32 * 100 } else { 0 };
 
     (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus, rom.revision, lang_matches)
 }
@@ -249,29 +298,31 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
             .then_with(|| a.filename.cmp(&b.filename))
     });
 
-    // Determine preferred index — None if no variant matches preferences
+    // Determine preferred index — None if no variant matches preferences.
     let has_preferred = variants.iter().any(|r| r.matches_preferred_language);
 
+    // Utilities are excluded from preferred_idx only in mixed groups (where at least one
+    // non-Utility variant exists). In a Utility-only group, the best Utility is preferred.
+    let has_non_utility = variants.iter().any(|r| !matches!(r.file_category, FileCategory::Utility));
+
+    // Unofficial files are excluded from preferred_idx only when an official variant
+    // (non-Unofficial, non-Utility) already matches the preferred language. This ensures:
+    //   • Official (USA) + Unofficial hack (USA) → official wins.
+    //   • Official (Japan) + fan-translation (En) → fan-translation wins (only En match).
+    let has_official_preferred_lang = variants.iter().any(|r| {
+        r.matches_preferred_language
+            && !matches!(r.file_category, FileCategory::Unofficial | FileCategory::Utility)
+    });
+
     let preferred_idx = if has_preferred {
-        // Prefer the highest-scored variant, but never choose a BIOS file as "preferred game"
-        variants
-            .iter()
-            .position(|r| r.matches_preferred_language && !r.is_bios)
+        variants.iter().position(|r| {
+            r.matches_preferred_language
+                && (!has_non_utility || !matches!(r.file_category, FileCategory::Utility))
+                && (!has_official_preferred_lang || !matches!(r.file_category, FileCategory::Unofficial))
+        })
     } else {
         None
     };
-
-    // Mark unofficial fallback candidates
-    let has_official_preferred = variants.iter().any(|r| {
-        r.matches_preferred_language && !matches!(r.file_category, FileCategory::Unofficial)
-    });
-
-    let mut variants = variants;
-    for rom in &mut variants {
-        rom.is_unofficial_preferred_fallback = !has_official_preferred
-            && rom.matches_preferred_language
-            && matches!(rom.file_category, FileCategory::Unofficial);
-    }
 
     RomGroup {
         title_normalized,
@@ -383,7 +434,7 @@ pub fn get_roms(
         .groups
         .iter()
         .filter(|g| {
-            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)) {
+            if !g.variants.iter().any(|v| matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial | FileCategory::Demo | FileCategory::Utility)) {
                 return false;
             }
             if !group_matches_consoles(g, &consoles) { return false; }
@@ -398,7 +449,7 @@ pub fn get_roms(
     paginate(filtered, page, per_page)
 }
 
-/// Returns system file groups (BIOS, Utility, Demo, Video, EReader).
+/// Returns system file groups (BIOS, Utility, Video, EReader).
 #[tauri::command]
 pub fn get_system_files(
     state: State<'_, AppState>,
@@ -417,8 +468,7 @@ pub fn get_system_files(
             if !g.variants.iter().any(|v| {
                 matches!(
                     v.file_category,
-                    FileCategory::Bios | FileCategory::Utility | FileCategory::Demo
-                    | FileCategory::Video | FileCategory::EReader
+                    FileCategory::Bios | FileCategory::Video | FileCategory::EReader
                 )
             }) {
                 return false;
@@ -459,7 +509,7 @@ pub fn get_duplicates(
                 .filter(|v| v.matches_preferred_language && !v.bad_dump
                     && !v.status_flags.iter().any(|f| {
                         matches!(f.as_str(),
-                            "Beta"|"Proto"|"Demo"|"Sample"|"Promo"|"Kiosk"|"Preview"|"GameCube Preview"
+                            "Alpha"|"Beta"|"Proto"|"Possible Proto"|"Demo"|"Sample"|"Promo"|"Kiosk"|"Preview"|"GameCube Preview"
                         )
                     }))
                 .count();
@@ -513,7 +563,6 @@ mod tests {
             filesize: 1024,
             matches_preferred_language: false,
             matches_preferred_region: false,
-            is_unofficial_preferred_fallback: false,
         }
     }
 
@@ -867,8 +916,7 @@ mod tests {
                 filesize: 1024,
                 matches_preferred_language: false,
                 matches_preferred_region: false,
-                is_unofficial_preferred_fallback: false,
-            }
+                }
         };
 
         let groups = vec![
@@ -892,25 +940,37 @@ mod tests {
     }
 
     #[test]
-    fn virtual_console_gets_no_penalty() {
-        // Official Nintendo re-releases must score identically to an untagged release.
+    fn virtual_console_scores_below_plain_release() {
+        // Official Nintendo digital re-releases get the generic extra_tag penalty (−5)
+        // so plain cartridge releases are preferred when both are in the collection.
         let mut vc = rom("Game", &["Japan"], &["En"], &[]);
         vc.extra_tags = vec!["Virtual Console".into()];
         let base = rom("Game", &["Japan"], &["En"], &[]);
-        assert_eq!(score_rom(&vc, &en_prefs()), score_rom(&base, &en_prefs()));
+        assert!(
+            score_rom(&base, &en_prefs()) > score_rom(&vc, &en_prefs()),
+            "plain release must score above Virtual Console re-release"
+        );
     }
 
     #[test]
-    fn disk_writer_scores_below_virtual_console() {
+    fn disk_writer_and_virtual_console_score_equally() {
+        // Both Disk Writer (FORMAT_VARIANT_TAGS, −5) and Virtual Console (generic extra_tag
+        // catch-all, −5) receive the same minor penalty — both lose to a plain release.
         let mut dw = rom("Game", &["Japan"], &["En"], &[]);
         dw.extra_tags = vec!["Disk Writer".into()];
         dw.filename = "Game (Japan) (En) (Disk Writer).zip".into();
         let mut vc = rom("Game", &["Japan"], &["En"], &[]);
         vc.extra_tags = vec!["Virtual Console".into()];
         vc.filename = "Game (Japan) (En) (Virtual Console).zip".into();
+        let base = rom("Game", &["Japan"], &["En"], &[]);
+        assert_eq!(
+            score_rom(&vc, &en_prefs()),
+            score_rom(&dw, &en_prefs()),
+            "Virtual Console and Disk Writer must score equally (both −5)"
+        );
         assert!(
-            score_rom(&vc, &en_prefs()) > score_rom(&dw, &en_prefs()),
-            "Virtual Console must score higher than Disk Writer"
+            score_rom(&base, &en_prefs()) > score_rom(&vc, &en_prefs()),
+            "plain release must beat both format variants"
         );
     }
 
@@ -928,6 +988,108 @@ mod tests {
     }
 
     #[test]
+    fn namcot_collection_penalized() {
+        let mut namcot = rom("Pac-Man", &["Japan"], &["En"], &[]);
+        namcot.extra_tags = vec!["Namcot Collection".into()];
+        let original = rom("Pac-Man", &["Japan"], &["En"], &[]);
+        assert!(
+            score_rom(&original, &en_prefs()) > score_rom(&namcot, &en_prefs()),
+            "original must beat Namcot Collection re-release"
+        );
+    }
+
+    #[test]
+    fn compound_collection_tag_penalized() {
+        // "Namcot Collection, Namco Museum Archives Vol 1" is a single extra_tag string.
+        // The split-on-", " fix must find "Namcot Collection" within it.
+        let mut compound = rom("Pac-Man", &["Japan"], &["En"], &[]);
+        compound.extra_tags = vec!["Namcot Collection, Namco Museum Archives Vol 1".into()];
+        let original = rom("Pac-Man", &["Japan"], &["En"], &[]);
+        assert!(
+            score_rom(&original, &en_prefs()) > score_rom(&compound, &en_prefs()),
+            "compound collection tag must still trigger −80 penalty"
+        );
+    }
+
+    #[test]
+    fn famicombox_penalized() {
+        let mut fb = rom("Game", &["Japan"], &["En"], &[]);
+        fb.extra_tags = vec!["FamicomBox".into()];
+        let original = rom("Game", &["Japan"], &["En"], &[]);
+        assert!(score_rom(&original, &en_prefs()) > score_rom(&fb, &en_prefs()));
+    }
+
+    #[test]
+    fn possible_proto_scores_as_prerelease() {
+        let mut pp = rom("Game", &["USA"], &[], &["Possible Proto"]);
+        pp.status_flags = vec!["Possible Proto".into()];
+        let release = rom("Game", &["USA"], &[], &[]);
+        let (score, _, _) = score_rom(&pp, &en_prefs());
+        assert_eq!(score, -100, "Possible Proto must score −100");
+        assert!(score_rom(&release, &en_prefs()) > score_rom(&pp, &en_prefs()));
+    }
+
+    #[test]
+    fn rev_letter_beats_no_revision() {
+        // Rev B (revision=2) should outscore an unrevised original of the same game.
+        let mut rev_b = rom("Game", &["USA"], &[], &[]);
+        rev_b.revision = 2;
+        let original = rom("Game", &["USA"], &[], &[]);
+        assert!(
+            score_rom(&rev_b, &en_prefs()) > score_rom(&original, &en_prefs()),
+            "Rev B must beat unrevised original via revision_bonus"
+        );
+    }
+
+    #[test]
+    fn beta_preferred_over_alpha() {
+        // Both score −100 as pre-release; version_ord(v0.1.1) > 0 in build_group's
+        // sort puts the versioned Beta above the unversioned Alpha.
+        let mut alpha = rom("Nyghtmare - Betrayed", &["World"], &[], &["Alpha"]);
+        alpha.file_category = FileCategory::Unofficial;
+        alpha.filename = "Nyghtmare - Betrayed (World) (Alpha A) (Aftermarket) (Unl).zip".into();
+
+        let mut beta = rom("Nyghtmare - Betrayed", &["World"], &[], &["Beta"]);
+        beta.file_category = FileCategory::Unofficial;
+        beta.version = Some("v0.1.1".into());
+        beta.filename = "Nyghtmare - Betrayed (World) (v0.1.1) (Beta) (Aftermarket) (Unl).zip".into();
+
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let groups = group_roms(vec![alpha, beta], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.filename.contains("v0.1.1"),
+            "Beta (v0.1.1) must be preferred over Alpha A, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn batteryless_scores_below_standard_release() {
+        let mut batteryless = rom("Little Tales of Alexandria", &["World"], &[], &[]);
+        batteryless.extra_tags = vec!["MBC3".into(), "SGB Enhanced".into(), "Batteryless".into()];
+        batteryless.file_category = FileCategory::Unofficial;
+        let mut standard = rom("Little Tales of Alexandria", &["World"], &[], &[]);
+        standard.extra_tags = vec!["MBC3".into(), "SGB Enhanced".into()];
+        standard.file_category = FileCategory::Unofficial;
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        assert!(
+            score_rom(&standard, &prefs) > score_rom(&batteryless, &prefs),
+            "standard must score above Batteryless variant"
+        );
+    }
+
+    #[test]
     fn third_party_collection_still_penalized() {
         let mut evercade = rom("Game", &["USA"], &[], &[]);
         evercade.extra_tags = vec!["Evercade".into()];
@@ -939,7 +1101,7 @@ mod tests {
     fn japan_en_beats_world_collection_for_english_user() {
         // Real-world case: Contra (Japan) (En) vs Contra (World) (Contra Anniversary Collection).
         // Both are English-playable, but the Japan original must be preferred over the
-        // World compilation re-release. Requires collection penalty ≥ 76 (80 − 5 + 1).
+        // World compilation re-release. Requires collection penalty ≥ 96 (100 − 5 + 1).
         let japan_en = rom("Contra", &["Japan"], &["En"], &[]);
         let mut world_collection = rom("Contra", &["World"], &[], &[]);
         world_collection.extra_tags = vec!["Contra Anniversary Collection".into()];
@@ -1035,6 +1197,130 @@ mod tests {
             preferred.unwrap().filename.contains("Spain"),
             "preferred must be Spain (En,Es), got: {}",
             preferred.unwrap().filename,
+        );
+    }
+
+    // ── Demo category grouping ────────────────────────────────────────────────
+
+    fn demo_rom(title: &str, regions: &[&str]) -> RomFile {
+        let mut r = rom(title, regions, &[], &["Demo"]);
+        r.file_category = FileCategory::Demo;
+        r.status_flags = vec!["Demo".into()];
+        r
+    }
+
+    #[test]
+    fn demo_only_group_has_preferred_idx() {
+        // A Demo-only group with a language-matching variant must get preferred_idx set.
+        let d = demo_rom("Pocket Monsters (Japan) (Demo)", &["World"]);
+        let prefs = en_prefs();
+        let groups = group_roms(vec![d], &prefs);
+        assert_eq!(groups.len(), 1);
+        assert!(
+            groups[0].preferred_idx.is_some(),
+            "Demo-only group must have preferred_idx set when language matches"
+        );
+    }
+
+    #[test]
+    fn demo_group_included_in_get_roms_filter() {
+        // get_roms includes groups with Game | Unofficial | Demo | Utility variant.
+        // Simulate the group-level filter logic used by get_roms.
+        let game = rom("Zelda (USA)", &["USA"], &[], &[]);
+        let demo = demo_rom("Zelda (Japan) (Demo)", &["Japan"]);
+        let prefs = en_prefs();
+        let groups = group_roms(vec![game.clone(), demo.clone()], &prefs);
+        // Both should coalesce into one group (same title_normalized)
+        // The group qualifies for get_roms because it has a Game variant.
+        let qualifies_roms = groups.iter().any(|g| {
+            g.variants.iter().any(|v| {
+                matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial | FileCategory::Demo | FileCategory::Utility)
+            })
+        });
+        assert!(qualifies_roms, "group with Game+Demo must qualify for ROMs tab");
+
+        // A Demo-only group must also qualify.
+        let demo_only = demo_rom("Spaceworld Demo (Japan)", &["Japan"]);
+        let solo_groups = group_roms(vec![demo_only], &prefs);
+        let qualifies_demo_only = solo_groups.iter().any(|g| {
+            g.variants.iter().any(|v| {
+                matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial | FileCategory::Demo | FileCategory::Utility)
+            })
+        });
+        assert!(qualifies_demo_only, "Demo-only group must qualify for ROMs tab");
+    }
+
+    #[test]
+    fn demo_group_excluded_from_get_system_files_filter() {
+        // get_system_files includes Bios | Video | EReader only (no Demo, no Utility).
+        let demo = demo_rom("Pocket Monsters (Japan) (Demo)", &["Japan"]);
+        let prefs = en_prefs();
+        let groups = group_roms(vec![demo], &prefs);
+        let qualifies_system = groups.iter().any(|g| {
+            g.variants.iter().any(|v| {
+                matches!(
+                    v.file_category,
+                    FileCategory::Bios | FileCategory::Video | FileCategory::EReader
+                )
+            })
+        });
+        assert!(!qualifies_system, "Demo-only group must NOT qualify for System Files tab");
+    }
+
+    // ── Utility preferred_idx ────────────────────────────────────────────────
+
+    fn utility_rom(title: &str, regions: &[&str]) -> RomFile {
+        let mut r = rom(title, regions, &[], &[]);
+        r.file_category = FileCategory::Utility;
+        r
+    }
+
+    #[test]
+    fn utility_only_group_gets_preferred_idx() {
+        // A group containing only Utility files must have preferred_idx set
+        // when at least one variant matches the user's language preference.
+        // Use explicit simple titles so both normalize to the same string.
+        let mut u1 = rom("Test Program", &["USA", "Europe"], &[], &[]);
+        u1.file_category = FileCategory::Utility;
+        u1.path = "/roms/test_program_usa.zip".into();
+        u1.filename = "Test Program (USA, Europe).zip".into();
+        let mut u2 = rom("Test Program", &["Japan"], &[], &[]);
+        u2.file_category = FileCategory::Utility;
+        u2.path = "/roms/test_program_jpn.zip".into();
+        u2.filename = "Test Program (Japan).zip".into();
+        let prefs = en_prefs();
+        let groups = group_roms(vec![u1, u2], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        assert!(
+            g.preferred_idx.is_some(),
+            "Utility-only group must have preferred_idx when a language-matching variant exists"
+        );
+        // USA/Europe should win over Japan for an English user.
+        let preferred = &g.variants[g.preferred_idx.unwrap()];
+        assert!(
+            preferred.regions.iter().any(|r| r == "USA" || r == "Europe"),
+            "preferred Utility must be the USA/Europe variant, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn mixed_game_utility_group_prefers_game_variant() {
+        // In a mixed group, a Game variant must be preferred over a Utility variant.
+        let game = rom("Zelda", &["USA"], &[], &[]);
+        let mut util = rom("Zelda", &["USA"], &[], &[]);
+        util.file_category = FileCategory::Utility;
+        util.path = "/roms/Zelda_util.zip".into();
+        util.filename = "Zelda (USA) (Test Program).zip".into();
+        let prefs = en_prefs();
+        let groups = group_roms(vec![game, util], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            matches!(preferred.file_category, FileCategory::Game),
+            "Game variant must be preferred over Utility in a mixed group"
         );
     }
 }

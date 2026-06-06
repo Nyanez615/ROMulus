@@ -452,7 +452,6 @@ mod tests {
             filesize: 1024,
             matches_preferred_language: preferred,
             matches_preferred_region: preferred,
-            is_unofficial_preferred_fallback: false,
         }
     }
 
@@ -477,7 +476,6 @@ mod tests {
             filesize: 1024,
             matches_preferred_language: true,
             matches_preferred_region: true,
-            is_unofficial_preferred_fallback: false,
         }
     }
 

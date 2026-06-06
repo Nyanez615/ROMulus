@@ -1,9 +1,10 @@
 [package]
 name = "romulus"
-version = "0.2.6"
+version = "0.2.8"
 description = "ROMulus — ROM collection management hub"
 authors = ["Nicolas Yanez"]
 edition = "2021"
+default-run = "ROMulus"
 
 [lib]
 name = "romulus_lib"
@@ -12,6 +13,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "ROMulus"
 path = "src/main.rs"
+
+[[bin]]
+name = "audit"
+path = "src/bin/audit.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

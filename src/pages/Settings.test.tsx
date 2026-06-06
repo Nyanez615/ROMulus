@@ -17,6 +17,8 @@ vi.mock("@/lib/tauri", () => ({
   isOneDrivePath: (path: string) =>
     path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
   getFormatPairs: () => Promise.resolve([]),
+  applyFormatPairs: () => Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] }),
+  executeFormatPairs: () => Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] }),
   hasIgdbCredentials: () => Promise.resolve(false),
   hasSteamGridDbKey: () => Promise.resolve(false),
   getDatFiles: () => Promise.resolve([]),
@@ -29,6 +31,8 @@ vi.mock("@/lib/tauri", () => ({
   verifyRoms: () => Promise.resolve(),
   enrichAllGames: () => Promise.resolve(),
   scanRoots: () => Promise.resolve({}),
+  getConsoles: () => Promise.resolve([]),
+  formatBytes: (b: number) => `${b} B`,
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({

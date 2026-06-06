@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Gamepad2, Cpu,
-  CopyX, Scissors, History, Settings, Zap,
+  CopyX, History, Settings, Zap,
 } from "lucide-react";
 import {
   CommandDialog, CommandEmpty, CommandGroup,
@@ -16,7 +16,6 @@ const NAV_COMMANDS = [
   { label: "ROMs",          tab: "roms"       as TabId, icon: Gamepad2        },
   { label: "System Files", tab: "system"     as TabId, icon: Cpu             },
   { label: "Duplicates",   tab: "duplicates" as TabId, icon: CopyX           },
-  { label: "Prune",        tab: "prune"      as TabId, icon: Scissors        },
   { label: "History",      tab: "history"    as TabId, icon: History         },
   { label: "Settings",     tab: "settings"   as TabId, icon: Settings        },
 ];
@@ -74,10 +73,6 @@ export function CommandPalette() {
           <CommandItem onSelect={() => run(() => enrichAllGames())}>
             <Zap className="w-4 h-4 mr-2 text-primary" />
             Enrich metadata (IGDB)
-          </CommandItem>
-          <CommandItem onSelect={() => run(() => setActiveTab("prune"))}>
-            <Scissors className="w-4 h-4 mr-2 text-muted-foreground" />
-            Open Prune tab
           </CommandItem>
           <CommandItem onSelect={() => run(() => setActiveTab("settings"))}>
             <Settings className="w-4 h-4 mr-2 text-muted-foreground" />

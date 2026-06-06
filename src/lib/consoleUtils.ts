@@ -107,6 +107,21 @@ export function getAbbrev(consoleName: string): string {
   return ABBREV[short] ?? short.slice(0, 4).toUpperCase();
 }
 
+/**
+ * Like getAbbrev, but preserves the parenthetical format suffix so paired
+ * folders are always distinguishable in the UI:
+ *   "Nintendo - Family Computer Disk System"       → "FDS"
+ *   "Nintendo - Family Computer Disk System (QD)"  → "FDS (QD)"
+ *   "Nintendo - Nintendo 64 (ByteSwapped)"         → "N64 (ByteSwapped)"
+ */
+export function getFormatVariantLabel(folder: string): string {
+  const short = folder.split(" - ")[1] ?? folder;
+  const base = stripFormatSuffix(short);
+  const suffix = short.slice(base.length).trim(); // e.g. "(QD)" or ""
+  const abbrev = ABBREV[base] ?? base.slice(0, 4).toUpperCase();
+  return suffix ? `${abbrev} ${suffix}` : abbrev;
+}
+
 export function getShortLabel(folder: string): string {
   return folder.split(" - ")[1] ?? folder;
 }

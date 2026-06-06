@@ -6,4 +6,4 @@ export type RomFile = { path: string, filename: string, console: string, title: 
 /**
  * Computed from UserPreferences at grouping time — never hardcoded.
  */
-matches_preferred_language: boolean, matches_preferred_region: boolean, is_unofficial_preferred_fallback: boolean, };
+matches_preferred_language: boolean, matches_preferred_region: boolean, };
