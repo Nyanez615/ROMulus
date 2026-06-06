@@ -8,6 +8,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { isTauri } from "./env";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { ConsoleStats } from "./bindings/ConsoleStats";
@@ -279,3 +280,9 @@ export function isCloudPath(path: string): boolean {
 }
 
 export const isOneDrivePath = isCloudPath;
+
+// ── File system helpers ───────────────────────────────────────────────────────
+
+/** Opens the file's parent folder with the file selected (Finder / Explorer / Files). */
+export const revealInFinder = (path: string): Promise<void> =>
+  isTauri() ? revealItemInDir(path) : Promise.resolve();

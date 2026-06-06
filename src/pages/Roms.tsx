@@ -18,6 +18,7 @@ import { useTagStore } from "@/store/tag";
 import { usePreferencesStore } from "@/store/preferences";
 import { getShortConsoleName, getConsoleDisplayName, stripFormatSuffix } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
+import { FileContextMenu } from "@/components/FileContextMenu";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { FilterBar } from "@/components/FilterBar";
 import { RomThumbnail } from "@/components/RomThumbnail";
@@ -400,24 +401,28 @@ function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; is
     const flag = getCategoryFlag(rom.status_flags);
     const colorClass = CATEGORY_COLORS[flag] ?? CATEGORY_COLORS.Unl;
     return (
-      <div className={baseClass}>
-        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>{flag}</span>
-        <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
-        <TagList regions={rom.regions} languages={rom.languages} max={3} />
-        <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
-        {isPreferred && <span className="text-green-400 shrink-0">★</span>}
-      </div>
+      <FileContextMenu path={rom.path}>
+        <div className={baseClass}>
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>{flag}</span>
+          <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
+          <TagList regions={rom.regions} languages={rom.languages} max={3} />
+          <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
+          {isPreferred && <span className="text-green-400 shrink-0">★</span>}
+        </div>
+      </FileContextMenu>
     );
   }
 
   return (
-    <div className={baseClass}>
-      <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
-      <TagList regions={rom.regions} languages={rom.languages} statusFlags={rom.status_flags} max={3} />
-      <VerificationBadge status={verificationStatus} />
-      <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
-      {isPreferred && <span className="text-green-400 shrink-0">★</span>}
-    </div>
+    <FileContextMenu path={rom.path}>
+      <div className={baseClass}>
+        <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
+        <TagList regions={rom.regions} languages={rom.languages} statusFlags={rom.status_flags} max={3} />
+        <VerificationBadge status={verificationStatus} />
+        <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
+        {isPreferred && <span className="text-green-400 shrink-0">★</span>}
+      </div>
+    </FileContextMenu>
   );
 }
 

@@ -14,6 +14,7 @@ import { PrunePreviewDialog } from "@/components/PrunePreviewDialog";
 import { refreshTagStore } from "@/components/Layout";
 import { cn } from "@/lib/utils";
 import { getAbbrev } from "@/lib/consoleUtils";
+import { FileContextMenu } from "@/components/FileContextMenu";
 
 const ALL_CATEGORIES: { key: FileCategory; label: string; icon: React.ElementType }[] = [
   { key: "bios",     label: "BIOS",      icon: Shield },
@@ -195,12 +196,14 @@ export default function SystemFiles() {
               {(showAllCategories.includes(key) ? items : items.slice(0, 50)).map((f, i) => {
                 const isPreferred = preferredPaths.has(f.path);
                 return (
-                <div key={i} className={`flex items-center gap-3 px-4 py-2.5 bg-card hover:bg-muted/30 text-sm border-b border-border border-l-2 ${isPreferred ? "border-l-green-500" : "border-l-transparent"}`}>
-                  <span className="flex-1 truncate text-foreground font-mono text-xs">{f.filename}</span>
-                  <span className="text-xs text-muted-foreground/60 shrink-0">{getAbbrev(f.console)}</span>
-                  <span className="text-xs text-muted-foreground/60 shrink-0">{formatBytes(f.filesize)}</span>
-                  {isPreferred && <span className="text-green-400 shrink-0 text-xs">★</span>}
-                </div>
+                <FileContextMenu key={i} path={f.path}>
+                  <div className={`flex items-center gap-3 px-4 py-2.5 bg-card hover:bg-muted/30 text-sm border-b border-border border-l-2 ${isPreferred ? "border-l-green-500" : "border-l-transparent"}`}>
+                    <span className="flex-1 truncate text-foreground font-mono text-xs">{f.filename}</span>
+                    <span className="text-xs text-muted-foreground/60 shrink-0">{getAbbrev(f.console)}</span>
+                    <span className="text-xs text-muted-foreground/60 shrink-0">{formatBytes(f.filesize)}</span>
+                    {isPreferred && <span className="text-green-400 shrink-0 text-xs">★</span>}
+                  </div>
+                </FileContextMenu>
                 );
               })}
               {items.length > 50 && (
