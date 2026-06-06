@@ -69,7 +69,6 @@ pub struct RomFile {
     /// Computed from UserPreferences at grouping time — never hardcoded.
     pub matches_preferred_language: bool,
     pub matches_preferred_region: bool,
-    pub is_unofficial_preferred_fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -102,30 +101,6 @@ pub struct UserPreferences {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct FilterSettings {
-    pub keep_preferred_only: bool,
-    pub remove_if_no_preferred_version: bool,
-    pub remove_prerelease: bool,
-    pub remove_unofficial: bool,
-    pub remove_older_revisions: bool,
-    pub keep_unofficial_as_fallback: bool,
-}
-
-impl Default for FilterSettings {
-    fn default() -> Self {
-        FilterSettings {
-            keep_preferred_only: true,
-            remove_if_no_preferred_version: true,
-            remove_prerelease: true,
-            remove_unofficial: false,
-            remove_older_revisions: true,
-            keep_unofficial_as_fallback: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct AppSettings {
     pub rom_roots: Vec<String>,
     pub format_preferences: std::collections::HashMap<String, String>,
@@ -154,10 +129,7 @@ impl Default for AppSettings {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum DeletionReason {
-    NonPreferredLanguage,
-    Prerelease,
-    OlderRevision,
-    Unofficial,
+    NonPreferred,
     FormatPairNonPreferred,
     /// Deleted from non-preferred folder AND has no counterpart in the preferred folder.
     FormatPairNoCounterpart,
@@ -422,7 +394,6 @@ mod tests {
         RomFile::export_all_to(out).unwrap();
         RomGroup::export_all_to(out).unwrap();
         UserPreferences::export_all_to(out).unwrap();
-        FilterSettings::export_all_to(out).unwrap();
         AppSettings::export_all_to(out).unwrap();
         DeletionReason::export_all_to(out).unwrap();
         DeletionItem::export_all_to(out).unwrap();

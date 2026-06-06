@@ -7,7 +7,7 @@ use crate::commands::settings::load_format_preferences;
 use crate::db::AppState;
 use crate::deduper::detect_format_pairs;
 use crate::models::{
-    ConsoleStats, DeletionItem, DeletionPlan, DeletionReason, FileCategory, FilterSettings,
+    ConsoleStats, DeletionItem, DeletionPlan, DeletionReason, FileCategory,
     FormatPair, RomFile, RomGroup,
 };
 
@@ -58,20 +58,18 @@ pub(crate) fn build_format_delete_map(
 
 // ── Filter application ────────────────────────────────────────────────────────
 
-/// Apply filter settings to groups and return a deletion plan.
-/// Format-pair removal is handled separately by `apply_format_pairs` — this
-/// function deals exclusively with variant selection (language / region / revision).
-pub(crate) fn apply_filters_inner(
-    groups: Vec<RomGroup>,
-    settings: &FilterSettings,
-) -> DeletionPlan {
+/// Apply language/region preferences to groups and return a deletion plan.
+/// All file categories (Game, Unofficial, Demo, etc.) are handled identically:
+/// keep the preferred variant, delete the rest.
+/// Format-pair removal is handled separately by `apply_format_pairs`.
+pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
     let mut to_delete: Vec<DeletionItem> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
     let mut no_preferred_count = 0u32;
 
     for group in &groups {
-        // No preferred version → delete all variants (game or unofficial) if flag set.
-        if !group.has_preferred_version && settings.remove_if_no_preferred_version {
+        // No preferred version → delete all variants.
+        if !group.has_preferred_version {
             no_preferred_count += 1;
             for rom in &group.variants {
                 to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NoPreferredVersion });
@@ -85,64 +83,16 @@ pub(crate) fn apply_filters_inner(
             continue;
         }
 
-        let max_revision = group.variants.iter().map(|v| v.revision).max().unwrap_or(0);
-
         for (i, rom) in group.variants.iter().enumerate() {
-            // BIOS always kept.
-            if rom.is_bios {
-                to_keep.push(rom.clone());
-                continue;
-            }
-            // Unofficial variants — respect remove_unofficial toggle.
-            if matches!(rom.file_category, FileCategory::Unofficial) {
-                if settings.remove_unofficial {
-                    if rom.is_unofficial_preferred_fallback && settings.keep_unofficial_as_fallback {
-                        to_keep.push(rom.clone());
-                    } else {
-                        to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::Unofficial });
-                    }
-                } else {
-                    to_keep.push(rom.clone());
-                }
-                continue;
-            }
-            // Remove pre-release.
-            if settings.remove_prerelease
-                && rom.status_flags.iter().any(|f| {
-                    matches!(
-                        f.as_str(),
-                        "Beta" | "Proto" | "Demo" | "Sample" | "Promo" | "Kiosk"
-                        | "Preview" | "GameCube Preview"
-                    )
-                })
-            {
-                to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::Prerelease });
-                continue;
-            }
-            // Remove older revisions.
-            if settings.remove_older_revisions && rom.revision < max_revision {
-                to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::OlderRevision });
-                continue;
-            }
-            // Keep exactly one copy — the preferred variant; delete all others.
-            if settings.keep_preferred_only {
-                match group.preferred_idx {
-                    Some(pi) => {
-                        if i == pi {
-                            to_keep.push(rom.clone());
-                        } else {
-                            to_delete.push(DeletionItem {
-                                rom: rom.clone(),
-                                reason: DeletionReason::NonPreferredLanguage,
-                            });
-                        }
-                    }
-                    // No preferred version exists — can't apply keep_preferred_only here;
-                    // let remove_if_no_preferred_version handle it separately.
-                    None => to_keep.push(rom.clone()),
-                }
-            } else {
-                to_keep.push(rom.clone());
+            // All file categories (Game, Unofficial, Demo, BIOS, etc.) use the same rule:
+            // keep the preferred variant, delete all others. Scoring handles pre-release
+            // (−100 penalty), revision ordering, and language preference.
+            match group.preferred_idx {
+                Some(pi) if i == pi => to_keep.push(rom.clone()),
+                _ => to_delete.push(DeletionItem {
+                    rom: rom.clone(),
+                    reason: DeletionReason::NonPreferred,
+                }),
             }
         }
     }
@@ -206,12 +156,11 @@ pub(crate) fn apply_filters_inner(
     }
 }
 
-/// Apply filter settings to all groups (optionally scoped to a console list) and produce a deletion plan.
+/// Produce a deletion plan for all groups (optionally scoped to a console list).
 /// Format-pair cleanup is a separate operation — see `apply_format_pairs`.
 #[tauri::command]
 pub fn apply_filters(
     state: State<'_, AppState>,
-    settings: FilterSettings,
     consoles: Option<Vec<String>>,
 ) -> Result<DeletionPlan, String> {
     let groups = {
@@ -224,7 +173,7 @@ pub fn apply_filters(
         }
     };
 
-    Ok(apply_filters_inner(groups, &settings))
+    Ok(apply_filters_inner(groups))
 }
 
 /// Build a deletion plan for format-pair cleanup: remove all variants from the
@@ -300,13 +249,10 @@ fn csv_escape(s: &str) -> String {
 
 fn deletion_reason_str(r: &DeletionReason) -> &'static str {
     match r {
-        DeletionReason::NonPreferredLanguage     => "non_preferred_language",
-        DeletionReason::Prerelease               => "prerelease",
-        DeletionReason::OlderRevision            => "older_revision",
-        DeletionReason::Unofficial               => "unofficial",
-        DeletionReason::FormatPairNonPreferred   => "format_pair_non_preferred",
-        DeletionReason::FormatPairNoCounterpart  => "format_pair_no_counterpart",
-        DeletionReason::NoPreferredVersion       => "no_preferred_version",
+        DeletionReason::NonPreferred            => "non_preferred",
+        DeletionReason::FormatPairNonPreferred  => "format_pair_non_preferred",
+        DeletionReason::FormatPairNoCounterpart => "format_pair_no_counterpart",
+        DeletionReason::NoPreferredVersion      => "no_preferred_version",
     }
 }
 
@@ -354,18 +300,7 @@ pub fn export_csv(to_delete: Vec<DeletionItem>, path: String) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{FileCategory, FilterSettings, FormatPair, RomFile, RomGroup};
-
-    fn default_filters() -> FilterSettings {
-        FilterSettings {
-            keep_preferred_only: true,
-            remove_if_no_preferred_version: true,
-            remove_prerelease: true,
-            remove_unofficial: false,
-            remove_older_revisions: true,
-            keep_unofficial_as_fallback: true,
-        }
-    }
+    use crate::models::{FileCategory, FormatPair, RomFile, RomGroup};
 
     fn make_rom(title: &str, category: FileCategory) -> RomFile {
         RomFile {
@@ -388,7 +323,6 @@ mod tests {
             bad_dump: false,
             matches_preferred_language: false,
             matches_preferred_region: false,
-            is_unofficial_preferred_fallback: false,
         }
     }
 
@@ -405,46 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn unofficial_group_deleted_when_remove_unofficial_on() {
-        let group = make_group(vec![
-            make_rom("Hack (En)", FileCategory::Unofficial),
-            make_rom("Hack (Ja)", FileCategory::Unofficial),
-        ]);
-        let mut filters = default_filters();
-        filters.remove_unofficial = true;
-        let plan = apply_filters_inner(vec![group], &filters);
-        assert_eq!(plan.to_delete.len(), 2, "all unofficial variants should be deleted");
-        assert!(plan.to_keep.is_empty());
-    }
-
-    #[test]
-    fn unofficial_group_kept_when_remove_unofficial_off() {
-        // When the group has a preferred version, remove_unofficial=false must keep it
-        // regardless of any other toggle.
-        let mut preferred = make_rom("Hack (En)", FileCategory::Unofficial);
-        preferred.matches_preferred_language = true;
-        let mut group = make_group(vec![preferred, make_rom("Hack (Ja)", FileCategory::Unofficial)]);
-        group.has_preferred_version = true;
-        let mut filters = default_filters();
-        filters.remove_unofficial = false;
-        let plan = apply_filters_inner(vec![group], &filters);
-        assert!(plan.to_delete.is_empty(), "unofficial variants should be kept when remove_unofficial is off");
-        assert_eq!(plan.to_keep.len(), 2);
-    }
-
-    #[test]
-    fn unofficial_group_deleted_by_no_preferred_version_flag() {
-        // Unified ROMs+unofficial: the no_preferred_version rule applies to unofficial groups too.
-        let group = make_group(vec![make_rom("Hack (Ja)", FileCategory::Unofficial)]);
-        let mut filters = default_filters();
-        filters.remove_unofficial = false;
-        filters.remove_if_no_preferred_version = true;
-        let plan = apply_filters_inner(vec![group], &filters);
-        assert_eq!(plan.to_delete.len(), 1, "unofficial group with no preferred version should be deleted");
-    }
-
-    #[test]
-    fn keep_preferred_only_keeps_exactly_one() {
+    fn preferred_idx_keeps_exactly_one() {
         let mut preferred = make_rom("Game (USA)", FileCategory::Game);
         preferred.matches_preferred_language = true;
         let mut other_en = make_rom("Game (Europe)", FileCategory::Game);
@@ -456,13 +351,73 @@ mod tests {
         group.preferred_idx = Some(0);
         group.has_preferred_version = true;
 
-        let mut filters = default_filters();
-        filters.keep_preferred_only = true;
-        filters.remove_prerelease = false;
-        filters.remove_older_revisions = false;
-        let plan = apply_filters_inner(vec![group], &filters);
+        let plan = apply_filters_inner(vec![group]);
         assert_eq!(plan.to_keep.len(), 1, "exactly one ROM should be kept");
         assert_eq!(plan.to_delete.len(), 2);
+        assert!(plan.to_delete.iter().all(|d| matches!(d.reason, DeletionReason::NonPreferred)));
+    }
+
+    #[test]
+    fn unofficial_variants_pruned_like_game_variants() {
+        // Unofficial files now go through the same preferred_idx logic as Game files.
+        // The preferred version is kept; the non-preferred is deleted as NonPreferred.
+        let mut preferred = make_rom("Hack (En)", FileCategory::Unofficial);
+        preferred.matches_preferred_language = true;
+        let non_preferred = make_rom("Hack (Ja)", FileCategory::Unofficial);
+        let mut group = make_group(vec![preferred, non_preferred]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
+
+        let plan = apply_filters_inner(vec![group]);
+        assert_eq!(plan.to_keep.len(), 1, "preferred unofficial must be kept");
+        assert_eq!(plan.to_delete.len(), 1, "non-preferred unofficial must be deleted");
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPreferred));
+    }
+
+    #[test]
+    fn unofficial_group_no_preferred_version_deletes_all() {
+        // Unofficial groups with no language match behave identically to Game groups.
+        let group = make_group(vec![make_rom("Hack (Ja)", FileCategory::Unofficial)]);
+        let plan = apply_filters_inner(vec![group]);
+        assert_eq!(plan.to_delete.len(), 1, "unofficial with no preferred version should be deleted");
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NoPreferredVersion));
+    }
+
+    #[test]
+    fn prerelease_only_group_is_kept_as_preferred() {
+        // When a pre-release is the only matching-language variant, scoring picks it as
+        // preferred_idx — we keep it rather than deleting the only playable copy.
+        let mut beta = make_rom("Game (USA) (Beta)", FileCategory::Game);
+        beta.matches_preferred_language = true;
+        beta.status_flags = vec!["Beta".into()];
+
+        let mut group = make_group(vec![beta]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
+
+        let plan = apply_filters_inner(vec![group]);
+        assert_eq!(plan.to_keep.len(), 1, "pre-release kept when it is the only preferred variant");
+        assert!(plan.to_delete.is_empty());
+    }
+
+    #[test]
+    fn prerelease_deleted_when_release_exists() {
+        // When a release and a beta both exist, scoring makes the release preferred_idx.
+        // The beta is deleted as NonPreferred.
+        let mut release = make_rom("Game (USA)", FileCategory::Game);
+        release.matches_preferred_language = true;
+        let mut beta = make_rom("Game (USA) (Beta)", FileCategory::Game);
+        beta.matches_preferred_language = true;
+        beta.status_flags = vec!["Beta".into()];
+
+        let mut group = make_group(vec![release, beta]);
+        group.preferred_idx = Some(0); // release wins in scoring
+        group.has_preferred_version = true;
+
+        let plan = apply_filters_inner(vec![group]);
+        assert_eq!(plan.to_keep.len(), 1);
+        assert_eq!(plan.to_delete.len(), 1);
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPreferred));
     }
 
     #[test]
@@ -604,47 +559,4 @@ mod tests {
         ), "title with a counterpart must use FormatPairNonPreferred");
     }
 
-    #[test]
-    fn deletion_reasons_are_set_correctly() {
-        // Group with a prerelease + a release variant; prerelease should be deleted with correct reason.
-        let mut release = make_rom("Game (USA)", FileCategory::Game);
-        release.matches_preferred_language = true;
-        let mut prerelease = make_rom("Game (USA) (Beta)", FileCategory::Game);
-        prerelease.status_flags = vec!["Beta".into()];
-        prerelease.matches_preferred_language = true;
-
-        let mut group = make_group(vec![release, prerelease]);
-        group.has_preferred_version = true;
-        group.preferred_idx = Some(0);
-
-        let mut filters = default_filters();
-        filters.keep_preferred_only = false;
-        filters.remove_prerelease = true;
-        filters.remove_older_revisions = false;
-        let plan = apply_filters_inner(vec![group], &filters);
-        assert_eq!(plan.to_delete.len(), 1);
-        assert!(matches!(plan.to_delete[0].reason, DeletionReason::Prerelease));
-    }
-
-    #[test]
-    fn preview_tag_deleted_as_prerelease() {
-        let mut release = make_rom("Pokemon Puzzle Collection (USA, Europe)", FileCategory::Game);
-        release.matches_preferred_language = true;
-        let mut preview = make_rom("Pokemon Puzzle Collection (USA) (GameCube Preview)", FileCategory::Game);
-        preview.status_flags = vec!["GameCube Preview".into()];
-        preview.matches_preferred_language = true;
-
-        let mut group = make_group(vec![release, preview]);
-        group.has_preferred_version = true;
-        group.preferred_idx = Some(0);
-
-        let mut filters = default_filters();
-        filters.keep_preferred_only = false;
-        filters.remove_prerelease = true;
-        filters.remove_older_revisions = false;
-        let plan = apply_filters_inner(vec![group], &filters);
-        assert_eq!(plan.to_delete.len(), 1);
-        assert!(matches!(plan.to_delete[0].reason, DeletionReason::Prerelease));
-        assert!(plan.to_delete[0].rom.filename.contains("GameCube Preview"));
-    }
 }

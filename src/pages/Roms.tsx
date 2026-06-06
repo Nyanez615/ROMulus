@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
+import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle, Trash2, Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { getRoms } from "@/lib/tauri";
+import { Button } from "@/components/ui/button";
+import { getRoms, applyFilters, executePrune, scanRoots, getSettings, getConsoles, formatBytes } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
 import { ROM_SORT_FIELDS, type RomSortField, type SortDir } from "@/lib/romUtils";
 import { SortControl } from "@/components/SortControl";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
+import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import { PrunePreviewDialog } from "@/components/PrunePreviewDialog";
 import { TagList } from "@/components/TagBadge";
 import { DiscBadge } from "@/components/DiscBadge";
-import { formatBytes } from "@/lib/tauri";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
 import { usePreferencesStore } from "@/store/preferences";
@@ -22,6 +23,7 @@ import { FilterBar } from "@/components/FilterBar";
 import { RomThumbnail } from "@/components/RomThumbnail";
 import { AlphabetScrubber } from "@/components/AlphabetScrubber";
 import { VariantCountScrubber } from "@/components/VariantCountScrubber";
+import { refreshTagStore } from "@/components/Layout";
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -52,14 +54,18 @@ function getCategoryFlag(statusFlags: string[]): string {
 const ALL_GROUPS = 100_000;
 
 export default function Roms() {
-  const { selectedConsoles, cacheVersion } = useScanStore();
+  const { selectedConsoles, cacheVersion, setConsoles, setStatus, bumpCacheVersion } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const { region: knownRegions, status: knownStatus, language: knownLanguages, category: knownCategories } = useTagStore();
-  const allCategoryTags = useMemo(
-    () => [...new Set([...knownStatus, ...knownCategories])].sort(),
-    [knownStatus, knownCategories],
-  );
   const [groups, setGroups] = useState<RomGroup[]>([]);
+  const allCategoryTags = useMemo(() => {
+    const all = [...new Set([...knownStatus, ...knownCategories])].sort();
+    if (groups.length === 0) return all; // don't hide chips while loading
+    const present = new Set(
+      groups.flatMap((g) => g.variants.flatMap((v) => v.status_flags)),
+    );
+    return all.filter((tag) => present.has(tag));
+  }, [knownStatus, knownCategories, groups]);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<RomSortField>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -69,6 +75,51 @@ export default function Roms() {
   const [activePreferred, setActivePreferred] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // ── Prune state ──────────────────────────────────────────────────────────────
+  const [pruneLoading, setPruneLoading] = useState(false);
+  const [prunePlan, setPrunePlan] = useState<DeletionPlan | null>(null);
+  const [pruneExecuting, setPruneExecuting] = useState(false);
+  const [pruneScanState, setPruneScanState] = useState<"idle" | "scanning" | "done">("idle");
+  const [pruneResult, setPruneResult] = useState<{ deleted: number; bytes: number } | null>(null);
+
+  async function handlePrune() {
+    setPruneLoading(true);
+    setPruneResult(null);
+    try {
+      const plan = await applyFilters(selectedConsoles ?? undefined);
+      setPrunePlan(plan);
+    } finally {
+      setPruneLoading(false);
+    }
+  }
+
+  async function handleExecutePrune(toDelete: RomFile[], bytesFreed: number) {
+    setPruneExecuting(true);
+    setPruneScanState("idle");
+    let settings = null;
+    try {
+      const res = await executePrune(toDelete);
+      setPruneResult({ deleted: res.success_count, bytes: bytesFreed });
+      setPrunePlan(null);
+      settings = await getSettings().catch(() => null);
+    } finally {
+      setPruneExecuting(false);
+    }
+    if (!settings?.rom_roots.length) return;
+    setPruneScanState("scanning");
+    try {
+      const scanResult = await scanRoots(settings.rom_roots);
+      setStatus(scanResult);
+      setConsoles(await getConsoles());
+      refreshTagStore();
+      bumpCacheVersion();
+      setPruneScanState("done");
+      setTimeout(() => { setPruneResult(null); setPruneScanState("idle"); }, 4000);
+    } catch {
+      setPruneScanState("idle");
+    }
+  }
 
   useEffect(() => {
     clearTimeout(debouncedRef.current);
@@ -165,6 +216,25 @@ export default function Roms() {
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="ROMs" />
+        <div className="ml-auto flex items-center gap-3">
+          {pruneResult ? (
+            <span className="text-xs text-green-400 flex items-center gap-1.5">
+              ✓ Deleted {pruneResult.deleted.toLocaleString()} files · {formatBytes(pruneResult.bytes)} freed
+              {pruneScanState === "scanning" && <Loader2 className="w-3 h-3 animate-spin" />}
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={handlePrune}
+              disabled={pruneLoading || groups.length === 0}
+            >
+              <Trash2 className="w-3 h-3" />
+              {pruneLoading ? "Computing…" : "Prune"}
+            </Button>
+          )}
+        </div>
       </div>
 
       <FilterBar
@@ -242,9 +312,23 @@ export default function Roms() {
         </ConsoleEmptyState>
       )}
       <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} />
+
+      {/* Prune confirmation dialog */}
+      {prunePlan && (
+        <PrunePreviewDialog
+          plan={prunePlan}
+          executing={pruneExecuting}
+          selectedConsoles={selectedConsoles}
+          onConfirm={handleExecutePrune}
+          onCancel={() => setPrunePlan(null)}
+        />
+      )}
     </div>
   );
 }
+
+
+// ── Variant row ───────────────────────────────────────────────────────────────
 
 function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; isPreferred: boolean; verificationStatus?: string }) {
   const statusColor = rom.is_bios ? "border-l-orange-400" : isPreferred ? "border-l-green-500" : "border-l-transparent";
@@ -258,9 +342,6 @@ function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; is
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>{flag}</span>
         <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
         <TagList regions={rom.regions} languages={rom.languages} max={3} />
-        {rom.is_unofficial_preferred_fallback && (
-          <Badge variant="outline" className="text-xs border-blue-500/40 text-blue-400 shrink-0">fallback</Badge>
-        )}
         <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>
         {isPreferred && <span className="text-green-400 shrink-0">★</span>}
       </div>

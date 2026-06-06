@@ -5,7 +5,6 @@ export type TabId =
   | "roms"
   | "system"
   | "duplicates"
-  | "prune"
   | "history"
   | "settings";
 

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Trash2, Search, Loader2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -20,21 +20,43 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { CheckSquare, Square } from "lucide-react";
 import {
   getSettings, saveSettings, reapplyPreferences, isCloudPath,
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
   scanRoots,
+  getFormatPairs, applyFormatPairs, executeFormatPairs, formatBytes,
+  getConsoles,
 } from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { DatFile } from "@/lib/bindings/DatFile";
+import type { FormatPair } from "@/lib/bindings/FormatPair";
+import type { DeletionItem } from "@/lib/bindings/DeletionItem";
+import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
+import { useScanStore } from "@/store/scan";
 import { getRegionsForLanguage } from "@/lib/regionUtils";
-import { getAbbrev } from "@/lib/consoleUtils";
+import { getAbbrev, getFormatVariantLabel } from "@/lib/consoleUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { refreshTagStore } from "@/components/Layout";
+
+function reasonKey(r: DeletionItem["reason"]): string {
+  return typeof r === "string" ? r : Object.keys(r)[0] ?? "unknown";
+}
+
+const FP_REASON_COLORS: Record<string, string> = {
+  format_pair_non_preferred:  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  format_pair_no_counterpart: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+};
+const FP_REASON_LABELS: Record<string, string> = {
+  format_pair_non_preferred:  "Format variant",
+  format_pair_no_counterpart: "No counterpart",
+};
 
 const COMMON_LANGUAGES = ["En", "Ja", "Fr", "De", "Es", "It", "Pt", "Zh", "Ko", "Ru", "Nl", "Sv"];
 const COMMON_REGIONS = ["USA", "World", "Europe", "Japan", "Australia", "United Kingdom",
@@ -77,6 +99,7 @@ function SortableRegion({ region, index, onRemove }: { region: string; index: nu
 export default function Settings() {
   const { theme, setTheme, setActiveTab } = useUIStore();
   const { setPreferences } = usePreferencesStore();
+  const { setConsoles, setStatus, bumpCacheVersion } = useScanStore();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
@@ -90,6 +113,17 @@ export default function Settings() {
   const [datFiles, setDatFiles] = useState<DatFile[]>([]);
   const [enriching, setEnriching] = useState(false);
 
+  // ── Format pair state ────────────────────────────────────────────────────────
+  const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
+  const [selectedPairGroups, setSelectedPairGroups] = useState<Record<string, true>>({});
+  const prevPairGroupsRef = useRef<Set<string>>(new Set());
+  const [fpPlan, setFpPlan] = useState<DeletionPlan | null>(null);
+  const [fpPreviewSearch, setFpPreviewSearch] = useState("");
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpExecuting, setFpExecuting] = useState(false);
+  const [fpScanState, setFpScanState] = useState<"idle" | "scanning" | "done">("idle");
+  const [fpResult, setFpResult] = useState<{ success: number; failed: number; foldersRemoved: number } | null>(null);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   useEffect(() => {
@@ -98,6 +132,22 @@ export default function Settings() {
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
     getVersion().then(setAppVersion).catch(() => {});
+    getFormatPairs().then((pairs) => {
+      setFormatPairs(pairs);
+      const incomingGroups = new Set(pairs.map((p) => p.console_group));
+      setSelectedPairGroups((prev) => {
+        const next: Record<string, true> = {};
+        for (const g of incomingGroups) {
+          if (prevPairGroupsRef.current.has(g)) {
+            if (prev[g]) next[g] = true;
+          } else {
+            next[g] = true;
+          }
+        }
+        return next;
+      });
+      prevPairGroupsRef.current = incomingGroups;
+    }).catch(console.error);
   }, []);
 
   async function save(next: AppSettings) {
@@ -163,6 +213,95 @@ export default function Settings() {
   function removeRegion(region: string) {
     if (!settings) return;
     save({ ...settings, preferences: { ...settings.preferences, preferred_regions: settings.preferences.preferred_regions.filter((r) => r !== region) } });
+  }
+
+  function selectFormatFolder(consoleGroup: string, folder: string) {
+    if (!settings) return;
+    const next: AppSettings = {
+      ...settings,
+      format_preferences: { ...settings.format_preferences, [consoleGroup]: folder },
+    };
+    setSettings(next);
+    saveSettings(next).catch(console.error);
+  }
+
+  function togglePairGroup(group: string) {
+    setSelectedPairGroups((prev) => {
+      if (prev[group]) { const next = { ...prev }; delete next[group]; return next; }
+      return { ...prev, [group]: true };
+    });
+  }
+
+  const formatPrefs = useMemo(() => settings?.format_preferences ?? {}, [settings]);
+
+  const anySelectedPrefSet = useMemo(
+    () => formatPairs.some((p) => selectedPairGroups[p.console_group] && formatPrefs[p.console_group] !== undefined),
+    [formatPairs, selectedPairGroups, formatPrefs],
+  );
+
+  const activeFpItems = (fpPlan?.to_delete ?? []).filter((d) =>
+    formatPairs.some(
+      (p) => (p.folder_a === d.rom.console || p.folder_b === d.rom.console) && !!selectedPairGroups[p.console_group],
+    )
+  );
+
+  const filteredFpItems = useMemo(() => {
+    const q = fpPreviewSearch.toLowerCase();
+    const items = activeFpItems.filter(
+      (d) => !q || d.rom.filename.toLowerCase().includes(q) || d.rom.title.toLowerCase().includes(q),
+    );
+    return items.sort((a, b) => {
+      const aNC = reasonKey(a.reason) === "format_pair_no_counterpart" ? 0 : 1;
+      const bNC = reasonKey(b.reason) === "format_pair_no_counterpart" ? 0 : 1;
+      return aNC - bNC;
+    });
+  }, [activeFpItems, fpPreviewSearch]);
+
+  const fpNoCounterpartCount = useMemo(
+    () => activeFpItems.filter((d) => reasonKey(d.reason) === "format_pair_no_counterpart").length,
+    [activeFpItems],
+  );
+
+  async function previewFormatPairs() {
+    setFpLoading(true);
+    setFpPlan(null);
+    try {
+      const p = await applyFormatPairs();
+      setFpPlan(p);
+    } finally {
+      setFpLoading(false);
+    }
+  }
+
+  async function executeFormatPairsAction() {
+    if (!fpPlan || activeFpItems.length === 0) return;
+    setFpScanState("idle");
+    setFpExecuting(true);
+    let currentSettings = settings;
+    try {
+      const toDelete = activeFpItems.map((d) => d.rom);
+      const res = await executeFormatPairs(toDelete);
+      setFpResult({ success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
+      setFpPlan(null);
+      setFpPreviewSearch("");
+      currentSettings = await getSettings().catch(() => settings);
+      setSettings(currentSettings);
+      await reapplyPreferences().catch(console.error);
+    } finally {
+      setFpExecuting(false);
+    }
+    if (!currentSettings?.rom_roots.length) return;
+    setFpScanState("scanning");
+    try {
+      const scanResult = await scanRoots(currentSettings.rom_roots);
+      setStatus(scanResult);
+      setConsoles(await getConsoles());
+      refreshTagStore();
+      bumpCacheVersion();
+      setFpScanState("done");
+    } catch {
+      setFpScanState("idle");
+    }
   }
 
   if (!settings) {
@@ -387,6 +526,184 @@ export default function Settings() {
       </section>
 
       <Separator />
+
+      {/* Format Pair Cleanup */}
+      {formatPairs.length > 0 && (
+        <>
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-foreground">Format Variant Cleanup</h2>
+            <div className="flex gap-1 ml-auto">
+              <button onClick={() => { const all: Record<string, true> = {}; for (const p of formatPairs) all[p.console_group] = true; setSelectedPairGroups(all); }} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+                <CheckSquare className="w-3 h-3" /> All
+              </button>
+              <span className="text-muted-foreground/40">·</span>
+              <button onClick={() => setSelectedPairGroups({})} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+                <Square className="w-3 h-3" /> None
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Select your preferred format for each paired console folder. Click "Analyze" to preview which files will be removed, then execute to delete the non-preferred copies.
+          </p>
+
+          {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
+            const pref = formatPrefs[pair.console_group];
+            const isSelected = !!selectedPairGroups[pair.console_group];
+            const isProperSubset = pair.folder_a_count < pair.folder_b_count;
+            const isIdentical = pair.folder_a_count === pair.folder_b_count && pair.overlap_percent >= 0.999;
+            const shortA = getFormatVariantLabel(pair.folder_a);
+            const shortB = getFormatVariantLabel(pair.folder_b);
+            const headerLabel = isProperSubset
+              ? `${shortA} ⊂ ${shortB} · ${pair.folder_a_count} of ${pair.folder_b_count} titles`
+              : isIdentical
+              ? `${pair.folder_a_count} titles each · 100% overlap`
+              : `${Math.round(pair.overlap_percent * 100)}% overlap · ${pair.folder_a_count} / ${pair.folder_b_count} titles`;
+            return (
+              <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
+                <button
+                  onClick={() => togglePairGroup(pair.console_group)}
+                  className="w-full px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground flex items-center gap-2 hover:bg-muted/50 transition-colors"
+                >
+                  <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${isSelected ? "bg-primary/20 border-primary/60" : "border-border"}`}>
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-sm bg-primary" />}
+                  </div>
+                  {headerLabel}
+                </button>
+                <div className={`divide-y divide-border${!isSelected ? " opacity-50 pointer-events-none" : ""}`}>
+                  {[pair.folder_a, pair.folder_b].map((folder) => {
+                    const count = folder === pair.folder_a ? pair.folder_a_count : pair.folder_b_count;
+                    const isSubsetFolder = isProperSubset && folder === pair.folder_a;
+                    return (
+                      <button
+                        key={folder}
+                        onClick={() => selectFormatFolder(pair.console_group, folder)}
+                        className={["w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors", pref === folder ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30"].join(" ")}
+                      >
+                        <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
+                        <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>{getFormatVariantLabel(folder)}</span>
+                        <span className="text-xs text-muted-foreground/50 ml-1">{count} titles</span>
+                        {isSubsetFolder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">subset</span>}
+                        {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {fpResult && (
+            <Alert className="border-green-500/40 bg-green-500/10">
+              <AlertDescription className="text-green-300 text-sm flex items-center justify-between gap-3 flex-wrap">
+                <span>
+                  ✓ Removed {fpResult.success} file{fpResult.success !== 1 ? "s" : ""}.
+                  {fpResult.foldersRemoved > 0 && ` ${fpResult.foldersRemoved} empty folder${fpResult.foldersRemoved !== 1 ? "s" : ""} deleted from scan roots.`}
+                  {fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
+                </span>
+                {fpScanState === "scanning" && (
+                  <span className="flex items-center gap-1.5 text-green-400/70 text-xs shrink-0">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Rescanning…
+                  </span>
+                )}
+                {fpScanState === "done" && <span className="text-green-400/70 text-xs shrink-0">Collection updated.</span>}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {fpNoCounterpartCount > 0 && (
+            <Alert className="border-amber-500/40 bg-amber-500/10">
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <AlertDescription className="text-amber-300 text-sm">
+                {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder and will also be deleted.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {fpPlan && activeFpItems.length > 0 && (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
+                <span className="text-xs font-medium text-foreground">
+                  {activeFpItems.length.toLocaleString()} files · {formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))} to remove
+                </span>
+                <button onClick={() => { setFpPlan(null); setFpPreviewSearch(""); }} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+                <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <Input
+                  placeholder="Search files…"
+                  value={fpPreviewSearch}
+                  onChange={(e) => setFpPreviewSearch(e.target.value)}
+                  className="h-7 text-xs border-0 bg-transparent focus-visible:ring-0 p-0"
+                />
+              </div>
+              <div className="h-64 overflow-y-auto overflow-x-hidden">
+                {filteredFpItems.map((item, i) => {
+                  const rk = reasonKey(item.reason);
+                  const isNoCounterpart = rk === "format_pair_no_counterpart";
+                  const colorClass = FP_REASON_COLORS[rk] ?? "bg-muted/40 text-muted-foreground border-border/60";
+                  return (
+                    <div key={i} className={`flex items-center gap-2 px-4 py-1.5 border-b text-xs ${isNoCounterpart ? "border-l-2 border-l-amber-500/50 border-b-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10" : "border-b-border/40 hover:bg-muted/20"}`}>
+                      <span className={`min-w-0 flex-1 truncate font-mono ${isNoCounterpart ? "text-amber-300/80" : "text-muted-foreground"}`}>{item.rom.filename}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>{FP_REASON_LABELS[rk] ?? rk}</span>
+                      <span className="text-muted-foreground/60 shrink-0">{getFormatVariantLabel(item.rom.console)}</span>
+                    </div>
+                  );
+                })}
+                {filteredFpItems.length === 0 && fpPreviewSearch && (
+                  <div className="px-4 py-4 text-xs text-muted-foreground text-center">No matches for "{fpPreviewSearch}"</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {fpPlan && activeFpItems.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              {fpPlan.to_delete.length === 0 ? "Nothing to remove — all files are already in the preferred format." : "No items match the selected pairs."}
+            </p>
+          )}
+
+          <div className="flex gap-3">
+            <Button size="sm" variant="outline" disabled={fpLoading || !anySelectedPrefSet} onClick={previewFormatPairs} className="gap-2">
+              {fpLoading ? "Analyzing…" : fpPlan ? "Re-analyze" : "Analyze Removals"}
+            </Button>
+            {fpPlan && activeFpItems.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="destructive" disabled={fpExecuting} className="gap-2">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {fpExecuting ? "Removing…" : `Remove ${activeFpItems.length.toLocaleString()} files`}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Remove format-pair files?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {activeFpItems.length.toLocaleString()} files from non-preferred format folders ({formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))}) will be permanently deleted.
+                      {fpNoCounterpartCount > 0 && (
+                        <span className="block mt-1 text-amber-400">
+                          {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder.
+                        </span>
+                      )}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={executeFormatPairsAction} className="bg-destructive hover:bg-destructive/90">
+                      Delete permanently
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
+        </section>
+        <Separator />
+        </>
+      )}
 
       {/* Privacy */}
       <section className="space-y-4">

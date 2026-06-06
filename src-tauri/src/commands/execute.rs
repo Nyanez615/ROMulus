@@ -682,7 +682,6 @@ mod tests {
             filesize: 0,
             matches_preferred_language: false,
             matches_preferred_region: false,
-            is_unofficial_preferred_fallback: false,
         }
     }
 }

@@ -14,7 +14,6 @@ import type { ConsoleStats } from "./bindings/ConsoleStats";
 import type { DeletionItem } from "./bindings/DeletionItem";
 import type { DeletionPlan } from "./bindings/DeletionPlan";
 import type { ExecutionResult } from "./bindings/ExecutionResult";
-import type { FilterSettings } from "./bindings/FilterSettings";
 import type { PagedHistory } from "./bindings/PagedHistory";
 import type { RomGroup } from "./bindings/RomGroup";
 import type { NewRomEvent } from "./bindings/NewRomEvent";
@@ -116,9 +115,9 @@ export const getEmptyRoots = (): Promise<string[]> =>
 export const cleanupEmptyRoots = (paths: string[]): Promise<number> =>
   isTauri() ? invoke("cleanup_empty_roots", { paths }) : Promise.resolve(0);
 
-export const applyFilters = (settings: FilterSettings, consoles?: string[]): Promise<DeletionPlan> =>
+export const applyFilters = (consoles?: string[]): Promise<DeletionPlan> =>
   isTauri()
-    ? invoke("apply_filters", { settings, consoles: consoles ?? null })
+    ? invoke("apply_filters", { consoles: consoles ?? null })
     : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
 export const applyFormatPairs = (): Promise<DeletionPlan> =>
@@ -226,21 +225,6 @@ export const saveSettings = (settings: AppSettings): Promise<void> =>
 
 export const reapplyPreferences = (): Promise<void> =>
   isTauri() ? invoke("reapply_preferences") : Promise.resolve();
-
-export const getFilterSettings = (): Promise<FilterSettings> =>
-  isTauri()
-    ? invoke("get_filter_settings")
-    : Promise.resolve({
-        keep_preferred_only: false,
-        remove_if_no_preferred_version: false,
-        remove_prerelease: false,
-        remove_unofficial: false,
-        remove_older_revisions: false,
-        keep_unofficial_as_fallback: true,
-      });
-
-export const saveFilterSettings = (settings: FilterSettings): Promise<void> =>
-  isTauri() ? invoke("save_filter_settings", { settings }) : Promise.resolve();
 
 export const getOnboardingState = (): Promise<OnboardingState> =>
   isTauri() ? invoke("get_onboarding_state") : Promise.resolve(DEFAULT_ONBOARDING);

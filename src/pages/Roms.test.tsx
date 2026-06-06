@@ -33,7 +33,7 @@ function makeRom(title: string, regions: string[], statusFlags: string[] = [], l
     bad_dump: false, revision: 0, disc_number: null, version: null,
     is_bios: false, file_format: "zip", file_category: "game",
     filesize: 1024, matches_preferred_language: true,
-    matches_preferred_region: true, is_unofficial_preferred_fallback: false,
+    matches_preferred_region: true,
   };
 }
 

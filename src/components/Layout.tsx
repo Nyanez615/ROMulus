@@ -12,7 +12,6 @@ import Dashboard from "@/pages/Dashboard";
 import Roms from "@/pages/Roms";
 import SystemFiles from "@/pages/SystemFiles";
 import Duplicates from "@/pages/Duplicates";
-import Prune from "@/pages/Prune";
 import History from "@/pages/History";
 import Settings from "@/pages/Settings";
 
@@ -21,7 +20,6 @@ const PAGES: Record<string, React.ComponentType> = {
   roms: Roms,
   system: SystemFiles,
   duplicates: Duplicates,
-  prune: Prune,
   history: History,
   settings: Settings,
 };

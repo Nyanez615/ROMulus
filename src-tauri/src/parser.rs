@@ -17,8 +17,8 @@ const KNOWN_REGIONS: &[&str] = &[
 ];
 
 const STATUS_FLAGS: &[&str] = &[
-    "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
-    "Preview", "GameCube Preview",
+    "Alpha", "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
+    "Preview", "GameCube Preview", "Possible Proto",
     "Aftermarket", "Unl", "Pirate", "Hack", "Alt",
 ];
 
@@ -37,6 +37,7 @@ const LANGUAGE_CODES: &[&str] = &[
 const UTILITY_TAGS: &[&str] = &[
     "Cart Present", "No Cart Present", "Action Replay", "Game Shark",
     "Test Program", "Debug", "Competition Cart", "PC10", "VS",
+    "Program", "Music Program",
 ];
 
 // ── Region → default language inference ──────────────────────────────────────
@@ -179,6 +180,23 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
             continue;
         }
 
+        // Bugfix: post-release patch; treat as revision 1 when no Rev or sequence
+        // number is already set so that the fixed version beats the base release.
+        // Fall through so "Bugfix" is also kept in extra_tags for display.
+        if content == "Bugfix" && revision == 0 {
+            revision = 1;
+        }
+
+        // ISO build date "YYYY-MM-DD": store as revision = YYYYMMDD so that later
+        // date-stamped protos rank above earlier ones via the pre-release tiebreaker.
+        // Only set when no Rev/Proto sequence number was already parsed.
+        // Fall through so the date string is also kept in extra_tags for display.
+        if revision == 0 {
+            if let Some(date_num) = parse_iso_date(content) {
+                revision = date_num;
+            }
+        }
+
         // Everything else is an extra tag
         extra_tags.push(content.to_string());
     }
@@ -208,11 +226,47 @@ fn is_language_tag(s: &str) -> bool {
 }
 
 fn parse_revision(s: &str) -> Option<u32> {
-    s.strip_prefix("Rev ")?.parse().ok()
+    if let Some(rest) = s.strip_prefix("Rev ") {
+        if let Ok(n) = rest.parse::<u32>() { return Some(n); }
+        // Rev 1.2, Rev 1.4 → major * 100 + minor (e.g. 102, 104)
+        if let Some((maj, min)) = rest.split_once('.') {
+            if let (Ok(major), Ok(minor)) = (maj.parse::<u32>(), min.parse::<u32>()) {
+                return Some(major * 100 + minor);
+            }
+        }
+        // Rev A, Rev B … → 1, 2 …
+        if rest.len() == 1 {
+            let c = rest.chars().next()?;
+            if c.is_ascii_uppercase() { return Some(c as u32 - b'A' as u32 + 1); }
+        }
+    }
+    // REV-A, REV-B … (uppercase + hyphen variant)
+    if let Some(rest) = s.strip_prefix("REV-") {
+        if rest.len() == 1 {
+            let c = rest.chars().next()?;
+            if c.is_ascii_uppercase() { return Some(c as u32 - b'A' as u32 + 1); }
+        }
+    }
+    None
 }
 
 fn parse_disc(s: &str) -> Option<u32> {
     s.strip_prefix("Disc ")?.parse().ok()
+}
+
+/// Parses "YYYY-MM-DD" → YYYYMMDD as a u32 so date-stamped protos sort chronologically.
+fn parse_iso_date(s: &str) -> Option<u32> {
+    if s.len() != 10 { return None; }
+    let (y_str, rest) = s.split_once('-')?;
+    let (m_str, d_str) = rest.split_once('-')?;
+    if y_str.len() != 4 || m_str.len() != 2 || d_str.len() != 2 { return None; }
+    let y: u32 = y_str.parse().ok()?;
+    let m: u32 = m_str.parse().ok()?;
+    let d: u32 = d_str.parse().ok()?;
+    if !(1970..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(y * 10000 + m * 100 + d)
 }
 
 // ── File category detection ───────────────────────────────────────────────────
@@ -302,8 +356,7 @@ fn extract_tags(stem: &str) -> (String, Vec<&str>, Vec<&str>) {
 }
 
 /// Parse a single ROM file path into a `RomFile`.
-/// `matches_preferred_*` and `is_unofficial_preferred_fallback` default to `false`
-/// and are populated later by the grouper.
+/// `matches_preferred_*` default to `false` and are populated later by the grouper.
 pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Option<RomFile> {
     let filename = path.file_name()?.to_str()?;
 
@@ -378,7 +431,6 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
         filesize,
         matches_preferred_language: false,
         matches_preferred_region: false,
-        is_unofficial_preferred_fallback: false,
     })
 }
 
@@ -616,6 +668,116 @@ mod tests {
     fn plain_proto_leaves_revision_zero() {
         let r = parse("Some Game (USA) (Proto).zip");
         assert_eq!(r.revision, 0);
+    }
+
+    // ── Bugfix revision tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn bugfix_sets_revision_one() {
+        let r = parse("Perfect Blend (World) (v0.9) (Bugfix) (Aftermarket) (Unl).zip");
+        assert_eq!(r.revision, 1, "Bugfix → revision = 1");
+        assert!(r.extra_tags.contains(&"Bugfix".to_string()), "Bugfix must remain in extra_tags");
+    }
+
+    #[test]
+    fn bugfix_preferred_over_base_same_version() {
+        let mut base = parse("Perfect Blend (World) (v0.9) (Aftermarket) (Unl).zip");
+        let mut fixed = parse("Perfect Blend (World) (v0.9) (Bugfix) (Aftermarket) (Unl).zip");
+        base.title_normalized  = "perfect blend".into();
+        fixed.title_normalized = "perfect blend".into();
+        let prefs = crate::models::UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let groups = crate::commands::group::group_roms(vec![base, fixed], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.extra_tags.contains(&"Bugfix".to_string()),
+            "Bugfix variant must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    // ── Utility tag tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn program_tag_is_utility() {
+        let r = parse("Family BASIC (Japan) (Program).zip");
+        assert_eq!(r.file_category, FileCategory::Utility, "(Program) must be Utility");
+    }
+
+    #[test]
+    fn music_program_tag_is_utility() {
+        let r = parse("Famicom Music Disk (Japan) (Music Program).zip");
+        assert_eq!(r.file_category, FileCategory::Utility, "(Music Program) must be Utility");
+    }
+
+    // ── Possible Proto tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn possible_proto_is_status_flag() {
+        let r = parse("Some Game (USA) (Possible Proto).zip");
+        assert!(r.status_flags.contains(&"Possible Proto".to_string()), "Possible Proto must be a status flag");
+        assert!(!r.extra_tags.contains(&"Possible Proto".to_string()), "Possible Proto must not leak into extra_tags");
+    }
+
+    // ── Letter revision tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn rev_letter_stored_as_revision() {
+        let r = parse("Some Game (USA) (Rev B).zip");
+        assert_eq!(r.revision, 2, "Rev B → revision = 2");
+    }
+
+    #[test]
+    fn rev_dash_letter_stored_as_revision() {
+        let r = parse("Some Game (USA) (REV-C).zip");
+        assert_eq!(r.revision, 3, "REV-C → revision = 3");
+    }
+
+    // ── Alpha status flag tests ───────────────────────────────────────────────
+
+    #[test]
+    fn alpha_is_status_flag() {
+        let r = parse("Nyghtmare - Betrayed (World) (Alpha A) (Aftermarket) (Unl).zip");
+        assert!(r.status_flags.contains(&"Alpha".to_string()), "Alpha must be a status flag");
+        assert!(!r.extra_tags.contains(&"Alpha A".to_string()), "Alpha A must not leak into extra_tags");
+    }
+
+    // ── ISO date build-stamp tests ────────────────────────────────────────────
+
+    #[test]
+    fn iso_date_stored_as_revision() {
+        let r = parse("Mick & Mack as the Global Gladiators (USA) (Proto) (1993-07-20).zip");
+        assert!(r.status_flags.contains(&"Proto".to_string()));
+        assert_eq!(r.revision, 19930720, "1993-07-20 → revision = 19930720");
+        assert!(r.extra_tags.contains(&"1993-07-20".to_string()), "date must remain in extra_tags for display");
+    }
+
+    #[test]
+    fn later_date_proto_preferred_over_earlier() {
+        // 1994-01-18 is a later, more complete build than 1993-07-20.
+        let mut early = parse("Mick & Mack as the Global Gladiators (USA) (Proto) (1993-07-20).zip");
+        let mut late  = parse("Mick & Mack as the Global Gladiators (USA) (Proto) (1994-01-18).zip");
+        early.title_normalized = "mick mack as the global gladiators".into();
+        late.title_normalized  = "mick mack as the global gladiators".into();
+        let prefs = crate::models::UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec!["USA".into(), "World".into(), "Europe".into()],
+            short_console_names: false,
+        };
+        let groups = crate::commands::group::group_roms(vec![early, late], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.extra_tags.contains(&"1994-01-18".to_string()),
+            "latest proto (1994-01-18) must be preferred, got extra_tags: {:?}",
+            preferred.extra_tags,
+        );
     }
 
     // ── Catalog number split tests ─────────────────────────────────────────────
