@@ -127,19 +127,18 @@ describe("ROMs region filter (ANY within type)", () => {
     await waitFor(() => expect(countText()).toBe("3 titles"));
   });
 
-  it("region AND status chips use AND logic (0 groups match USA ∧ Beta)", async () => {
+  it("Beta chip hides when USA is selected (faceted: no USA group has a Beta variant)", async () => {
     render(<Roms />);
     await waitFor(() => expect(screen.getByText(/3 titles/)).toBeInTheDocument());
-    // Select USA from Region panel
+    // Select USA region — Zelda + Castlevania match, Metroid (Japan/Beta) does not
     fireEvent.click(screen.getByRole("button", { name: /Region/i }));
     await waitFor(() => screen.getByText("USA"));
     fireEvent.click(screen.getByText("USA"));
     await waitFor(() => expect(countText()).toBe("2 titles"));
-    // Switch to Category panel and select Beta
+    // Beta chip must disappear — no USA-matched group has a Beta variant,
+    // so the faceted chip list correctly omits it to prevent a zero-result selection.
     fireEvent.click(screen.getByRole("button", { name: /Category/i }));
-    await waitFor(() => screen.getByText("Beta"));
-    fireEvent.click(screen.getByText("Beta")); // Only Metroid has Beta, but Metroid has no USA variant
-    await waitFor(() => expect(countText()).toBe("0 titles"));
+    await waitFor(() => expect(screen.queryByText("Beta")).toBeNull());
   });
 });
 
