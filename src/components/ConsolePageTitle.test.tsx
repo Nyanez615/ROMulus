@@ -11,8 +11,8 @@ describe("ConsolePageTitle", () => {
   });
 
   it("renders plain tabName when selectedConsoles is empty array", () => {
-    render(<ConsolePageTitle selectedConsoles={[]} tabName="Duplicates" />);
-    expect(screen.getByRole("heading")).toHaveTextContent("Duplicates");
+    render(<ConsolePageTitle selectedConsoles={[]} tabName="System Files" />);
+    expect(screen.getByRole("heading")).toHaveTextContent("System Files");
   });
 
   it("renders platform — canonical — tabName when selectedConsoles is set", () => {

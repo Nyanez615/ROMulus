@@ -11,7 +11,6 @@ import { CommandPalette } from "./CommandPalette";
 import Dashboard from "@/pages/Dashboard";
 import Roms from "@/pages/Roms";
 import SystemFiles from "@/pages/SystemFiles";
-import Duplicates from "@/pages/Duplicates";
 import History from "@/pages/History";
 import Settings from "@/pages/Settings";
 
@@ -19,7 +18,6 @@ const PAGES: Record<string, React.ComponentType> = {
   dashboard: Dashboard,
   roms: Roms,
   system: SystemFiles,
-  duplicates: Duplicates,
   history: History,
   settings: Settings,
 };

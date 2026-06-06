@@ -34,20 +34,16 @@ beforeEach(() => {
 // ── NAV_ITEMS order ───────────────────────────────────────────────────────────
 
 describe("Sidebar NAV_ITEMS order", () => {
-  it("Duplicates appears between ROMs and System Files; no Hacks tab", () => {
+  it("ROMs appears before System Files; no Hacks or Duplicates tab", () => {
     render(<Sidebar />);
-    const allButtons = screen.getAllByRole("button");
-    const labels = allButtons.map((b) => b.textContent?.trim() ?? "");
+    const labels = screen.getAllByRole("button").map((b) => b.textContent?.trim() ?? "");
     const romsIdx = labels.findIndex((t) => t === "ROMs");
-    const dupsIdx = labels.findIndex((t) => t === "Duplicates");
-    const sysIdx = labels.findIndex((t) => t.includes("System Files"));
+    const sysIdx  = labels.findIndex((t) => t.includes("System Files"));
     expect(romsIdx).toBeGreaterThanOrEqual(0);
-    expect(dupsIdx).toBeGreaterThanOrEqual(0);
     expect(sysIdx).toBeGreaterThanOrEqual(0);
-    expect(romsIdx).toBeLessThan(dupsIdx);
-    expect(dupsIdx).toBeLessThan(sysIdx);
-    // Hacks tab must be gone
+    expect(romsIdx).toBeLessThan(sysIdx);
     expect(labels.findIndex((t) => t.includes("Hacks"))).toBe(-1);
+    expect(labels.findIndex((t) => t === "Duplicates")).toBe(-1);
   });
 });
 

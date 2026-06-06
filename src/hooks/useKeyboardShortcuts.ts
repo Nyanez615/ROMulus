@@ -12,7 +12,7 @@ import { useUIStore } from "@/store/ui";
  */
 const TABS = [
   "dashboard", "roms",
-  "system", "duplicates", "history", "settings",
+  "system", "history", "settings",
 ] as const;
 
 export function useKeyboardShortcuts() {

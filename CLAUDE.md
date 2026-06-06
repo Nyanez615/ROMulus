@@ -17,6 +17,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **Bug Groups U–X** ✅ Scoring fixes, format pair dedicated workflow, BIOS inclusion, no-counterpart reason, permanent-only deletion, cloud root blocking, `v0.2.4` published
 - **v0.2.5** ✅ Sort UX overhaul (SortControl, bidirectional sort), scoring tier split (Format Variant/Collection), Prune filter descriptions + preview scroll fix, format pair subset indicator, auto-rescan, React Compiler v7 hardening
 - **v0.2.6** ✅ Titles Count Architecture (game_groups sidebar/Dashboard), scoring overhaul (multi-language tag parsing, alt_penalty fix, version tiebreaker), AlphabetScrubber + VariantCountScrubber, Hacks merged into ROMs tab, Preferred filter chip
+- **v0.2.8** ✅ Scoring improvements (collection penalty −80, revision bonus, proto ordering, BIOS extra-tag), Prune integrated into Settings, Duplicates tab removed, Utilities moved to ROMs tab, Format Variant rename, faceted chip filtering, CSV export fixes, permanent-only deletion, cloud root blocking
 
 ## Dev setup
 
@@ -28,7 +29,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 137 unit tests + regenerates src/lib/bindings/
+cargo test                    # 164 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -36,7 +37,7 @@ From project root:
 ```bash
 npx tsc --noEmit       # TypeScript type-check
 npm run lint           # ESLint
-npm run test:run       # 114 Vitest tests
+npm run test:run       # 97 Vitest tests
 ```
 
 ## Architecture
@@ -51,7 +52,7 @@ src/                             React frontend (Vite root)
     AlphabetScrubber.tsx         A–Z # strip for ROMs tab (name sort); reverses in desc order
     VariantCountScrubber.tsx     Numeric variant-count strip for ROMs tab (variants sort)
     FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab)
-    SortControl.tsx              Field <select> + direction <button> pill; used on ROMs/Duplicates/Dashboard
+    SortControl.tsx              Field <select> + direction <button> pill; used on ROMs tab and Dashboard
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -65,7 +66,8 @@ src/                             React frontend (Vite root)
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
-  pages/                         One component per tab (Dashboard.tsx, Roms.tsx, SystemFiles.tsx, Duplicates.tsx, Prune.tsx, History.tsx, Settings.tsx)
+  pages/                         One component per tab (Dashboard.tsx, Roms.tsx, SystemFiles.tsx, History.tsx, Settings.tsx)
+                                 Note: Prune workflow lives inside Settings.tsx; Duplicates.tsx removed
   store/                         scan.ts · preferences.ts · onboarding.ts · ui.ts
   onboarding/                    4-step wizard (Terms → Prefs → Roots → Scan)
 
@@ -79,7 +81,7 @@ src-tauri/
     watcher.rs                   notify-based FS watcher, 200ms debounce, kept in AppState
     commands/
       scan.rs          scan_roots, get_scan_status, get_consoles, get_format_pairs
-      group.rs         get_roms, get_unofficial, get_system_files, get_duplicates, merge_format_pairs
+      group.rs         get_roms, get_system_files, merge_format_pairs
       prune.rs         apply_filters (→ DeletionPlan w/ DeletionItem+DeletionReason), export_csv
       execute.rs       execute_prune (atomic + backup manifest), get_interrupted_session
       history.rs       get_history
@@ -103,7 +105,7 @@ src-tauri/
 - **Tauri commands, not HTTP** — frontend calls `invoke('command_name', args)` via wrappers in `tauri.ts`. All wrappers return safe defaults in browser preview.
 - **Background tasks use Arc cloning** — `Arc::clone(&state.db)` and `Arc::clone(&state.scan_cache)` before `tauri::async_runtime::spawn`.
 - **Background tasks emit Tauri events** — frontend subscribes via `listen()`. Events: `scan:progress`, `scan:complete`, `watcher:new_rom`, `preferences:regrouped`, `enrich:progress`, `enrich:complete`, `verify:complete`.
-- **Deletions go to Trash by default** — permanent delete opt-in in Settings → Danger Zone. Pre-prune backup manifest auto-written to Desktop before any execution.
+- **All deletions are permanent** — `execute_prune` uses `fs::remove_file`; `execute_format_pairs` uses `fs::remove_dir_all`. No Trash, no staging. Pre-prune backup manifest written to `app_data_dir/manifests/` before every execution.
 - **BIOS files subject to language preference** — pruned like any other file; an English-preferred user keeps English BIOS variants and removes non-English ones.
 - **Multi-disc games kept together** — `disc_number` coalesces into one `RomGroup`; delete/keep applies to full disc set.
 - **Action log is append-only** — no DELETE path on `action_log` table. Pending → deleted/failed via atomic SQLite transaction.
@@ -169,6 +171,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 107 tests, in-memory SQLite only
-- Frontend: `npm run test:run` (Vitest + jsdom) — 113 tests in `src/**/*.test.tsx`
+- Rust: `cargo test` in `src-tauri/` — 164 tests, in-memory SQLite only
+- Frontend: `npm run test:run` (Vitest + jsdom) — 97 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

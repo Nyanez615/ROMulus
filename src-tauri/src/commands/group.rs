@@ -485,44 +485,6 @@ pub fn get_system_files(
     paginate(filtered, page, per_page)
 }
 
-/// Returns groups with multiple keep-eligible variants (duplicates for manual resolution).
-#[tauri::command]
-pub fn get_duplicates(
-    state: State<'_, AppState>,
-    consoles: Option<Vec<String>>,
-) -> Vec<RomGroup> {
-    let cache = state.scan_cache.lock().unwrap();
-
-    let mut groups: Vec<RomGroup> = cache
-        .groups
-        .iter()
-        .filter(|g| {
-            if !g.variants.iter().any(|v|
-                matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)
-            ) { return false; }
-            // Format pairs are not true duplicates — they represent different
-            // formats of the same game (e.g. FDS/QD, Headered/Headerless).
-            // Those are handled by Prune; the Duplicates tab shows only cases
-            // where the same game exists as 2+ copies in the same format.
-            if g.is_format_pair { return false; }
-            let eligible_count = g.variants.iter()
-                .filter(|v| v.matches_preferred_language && !v.bad_dump
-                    && !v.status_flags.iter().any(|f| {
-                        matches!(f.as_str(),
-                            "Alpha"|"Beta"|"Proto"|"Possible Proto"|"Demo"|"Sample"|"Promo"|"Kiosk"|"Preview"|"GameCube Preview"
-                        )
-                    }))
-                .count();
-            eligible_count > 1
-        })
-        .filter(|g| group_matches_consoles(g, &consoles))
-        .cloned()
-        .collect();
-
-    groups.sort_by(|a, b| a.title_normalized.cmp(&b.title_normalized));
-    groups
-}
-
 fn paginate(filtered: Vec<&RomGroup>, page: u32, per_page: u32) -> PagedGroups {
     let total = filtered.len() as u32;
     let start = (page.saturating_sub(1) * per_page) as usize;
