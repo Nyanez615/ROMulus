@@ -85,6 +85,11 @@ describe("getCanonicalConsoleName", () => {
   it("non-aliased non-suffixed short name passes through unchanged", () => {
     expect(getCanonicalConsoleName("Game Boy")).toBe("Game Boy");
   });
+
+  it("recursively strips multiple variant suffixes", () => {
+    expect(getCanonicalConsoleName("Nintendo 3DS (Digital) (Decrypted)")).toBe("Nintendo 3DS");
+    expect(getCanonicalConsoleName("Nintendo DSi (Digital) (CDN) (Decrypted)")).toBe("Nintendo DSi");
+  });
 });
 
 // ── getPlatform ───────────────────────────────────────────────────────────────
@@ -204,9 +209,14 @@ describe("getConsoleDisplayName", () => {
     expect(getConsoleDisplayName("Nintendo - Virtual Boy", true)).toBe("VB");
   });
 
-  it("useShort=true for console with no known abbreviation uses slice fallback", () => {
-    // "PC Engine" has no ABBREV entry → "PC E"
-    expect(getConsoleDisplayName("NEC - PC Engine", true)).toBe("PC E");
+  it("useShort=true for NEC PC Engine returns PCE from ABBREV", () => {
+    expect(getConsoleDisplayName("NEC - PC Engine", true)).toBe("PCE");
+  });
+
+  it("useShort=true falls back through canonical for variant names", () => {
+    // "Nintendo 3DS (Decrypted)" has no direct ABBREV entry;
+    // getCanonicalConsoleName strips to "Nintendo 3DS" → ABBREV["Nintendo 3DS"] = "3DS"
+    expect(getConsoleDisplayName("Nintendo - Nintendo 3DS (Decrypted)", true)).toBe("3DS");
   });
 });
 

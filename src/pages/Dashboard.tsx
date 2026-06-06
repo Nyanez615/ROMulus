@@ -547,6 +547,9 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   const allGroups = canonicalFieldSum(variants, "all_groups");
   const healthPct = allGroups > 0 ? Math.round((preferredGroups / allGroups) * 100) : 0;
   const displayName = getConsoleDisplayName(canonicalName, useShort);
+  // Only count variants that actually have files — avoids showing a chip bar when
+  // all files belong to a single format (e.g. only BigEndian N64 remains after pruning).
+  const filledVariants = variants.filter((v) => v.game_files + v.unofficial_files > 0);
 
   return (
     <button
@@ -556,7 +559,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
         <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs</div>
-        {variants.length > 1 && (
+        {filledVariants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {
               const playable = v.game_files + v.unofficial_files;

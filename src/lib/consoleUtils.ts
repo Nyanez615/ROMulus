@@ -12,15 +12,33 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Variant suffix list ───────────────────────────────────────────────────────
 
 const VARIANT_SUFFIXES = [
+  // Famicom Disk System media formats
   " (FDS)",
   " (QD)",
+  // Game Boy Advance special cart types
   " (Multiboot)",
   " (Video)",
   " (e-Reader)",
+  // Nintendo 64 byte-order variants
   " (BigEndian)",
   " (ByteSwapped)",
+  // NES ROM header variants
   " (Headered)",
   " (Headerless)",
+  // Nintendo DS / 3DS / DSi encryption + distribution variants
+  " (Decrypted)",
+  " (Download Play)",
+  " (Digital)",
+  " (CDN)",
+  // PlayStation distribution variants (PSP / PS3 / Vita)
+  " (PSN)",
+  " (NoNpDrm)",
+  " (PSVgameSD)",
+  " (Minis)",
+  " (UMD Video)",
+  " (UMD Music)",
+  // Xbox 360 digital storefront
+  " (Games on Demand)",
 ] as const;
 
 // ── Alias map: separate products grouped under one canonical console ──────────
@@ -98,13 +116,79 @@ export const ABBREV: Record<string, string> = {
   // Sony
   "PlayStation":                                 "PSX",
   "PlayStation 2":                               "PS2",
+  "PlayStation 3":                               "PS3",
+  "PlayStation 4":                               "PS4",
   "PlayStation Portable":                        "PSP",
   "PlayStation Vita":                            "PSV",
+  // Nintendo — DS / 3DS / Switch family
+  "Nintendo DS":                                 "NDS",
+  "Nintendo DSi":                                "DSi",
+  "Nintendo 3DS":                                "3DS",
+  "New Nintendo 3DS":                            "N3DS",
+  "Nintendo Switch":                             "NSW",
+  // Nintendo — additional home / handheld
+  "Family Computer":                             "FC",
+  "Satellaview":                                 "BSX",
+  "Sufami Turbo":                                "SFT",
+  "Game & Watch":                                "GW",
+  "Wii":                                         "Wii",
+  "Wii U":                                       "WiiU",
+  "GameCube":                                    "GCN",
+  // Sega — additional
+  "SG-1000":                                     "SG1K",
+  "PICO":                                        "PICO",
+  // Atari
+  "2600":                                        "2600",
+  "5200":                                        "5200",
+  "7800":                                        "7800",
+  "8-bit Family":                                "A8",
+  "Jaguar":                                      "JAG",
+  "Lynx":                                        "LYNX",
+  "ST":                                          "AST",
+  // SNK
+  "Neo Geo Pocket":                              "NGP",
+  "Neo Geo Pocket Color":                        "NGPC",
+  "Neo Geo CD":                                  "NGCD",
+  // NEC
+  "PC Engine":                                   "PCE",
+  "PC Engine CD":                                "PCECD",
+  "SuperGrafx":                                  "SGX",
+  "PC-FX":                                       "PCFX",
+  // Bandai
+  "WonderSwan":                                  "WS",
+  "WonderSwan Color":                            "WSC",
+  // Microsoft
+  "Xbox":                                        "XBX",
+  "Xbox 360":                                    "X360",
+  "XBOX 360":                                    "X360",
+  // Panasonic
+  "3DO Interactive Multiplayer":                 "3DO",
+  // Philips
+  "CD-i":                                        "CDi",
+  // Commodore
+  "64":                                          "C64",
+  "Amiga":                                       "AMI",
+  // Microsoft — PC
+  "MSX":                                         "MSX",
+  "MSX 2":                                       "MSX2",
+  // Other home consoles
+  "Intellivision":                               "INTV",
+  "ColecoVision":                                "CV",
+  "Vectrex":                                     "VEC",
+  "Odyssey 2":                                   "O2",
+  "Channel F":                                   "CHF",
+  "Studio II":                                   "RCA2",
+  "Supervision":                                 "SVN",
+  "Game.com":                                    "GCO",
+  "V.Smile":                                     "VSM",
+  "Super Cassette Vision":                       "SCV",
+  "GP32":                                        "GP32",
 };
 
 export function getAbbrev(consoleName: string): string {
   const short = consoleName.split(" - ")[1] ?? consoleName;
-  return ABBREV[short] ?? short.slice(0, 4).toUpperCase();
+  const canonical = getCanonicalConsoleName(short);
+  return ABBREV[short] ?? ABBREV[canonical] ?? short.slice(0, 4).toUpperCase();
 }
 
 /**
@@ -118,7 +202,8 @@ export function getFormatVariantLabel(folder: string): string {
   const short = folder.split(" - ")[1] ?? folder;
   const base = stripFormatSuffix(short);
   const suffix = short.slice(base.length).trim(); // e.g. "(QD)" or ""
-  const abbrev = ABBREV[base] ?? base.slice(0, 4).toUpperCase();
+  const canonical = getCanonicalConsoleName(base);
+  const abbrev = ABBREV[base] ?? ABBREV[canonical] ?? base.slice(0, 4).toUpperCase();
   return suffix ? `${abbrev} ${suffix}` : abbrev;
 }
 
@@ -170,7 +255,10 @@ export function getShortConsoleName(name: string): string {
 export function getCanonicalConsoleName(name: string): string {
   if (CONSOLE_ALIASES[name]) return CONSOLE_ALIASES[name]!;
   for (const suffix of VARIANT_SUFFIXES) {
-    if (name.endsWith(suffix)) return name.slice(0, name.length - suffix.length);
+    if (name.endsWith(suffix)) {
+      // recurse so multi-suffix names like "3DS (Digital) (Decrypted)" collapse fully
+      return getCanonicalConsoleName(name.slice(0, name.length - suffix.length));
+    }
   }
   return name;
 }
@@ -287,5 +375,6 @@ export function canonicalFieldSum(
 export function getConsoleDisplayName(fullName: string, useShort: boolean): string {
   const shortName = getShortConsoleName(fullName);
   if (!useShort) return shortName;
-  return ABBREV[shortName] ?? shortName.slice(0, 4).toUpperCase();
+  const canonical = getCanonicalConsoleName(shortName);
+  return ABBREV[shortName] ?? ABBREV[canonical] ?? shortName.slice(0, 4).toUpperCase();
 }
