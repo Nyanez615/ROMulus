@@ -105,12 +105,12 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
     const d = new Date();
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const time = `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
-    // Collapse selected consoles to their abbreviations; if they all share one (e.g.
-    // all GBA format variants) use that, otherwise fall back to "multi".
-    const abbrevs = selectedConsoles
-      ? [...new Set(selectedConsoles.map((c) => getAbbrev(c).toLowerCase()))]
-      : [];
-    const consoleSlug = abbrevs.length === 1 ? `-${abbrevs[0]}` : abbrevs.length > 1 ? "-multi" : "";
+    // selectedConsoles is always either null (All ROMs) or all format variants of a
+    // single console family — they share one abbreviation (NES Headered/less → "nes").
+    const abbrev = selectedConsoles
+      ? getAbbrev(selectedConsoles[0]).toLowerCase()
+      : null;
+    const consoleSlug = abbrev ? `-${abbrev}` : "";
     const defaultPath = `romulus-prune${consoleSlug}-${date}-${time}.csv`;
     const filePath = await save({ defaultPath, filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (!filePath) return;
