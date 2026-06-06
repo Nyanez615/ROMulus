@@ -102,8 +102,17 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
 
   async function doExportCsv() {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const now = new Date().toISOString().slice(0, 10);
-    const filePath = await save({ defaultPath: `romulus-prune-${now}.csv`, filters: [{ name: "CSV", extensions: ["csv"] }] });
+    const d = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const time = `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+    // Collapse selected consoles to their abbreviations; if they all share one (e.g.
+    // all GBA format variants) use that, otherwise fall back to "multi".
+    const abbrevs = selectedConsoles
+      ? [...new Set(selectedConsoles.map((c) => getAbbrev(c).toLowerCase()))]
+      : [];
+    const consoleSlug = abbrevs.length === 1 ? `-${abbrevs[0]}` : abbrevs.length > 1 ? "-multi" : "";
+    const defaultPath = `romulus-prune${consoleSlug}-${date}-${time}.csv`;
+    const filePath = await save({ defaultPath, filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (!filePath) return;
     await exportCsv(checkedItems, filePath);
   }
