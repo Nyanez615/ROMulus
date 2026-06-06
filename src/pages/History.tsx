@@ -11,6 +11,7 @@ import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { cn } from "@/lib/utils";
 import { getAbbrev } from "@/lib/consoleUtils";
+import { FileContextMenu } from "@/components/FileContextMenu";
 
 const ACTION_ICONS: Record<string, { icon: React.ElementType; color: string; label: string }> = {
   moved_to_trash: { icon: Trash2,        color: "text-red-400",          label: "Trashed" },
@@ -176,17 +177,19 @@ export default function History() {
             const meta = getActionMeta(entry.action);
             const Icon = meta.icon;
             return (
-              <div key={entry.id} className="flex items-center gap-3 px-6 py-3 hover:bg-muted/20 text-sm">
-                <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-foreground truncate">{entry.title}</div>
-                  <div className="text-xs text-muted-foreground truncate font-mono">{entry.path}</div>
+              <FileContextMenu key={entry.id} path={entry.path}>
+                <div className="flex items-center gap-3 px-6 py-3 hover:bg-muted/20 text-sm">
+                  <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-foreground truncate">{entry.title}</div>
+                    <div className="text-xs text-muted-foreground truncate font-mono">{entry.path}</div>
+                  </div>
+                  <div className="text-right shrink-0 space-y-0.5">
+                    <div className="text-xs text-muted-foreground">{getAbbrev(entry.console)}</div>
+                    <div className="text-xs text-muted-foreground/60">{entry.timestamp.slice(0, 16).replace("T", " ")}</div>
+                  </div>
                 </div>
-                <div className="text-right shrink-0 space-y-0.5">
-                  <div className="text-xs text-muted-foreground">{getAbbrev(entry.console)}</div>
-                  <div className="text-xs text-muted-foreground/60">{entry.timestamp.slice(0, 16).replace("T", " ")}</div>
-                </div>
-              </div>
+              </FileContextMenu>
             );
           })}
         </div>
