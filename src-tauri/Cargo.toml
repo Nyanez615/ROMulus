@@ -14,9 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "ROMulus"
 path = "src/main.rs"
 
-[[bin]]
+# Scoring audit tool — run locally with: cargo run -p romulus --example audit -- <rom_root>
+# Lives in examples/ so Tauri does not try to bundle it in the app.
+[[example]]
 name = "audit"
-path = "src/bin/audit.rs"
+path = "examples/audit.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

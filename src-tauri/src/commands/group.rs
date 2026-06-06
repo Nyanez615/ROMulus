@@ -1231,12 +1231,6 @@ mod tests {
 
     // ── Utility preferred_idx ────────────────────────────────────────────────
 
-    fn utility_rom(title: &str, regions: &[&str]) -> RomFile {
-        let mut r = rom(title, regions, &[], &[]);
-        r.file_category = FileCategory::Utility;
-        r
-    }
-
     #[test]
     fn utility_only_group_gets_preferred_idx() {
         // A group containing only Utility files must have preferred_idx set
