@@ -551,7 +551,6 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   return (
     <button
       onClick={onClick}
-      title={variants.length > 1 ? variants.map((v) => getConsoleDisplayName(v.name, useShort)).join(", ") : canonicalName}
       className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-left w-full"
     >
       <div className="flex-1 min-w-0">
