@@ -53,6 +53,40 @@ function getCategoryFlag(statusFlags: string[]): string {
 // collection — 100k covers any local library; SQLite returns this quickly.
 const ALL_GROUPS = 100_000;
 
+// ── Pure filter predicates (reused by displayGroups and facet memos) ─────────
+
+function matchesLang(g: RomGroup, langs: string[]): boolean {
+  return g.variants.some((v) => {
+    if (v.languages.some((l) => langs.includes(l))) return true;
+    if (v.languages.length === 0) {
+      return getRegionDefaultLanguages(v.regions[0] ?? "").some((l) => langs.includes(l));
+    }
+    return false;
+  });
+}
+
+function matchesRegion(g: RomGroup, regions: string[]): boolean {
+  return g.variants.some((v) => {
+    if (v.regions.some((r) => regions.includes(r))) return true;
+    if (v.regions.length === 0) {
+      return regions.some((r) =>
+        getRegionDefaultLanguages(r).some((l) => v.languages.includes(l)),
+      );
+    }
+    return false;
+  });
+}
+
+function matchesStatus(g: RomGroup, statuses: string[]): boolean {
+  return g.variants.some((v) => v.status_flags.some((s) => statuses.includes(s)));
+}
+
+function matchesPreferred(g: RomGroup, preferred: string[]): boolean {
+  if (preferred.includes("Has preferred") && !g.has_preferred_version) return false;
+  if (preferred.includes("No preferred") &&  g.has_preferred_version) return false;
+  return true;
+}
+
 export default function Roms() {
   const { selectedConsoles, cacheVersion, setConsoles, setStatus, bumpCacheVersion } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
@@ -134,63 +168,91 @@ export default function Roms() {
     set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
   }
 
-  // Client-side sort + filter (bidirectional: Language chip also matches region-inferred, Region chip also matches explicit lang)
+  // ── Faceted chip availability ─────────────────────────────────────────────────
+  // Each facet-group memo applies all filters EXCEPT its own dimension so that the
+  // available chips for dimension D reflect what is reachable given every OTHER
+  // active filter. Active chips are always kept visible (user can deselect them).
+
+  const categoryFacetGroups = useMemo(
+    () => groups
+      .filter((g) => activeLangs.length   === 0 || matchesLang(g, activeLangs))
+      .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => matchesPreferred(g, activePreferred)),
+    [groups, activeLangs, activeRegions, activePreferred],
+  );
+  const langFacetGroups = useMemo(
+    () => groups
+      .filter((g) => activeStatus.length  === 0 || matchesStatus(g, activeStatus))
+      .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => matchesPreferred(g, activePreferred)),
+    [groups, activeStatus, activeRegions, activePreferred],
+  );
+  const regionFacetGroups = useMemo(
+    () => groups
+      .filter((g) => activeStatus.length === 0 || matchesStatus(g, activeStatus))
+      .filter((g) => activeLangs.length  === 0 || matchesLang(g, activeLangs))
+      .filter((g) => matchesPreferred(g, activePreferred)),
+    [groups, activeStatus, activeLangs, activePreferred],
+  );
+
+  const availableCategoryTags = useMemo(() => {
+    if (groups.length === 0) return allCategoryTags;
+    const present = new Set(
+      categoryFacetGroups.flatMap((g) => g.variants.flatMap((v) => v.status_flags)),
+    );
+    return allCategoryTags.filter((t) => present.has(t) || activeStatus.includes(t));
+  }, [groups, allCategoryTags, categoryFacetGroups, activeStatus]);
+
+  const availableLangs = useMemo(() => {
+    if (groups.length === 0) return knownLanguages;
+    const present = new Set<string>();
+    for (const g of langFacetGroups) {
+      for (const v of g.variants) {
+        v.languages.forEach((l) => present.add(l));
+        if (v.languages.length === 0 && v.regions.length > 0) {
+          getRegionDefaultLanguages(v.regions[0]).forEach((l) => present.add(l));
+        }
+      }
+    }
+    return knownLanguages.filter((l) => present.has(l) || activeLangs.includes(l));
+  }, [groups, knownLanguages, langFacetGroups, activeLangs]);
+
+  const availableRegions = useMemo(() => {
+    if (groups.length === 0) return knownRegions;
+    const present = new Set<string>();
+    for (const g of regionFacetGroups) {
+      for (const v of g.variants) {
+        v.regions.forEach((r) => present.add(r));
+        if (v.regions.length === 0 && v.languages.length > 0) {
+          // Reverse inference: find which region chips match a language-only variant
+          for (const r of knownRegions) {
+            if (getRegionDefaultLanguages(r).some((l) => v.languages.includes(l))) {
+              present.add(r);
+            }
+          }
+        }
+      }
+    }
+    return knownRegions.filter((r) => present.has(r) || activeRegions.includes(r));
+  }, [groups, knownRegions, regionFacetGroups, activeRegions]);
+
+  // Client-side sort + filter
   const displayGroups = useMemo(() => {
-    let result = groups;
+    const result = groups
+      .filter((g) => activeLangs.length   === 0 || matchesLang(g, activeLangs))
+      .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => activeStatus.length  === 0 || matchesStatus(g, activeStatus))
+      .filter((g) => matchesPreferred(g, activePreferred));
 
-    if (activeLangs.length > 0) {
-      result = result.filter((g) =>
-        g.variants.some((v) => {
-          // Explicit language tag match
-          if (v.languages.some((l) => activeLangs.includes(l))) return true;
-          // Region-inference match: ROM has no explicit language but its primary region infers one of the active langs
-          if (v.languages.length === 0) {
-            const inferred = getRegionDefaultLanguages(v.regions[0] ?? "");
-            return inferred.some((l) => activeLangs.includes(l));
-          }
-          return false;
-        }),
-      );
-    }
-    if (activeRegions.length > 0) {
-      result = result.filter((g) =>
-        g.variants.some((v) => {
-          // Explicit region match
-          if (v.regions.some((r) => activeRegions.includes(r))) return true;
-          // Reverse inference: ROM has no region tag but has an explicit language that is the default for an active region
-          if (v.regions.length === 0) {
-            return activeRegions.some((r) => {
-              const defaults = getRegionDefaultLanguages(r);
-              return v.languages.some((l) => defaults.includes(l));
-            });
-          }
-          return false;
-        }),
-      );
-    }
-    if (activeStatus.length > 0) {
-      result = result.filter((g) =>
-        g.variants.some((v) => v.status_flags.some((s) => activeStatus.includes(s))),
-      );
-    }
-    if (activePreferred.includes("Has preferred")) {
-      result = result.filter((g) => g.has_preferred_version);
-    }
-    if (activePreferred.includes("No preferred")) {
-      result = result.filter((g) => !g.has_preferred_version);
-    }
-
-    const sorted = [...result];
-    if (sortField === "variants") {
-      sorted.sort((a, b) => sortDir === "desc"
-        ? b.variants.length - a.variants.length
-        : a.variants.length - b.variants.length);
-    } else {
-      sorted.sort((a, b) => sortDir === "asc"
-        ? a.title_normalized.localeCompare(b.title_normalized)
-        : b.title_normalized.localeCompare(a.title_normalized));
-    }
-    return sorted;
+    return [...result].sort((a, b) =>
+      sortField === "variants"
+        ? sortDir === "desc"
+          ? b.variants.length - a.variants.length
+          : a.variants.length - b.variants.length
+        : sortDir === "asc"
+          ? a.title_normalized.localeCompare(b.title_normalized)
+          : b.title_normalized.localeCompare(a.title_normalized),
+    );
   }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs, activePreferred]);
 
   function toggleExpand(key: string) {
@@ -242,7 +304,7 @@ export default function Roms() {
           {
             key: "status",
             label: "Category",
-            items: allCategoryTags,
+            items: availableCategoryTags,
             active: activeStatus,
             onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus),
             onClear: () => setActiveStatus([]),
@@ -250,7 +312,7 @@ export default function Roms() {
           {
             key: "language",
             label: "Language",
-            items: knownLanguages,
+            items: availableLangs,
             active: activeLangs,
             onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs),
             onClear: () => setActiveLangs([]),
@@ -258,7 +320,7 @@ export default function Roms() {
           {
             key: "region",
             label: "Region",
-            items: knownRegions,
+            items: availableRegions,
             active: activeRegions,
             onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions),
             onClear: () => setActiveRegions([]),
