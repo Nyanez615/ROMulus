@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   LayoutDashboard, Gamepad2, Cpu,
-  CopyX, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
+  History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon } from "./ConsoleIcon";
@@ -26,13 +26,12 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard",  label: "Dashboard",   icon: LayoutDashboard },
   { id: "roms",       label: "ROMs",         icon: Gamepad2        },
-  { id: "duplicates", label: "Duplicates",   icon: CopyX           },
   { id: "system",     label: "System Files", icon: Cpu             },
   { id: "history",    label: "History",      icon: History         },
   { id: "settings",   label: "Settings",     icon: Settings        },
 ];
 
-const CONSOLE_AWARE_TABS: TabId[] = ["roms", "system", "duplicates", "history"];
+const CONSOLE_AWARE_TABS: TabId[] = ["roms", "system", "history"];
 
 export function Sidebar() {
   const { activeTab, setActiveTab, sidebarOpen, setSidebarOpen } = useUIStore();

@@ -6,6 +6,42 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-06-06
+
+### Added
+- **Faceted chip filtering** — selecting a Region chip now hides Category/Status chips that would produce zero results (and vice versa), preventing dead-end filter combinations. Each chip dimension's available items are computed from groups matching all other active filters.
+- **`getFormatVariantLabel()`** — new helper in `consoleUtils.ts` that preserves the parenthetical variant suffix after abbreviating, so paired folders are always distinguishable in the UI (e.g. "FDS" vs "FDS (QD)", "N64 (BigEndian)" vs "N64 (ByteSwapped)").
+- **Audit binary** — `src-tauri/src/bin/audit.rs` for offline ROM scoring inspection without a running Tauri app.
+- **Migration 009** — cleans up stale filter settings rows from previous schema.
+
+### Changed
+- **Prune integrated into Settings** — the dedicated Prune tab is removed. The full prune workflow (filter toggles, format variant cleanup, preview, execute, export) now lives inside the Settings page as integrated sections. `Prune.tsx` and `Prune.test.tsx` deleted. Tab count: 6 → 5 (Dashboard · ROMs · System Files · History · Settings).
+- **Duplicates tab removed** — tab and all associated code removed. The prune engine already handles every "multiple keep-eligible variants" case; the manual resolution UI added no value.
+- **Utilities moved to ROMs tab** — `FileCategory::Utility` (test cartridges, debug builds, SDK tools) moved from `get_system_files` to `get_roms`. System Files now shows only BIOS / Video / e-Reader (firmware-only).
+- **"Format Pair" → "Format Variant"** in all user-visible labels (section headings, reason badges, prune preview). Internal identifiers (`FormatPairNonPreferred`, `format_pair_no_counterpart`, `get_format_pairs`, etc.) are unchanged.
+- **All deletions are now permanent** — `DeleteMode` enum removed. `execute_prune` uses `fs::remove_file`; `execute_format_pairs` uses `fs::remove_dir_all`. No more staging dirs, no more Trash. Pre-execution backup manifest written to `app_data_dir/manifests/` (was Desktop).
+- **Cloud root blocking** — `isCloudPath()` replaces `isOneDrivePath` and covers OneDrive, iCloud, Dropbox, Google Drive, Box, and CloudStorage paths. Cloud roots blocked at picker time in both Settings and the onboarding wizard.
+
+### Fixed
+- **Scoring: multi-game compilations** — `parser.rs` now splits same-named multi-game compilations by catalog number to avoid false title-normalization collisions.
+- **Scoring: collection penalty raised** — `COLLECTION_TAGS` penalty raised from −10 to −80 so third-party collection re-releases (LodgeNet, Evercade, Limited Run Games, Retro-Bit Generations) are strongly deprioritised vs. original releases.
+- **Scoring: Disney Classic Games, Konami Anniversary, QUByte Classics** — added to `COLLECTION_TAGS` (−80 penalty).
+- **Scoring: revision bonus** — `rev × 100` added to official ROM score so Rev 2 reliably beats Rev 1 when all other factors are equal.
+- **Scoring: prototype ordering** — later prototypes (Proto 2, Beta 3) now score higher than earlier ones within the same pre-release tier.
+- **Scoring: BIOS extra-tag penalty** — unrecognised extra tags (e.g. `(GBC Mode)`, `(GameCube)`) now score −5 so the plain release is always preferred.
+- **Prune preview tab alignment** — the "ROMs" tab bucket (game / unofficial / demo / utility) and "System Files" bucket (bios / video / e_reader) in `PrunePreviewDialog` now match the actual tab split after Utilities were moved.
+- **CSV export scope** — Export CSV now includes all checked items across all category tabs, not just the active tab. Previously, exporting from the "ROMs" tab silently omitted BIOS items visible in the "System Files" tab.
+- **CSV export filename** — now includes the console abbreviation and wall-clock time (e.g. `romulus-prune-gb-2026-06-06-0917.csv`) so multiple prune sessions don't produce the same default filename.
+- **Empty category chips hidden** — Category filter chips in the ROMs tab are now computed from groups actually loaded, not from the historic DB `known_tags` table. Tags no longer present in the current collection are hidden.
+
+### Technical
+- `src/pages/Duplicates.tsx` + `src/pages/Duplicates.test.tsx` deleted.
+- `src/pages/Prune.tsx` + `src/pages/Prune.test.tsx` deleted (workflow absorbed by Settings).
+- `group::get_duplicates` Rust command removed from `group.rs` and deregistered from `lib.rs`.
+- `TabId` union: removed `"duplicates"`; keyboard shortcuts renumbered (History = ⌘4, Settings = ⌘5).
+- `PrunePreviewDialog.tsx`: `checkedItems` (tab-scoped, used for Delete button) vs. `allCheckedItems` (all tabs, used for Export CSV).
+- Rust tests: 137 → 164. Vitest tests: 114 → 97 (net: removed Duplicates + Prune suites, added faceted filtering tests).
+
 ## [0.2.6] - 2026-06-05
 
 ### Added

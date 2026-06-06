@@ -108,7 +108,6 @@ pub fn run() {
             group::get_roms,
             // Browse — filtered
             group::get_system_files,
-            group::get_duplicates,
             // Prune
             prune::apply_filters,
             prune::apply_format_pairs,

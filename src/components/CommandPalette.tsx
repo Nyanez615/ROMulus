@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Gamepad2, Cpu,
-  CopyX, History, Settings, Zap,
+  History, Settings, Zap,
 } from "lucide-react";
 import {
   CommandDialog, CommandEmpty, CommandGroup,
@@ -15,7 +15,6 @@ const NAV_COMMANDS = [
   { label: "Dashboard",    tab: "dashboard"  as TabId, icon: LayoutDashboard },
   { label: "ROMs",          tab: "roms"       as TabId, icon: Gamepad2        },
   { label: "System Files", tab: "system"     as TabId, icon: Cpu             },
-  { label: "Duplicates",   tab: "duplicates" as TabId, icon: CopyX           },
   { label: "History",      tab: "history"    as TabId, icon: History         },
   { label: "Settings",     tab: "settings"   as TabId, icon: Settings        },
 ];

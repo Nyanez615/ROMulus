@@ -69,9 +69,16 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
       (i) => !q || i.rom.filename.toLowerCase().includes(q) || i.rom.title.toLowerCase().includes(q),
     );
   }, [catDeleteItems, search]);
+  // checkedItems = visible tab only — used for the Delete button count and action.
   const checkedItems = useMemo(
     () => catDeleteItems.filter((i) => !uncheckedPaths.has(i.rom.path)),
     [catDeleteItems, uncheckedPaths],
+  );
+  // allCheckedItems = every checked item across ALL tabs — used for Export CSV so
+  // the audit file is always complete regardless of which tab is active.
+  const allCheckedItems = useMemo(
+    () => plan.to_delete.filter((i) => !uncheckedPaths.has(i.rom.path)),
+    [plan.to_delete, uncheckedPaths],
   );
   const noPreferredCount = useMemo(() => {
     if (category === "all") return plan.no_preferred_version_count;
@@ -114,7 +121,7 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
     const defaultPath = `romulus-prune${consoleSlug}-${date}-${time}.csv`;
     const filePath = await save({ defaultPath, filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (!filePath) return;
-    await exportCsv(checkedItems, filePath);
+    await exportCsv(allCheckedItems, filePath);
   }
 
   const bytesFreed = checkedItems.reduce((s, i) => s + i.rom.filesize, 0);
@@ -215,7 +222,7 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
 
         {/* Fixed footer */}
         <div className="px-6 py-4 border-t border-border shrink-0 flex items-center gap-3">
-          <Button size="sm" variant="outline" onClick={doExportCsv} disabled={checkedItems.length === 0} className="gap-1.5 text-xs">
+          <Button size="sm" variant="outline" onClick={doExportCsv} disabled={allCheckedItems.length === 0} className="gap-1.5 text-xs">
             <Download className="w-3.5 h-3.5" /> Export CSV
           </Button>
           <div className="flex-1" />

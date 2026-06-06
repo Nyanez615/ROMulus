@@ -15,7 +15,6 @@ import type { DeletionItem } from "./bindings/DeletionItem";
 import type { DeletionPlan } from "./bindings/DeletionPlan";
 import type { ExecutionResult } from "./bindings/ExecutionResult";
 import type { PagedHistory } from "./bindings/PagedHistory";
-import type { RomGroup } from "./bindings/RomGroup";
 import type { NewRomEvent } from "./bindings/NewRomEvent";
 import type { OnboardingState } from "./bindings/OnboardingState";
 import type { PagedGroups } from "./bindings/PagedGroups";
@@ -132,11 +131,6 @@ export const getSystemFiles = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
     ? invoke("get_system_files", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
     : Promise.resolve({ total_groups: 0, page: 1, per_page: 50, groups: [] });
-
-export const getDuplicates = (consoles?: string[]): Promise<RomGroup[]> =>
-  isTauri()
-    ? invoke("get_duplicates", { consoles: consoles ?? null })
-    : Promise.resolve([]);
 
 export const getFormatPairs = (): Promise<FormatPair[]> =>
   isTauri() ? invoke("get_format_pairs") : Promise.resolve([]);

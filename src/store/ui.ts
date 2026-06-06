@@ -4,7 +4,6 @@ export type TabId =
   | "dashboard"
   | "roms"
   | "system"
-  | "duplicates"
   | "history"
   | "settings";
 

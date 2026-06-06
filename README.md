@@ -16,9 +16,16 @@
 - **Smart pruning** — keep the best ROM per game in your preferred language; configurable region priority order
 - **Language-first** — fully configurable preferred languages and regions; nothing is hardcoded
 - **Any console, any manufacturer** — No-Intro naming convention with auto-detection for Nintendo, Sega, Sony, Atari, and beyond
-- **Format pair wizard** — whole-folder selection between format variants (NES Headered/Headerless, N64 BigEndian/ByteSwapped, etc.)
-- **Duplicate resolution** — side-by-side panel for choosing between original dumps and collection re-releases
+- **Format variant wizard** — whole-folder selection between format variants (NES Headered/Headerless, N64 BigEndian/ByteSwapped, FDS/QD, etc.)
+- **Faceted chip filtering** — selecting a Region chip hides Category/Status chips that would produce zero results; no dead-end filter combinations
 - **Incremental scanning** — mtime-based cache; filesystem watcher auto-detects new ROMs without rescanning
+
+### Browse
+- **Unified ROMs tab** — all games, hacks, unofficial releases, and utilities in one view with colour-coded category badges
+- **System Files tab** — BIOS, Video, and e-Reader firmware files, separate from regular ROMs
+- **Alphabet scrubber** — A–Z strip for instant jump-to-letter navigation when sorted by name
+- **Variant count scrubber** — numeric strip for jump-to-count navigation when sorted by variants
+- **Console badge in All-ROMs mode** — short console abbreviation (N64, GBA, …) on each row so same-title entries from different consoles are distinguishable
 
 ### Enrichment & verification
 - **IGDB metadata** — release year, genre, summary, ratings via background enrichment (requires free Twitch API key)
@@ -26,13 +33,13 @@
 - **No-Intro DAT verification** — import DAT files for CRC32 integrity checking and collection completeness tracking
 
 ### Safety & logging
-- **Trash by default** — files moved to OS Trash, not permanently deleted
-- **Pre-prune backup manifest** — plain-text file list written to Desktop before every execution
-- **Atomic crash recovery** — SQLite `pending → deleted/failed` transaction; interrupted sessions detected on next launch
+- **Permanent deletion with manifest** — every prune session writes a plain-text backup manifest to `app_data_dir/manifests/` before any files are removed
+- **Atomic crash recovery** — SQLite `pending → deleted/failed` transaction; interrupted sessions detected on next launch with a resume banner in Dashboard
 - **Full action log** — every decision recorded, paginated History tab, CSV export
+- **Cloud path blocking** — OneDrive, iCloud, Dropbox, Google Drive, and Box roots are blocked at add-time to prevent sync conflicts
 
-### 7 tabs
-Dashboard · ROMs · System Files · Duplicates · Prune · History · Settings
+### 5 tabs
+Dashboard · ROMs · System Files · History · Settings
 
 ## Tech Stack
 
@@ -57,13 +64,13 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 137 unit tests + regenerates TypeScript bindings
+cargo test             # 164 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 
 From project root:
 ```bash
-npm run test:run       # 114 Vitest tests
+npm run test:run       # 97 Vitest tests
 npx tsc --noEmit       # TypeScript type-check
 ```
 
