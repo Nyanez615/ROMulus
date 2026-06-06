@@ -28,8 +28,10 @@ export function pruneReasonKey(r: DeletionPlan["to_delete"][number]["reason"]): 
 
 export function matchesCat(fc: RomFile["file_category"], cat: "all" | "game" | "system"): boolean {
   if (cat === "all") return true;
-  if (cat === "game") return fc === "game" || fc === "unofficial";
-  return fc !== "game" && fc !== "unofficial";
+  // "game" bucket mirrors get_roms: Game | Unofficial | Demo | Utility
+  if (cat === "game") return fc === "game" || fc === "unofficial" || fc === "demo" || fc === "utility";
+  // "system" bucket mirrors get_system_files: Bios | Video | EReader
+  return fc === "bios" || fc === "video" || fc === "e_reader";
 }
 
 function StatCell({ value, label, color }: { value: string; label: string; color?: string }) {
