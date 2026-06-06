@@ -542,6 +542,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.game_files + v.unofficial_files, 0);
+  const totalBytes = variants.reduce((s, v) => s + v.total_bytes, 0);
   const totalGroups = canonicalAllTitleCount(variants);
   const preferredGroups = canonicalFieldSum(variants, "preferred_groups");
   const allGroups = canonicalFieldSum(variants, "all_groups");
@@ -558,7 +559,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
     >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
-        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs</div>
+        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs · {formatBytes(totalBytes)}</div>
         {filledVariants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {
