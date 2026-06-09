@@ -45,7 +45,7 @@ import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
 import { getRegionsForLanguage } from "@/lib/regionUtils";
-import { getAbbrev, getFormatVariantLabel } from "@/lib/consoleUtils";
+import { getFormatVariantLabel } from "@/lib/consoleUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { refreshTagStore } from "@/components/Layout";
 
@@ -135,10 +135,12 @@ export default function Settings() {
   const [enriching, setEnriching] = useState(false);
 
   // ── Download list state ──────────────────────────────────────────────────────
-  const [dlList,    setDlList]    = useState<DownloadList | null>(null);
-  const [dlConsole, setDlConsole] = useState<string | null>(null);
-  const [dlLoading, setDlLoading] = useState<string | null>(null); // console key of in-flight request
-  const [dlSearch,  setDlSearch]  = useState("");
+  const [dlList,         setDlList]         = useState<DownloadList | null>(null);
+  const [dlConsole,      setDlConsole]      = useState<string | null>(null);
+  const [dlLoading,      setDlLoading]      = useState<string | null>(null);
+  const [dlSearch,       setDlSearch]       = useState("");
+  const [selectedDats,   setSelectedDats]   = useState<string[]>([]);
+  const [batchExporting, setBatchExporting] = useState(false);
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
@@ -354,9 +356,31 @@ export default function Settings() {
   async function handleExportList(format: ExportFormat) {
     if (!dlList) return;
     const ext = format === "text" ? "txt" : "csv";
-    const filePath = await saveFileDialog({ filters: [{ name: "Download list", extensions: [ext] }] });
+    const safeName = (dlConsole ?? "download-list").replace(/[/\\:*?"<>|]/g, "_");
+    const filePath = await saveFileDialog({
+      filters: [{ name: "Download list", extensions: [ext] }],
+      defaultPath: `${safeName}.${ext}`,
+    });
     if (typeof filePath === "string") {
       await exportDownloadList(dlList.to_download, filePath, format);
+    }
+  }
+
+  async function handleBatchExport(format: ExportFormat) {
+    if (selectedDats.length === 0) return;
+    const dir = await open({ directory: true, title: "Choose export folder" });
+    if (typeof dir !== "string") return;
+    const ext = format === "text" ? "txt" : "csv";
+    setBatchExporting(true);
+    try {
+      for (const consoleName of selectedDats) {
+        const list = await generateDownloadList(consoleName);
+        if (list.to_download.length === 0) continue;
+        const safeName = consoleName.replace(/[/\\:*?"<>|]/g, "_");
+        await exportDownloadList(list.to_download, `${dir}/${safeName}.${ext}`, format);
+      }
+    } finally {
+      setBatchExporting(false);
     }
   }
 
@@ -845,27 +869,68 @@ export default function Settings() {
           Download DATs from <span className="text-primary">no-intro.org</span>.
         </p>
         {datFiles.length > 0 && (
-          <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-            {datFiles.map((dat) => (
-              <div key={dat.console} className="flex items-center gap-3 px-4 py-3 bg-card text-sm">
-                <div className="flex-1 min-w-0">
-                  <div className="text-foreground truncate">{getAbbrev(dat.console)}</div>
-                  <div className="text-xs text-muted-foreground">{dat.entry_count.toLocaleString()} entries {dat.version ? `· ${dat.version}` : ""}</div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <Button size="sm" variant="outline" className="text-xs h-7"
-                    disabled={dlLoading === dat.console}
-                    onClick={() => handleGenerate(dat.console)}>
-                    {dlLoading === dat.console
-                      ? <Loader2 className="w-3 h-3 animate-spin" />
-                      : "Generate"}
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={async () => { await verifyRoms(dat.console); }}>Verify</Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); if (dlConsole === dat.console) { setDlList(null); setDlConsole(null); } }}>Remove</Button>
-                </div>
+          <>
+            <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+              {datFiles.map((dat) => {
+                const checked = selectedDats.includes(dat.console);
+                return (
+                  <div key={dat.console} className="flex items-center gap-3 px-4 py-3 bg-card text-sm">
+                    <button
+                      onClick={() => setSelectedDats((prev) =>
+                        checked ? prev.filter((c) => c !== dat.console) : [...prev, dat.console]
+                      )}
+                      className="shrink-0 text-muted-foreground hover:text-foreground motion-safe:transition-colors"
+                      aria-label={checked ? "Deselect" : "Select"}
+                    >
+                      {checked ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-foreground truncate">{getFormatVariantLabel(dat.console)}</div>
+                      <div className="text-xs text-muted-foreground">{dat.entry_count.toLocaleString()} entries {dat.version ? `· ${dat.version}` : ""}</div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" className="text-xs h-7"
+                        disabled={dlLoading === dat.console}
+                        onClick={() => handleGenerate(dat.console)}>
+                        {dlLoading === dat.console
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : "Generate"}
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs h-7" onClick={async () => { await verifyRoms(dat.console); }}>Verify</Button>
+                      <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); if (dlConsole === dat.console) { setDlList(null); setDlConsole(null); } setSelectedDats((prev) => prev.filter((c) => c !== dat.console)); }}>Remove</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Batch export bar — shown when ≥1 DAT is selected */}
+            {selectedDats.length > 0 && (
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5 text-xs">
+                <span className="text-muted-foreground flex-1">
+                  {selectedDats.length} of {datFiles.length} selected
+                </span>
+                <button
+                  onClick={() => setSelectedDats(
+                    selectedDats.length === datFiles.length ? [] : datFiles.map((d) => d.console)
+                  )}
+                  className="text-primary hover:underline"
+                >
+                  {selectedDats.length === datFiles.length ? "Deselect all" : "Select all"}
+                </button>
+                <Button size="sm" variant="outline" className="text-xs h-7"
+                  disabled={batchExporting}
+                  onClick={() => handleBatchExport("text")}>
+                  {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .txt"}
+                </Button>
+                <Button size="sm" variant="outline" className="text-xs h-7"
+                  disabled={batchExporting}
+                  onClick={() => handleBatchExport("csv")}>
+                  {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
+                </Button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
         {/* Download list preview — outside divide-y container so divider styling doesn't apply */}
@@ -874,7 +939,7 @@ export default function Settings() {
             {/* Header */}
             <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-foreground truncate">
-                Download list — {getAbbrev(dlConsole ?? "")}
+                Download list — {getFormatVariantLabel(dlConsole ?? "")}
                 {dlList.total_in_dat > 0 && (
                   <>
                     {" · "}{dlList.to_download.length.toLocaleString()} to download
