@@ -362,6 +362,11 @@ fn extract_tags(stem: &str) -> (String, Vec<&str>, Vec<&str>) {
 /// Parse a single ROM file path into a `RomFile`.
 /// `matches_preferred_*` default to `false` and are populated later by the grouper.
 pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Option<RomFile> {
+    // Scanner context: skip companion .bin files — the .cue is the primary entry on disk.
+    parse_file_inner(path, console, filesize, _mtime, true)
+}
+
+fn parse_file_inner(path: &Path, console: &str, filesize: u64, _mtime: u64, skip_bin_companions: bool) -> Option<RomFile> {
     let filename = path.file_name()?.to_str()?;
 
     // Strip extension
@@ -385,8 +390,9 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
         _ => return None,
     };
 
-    // Skip companion .bin files — the .cue is the primary entry
-    if ext.to_lowercase() == "bin" {
+    // In scanner context, skip companion .bin files (the .cue is the primary entry).
+    // In DAT context each entry is independent, so .bin BIOS/system files must pass through.
+    if skip_bin_companions && ext.to_lowercase() == "bin" {
         return None;
     }
 
@@ -446,15 +452,15 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
 }
 
 /// Parse a ROM filename string without any filesystem access.
-/// Delegates to `parse_file` using a no-directory path so all tag/scoring logic
-/// is shared exactly. `filesize` and `mtime` are zeroed — irrelevant for
-/// pre-download scoring.
+/// Delegates to `parse_file_inner` with `skip_bin_companions = false` so all
+/// DAT entries — including `.bin` BIOS and system files — are included.
+/// `filesize` and `mtime` are zeroed — irrelevant for pre-download scoring.
 ///
 /// `Path::new("Game (USA).3ds").file_name()` returns `"Game (USA).3ds"` (the full
 /// string, since there is no directory component), so the returned `RomFile.filename`
 /// equals `filename` verbatim — safe to use as a lookup key.
 pub fn parse_from_filename(filename: &str, console: &str) -> Option<RomFile> {
-    parse_file(std::path::Path::new(filename), console, 0, 0)
+    parse_file_inner(std::path::Path::new(filename), console, 0, 0, false)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -606,8 +612,22 @@ mod tests {
 
     #[test]
     fn bin_file_is_skipped() {
+        // Scanner context: companion .bin for CUE/BIN pairs must be excluded.
         let p = PathBuf::from("/roms/PS1/Game (USA).bin");
         assert!(parse_file(&p, "Sony - PlayStation", 0, 0).is_none());
+    }
+
+    #[test]
+    fn bin_file_included_in_dat_context() {
+        // DAT context: BIOS/system .bin entries must pass through parse_from_filename.
+        let rom = parse_from_filename(
+            "[BIOS] Family Computer Disk System (Japan) (Rev 1).bin",
+            "Nintendo - Family Computer Disk System",
+        );
+        assert!(rom.is_some());
+        let rom = rom.unwrap();
+        assert!(rom.is_bios);
+        assert_eq!(rom.file_format, FileFormat::Raw); // .bin → Raw (catch-all)
     }
 
     #[test]
