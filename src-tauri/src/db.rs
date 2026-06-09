@@ -41,6 +41,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/007_clean_language_tags.sql")),
         M::up(include_str!("../migrations/008_fix_known_tags.sql")),
         M::up(include_str!("../migrations/009_clean_filter_settings.sql")),
+        M::up(include_str!("../migrations/010_dat_rom_name.sql")),
     ])
 }
 

@@ -380,6 +380,72 @@ pub struct VerificationStatus {
     pub total: u32,
 }
 
+// ── Download list types ──────────────────────────────────────────────────────
+
+/// Status of a preferred variant chosen for the download list.
+///
+/// Note: `BestAvailable` is intentionally absent. `build_group()` only sets
+/// `preferred_idx` when `has_preferred = true`, which requires at least one
+/// variant with `matches_preferred_language = true` — so the chosen variant
+/// always has a language match. Titles with no language match (e.g. Japan-only
+/// for an English user) surface via `DownloadList::excluded_count` instead.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DownloadStatus {
+    /// Preferred-language variant found and selected.
+    Preferred,
+    /// Only pre-release (Alpha/Beta/Proto/Demo/…) variants exist in the DAT;
+    /// the highest-scoring one is included so the user can opt in.
+    PrereleaseOnly,
+}
+
+/// One entry in a download list — the preferred variant for a single title group.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DownloadEntry {
+    /// Exact ROM filename from the DAT `<rom name="…">` attribute
+    /// (e.g. `"Super Mario 3D Land (USA) (En,Fr,De,Es,Pt,It).3ds"`).
+    pub rom_name: String,
+    /// Human-readable game title from the DAT `<game name="…">` attribute.
+    pub game_title: String,
+    pub title_normalized: String,
+    pub regions: Vec<String>,
+    pub languages: Vec<String>,
+    pub status_flags: Vec<String>,
+    pub file_category: FileCategory,
+    pub status: DownloadStatus,
+    #[ts(type = "number")]
+    pub score: i32,
+}
+
+/// Full result of a `generate_download_list` command call.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DownloadList {
+    pub console: String,
+    pub to_download: Vec<DownloadEntry>,
+    /// Count of DAT entries with a parseable `rom_name` (0 → re-import needed).
+    pub total_in_dat: u32,
+    pub preferred_count: u32,
+    pub prerelease_only_count: u32,
+    /// Groups with no language-matching variant (e.g. Japan-only for an En user).
+    pub excluded_count: u32,
+}
+
+/// Output format for `export_download_list`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ExportFormat {
+    /// One filename per line — paste into torrent client include-filter.
+    /// ROM extensions (`.3ds`, `.nds`, …) are mapped to `.zip`.
+    Text,
+    /// Full metadata CSV: rom_name, game_title, regions, languages, status_flags,
+    /// file_category, status, score.
+    Csv,
+}
+
 // ── Type export test ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -415,5 +481,9 @@ mod tests {
         VerificationStatus::export_all_to(out).unwrap();
         HistoryFilter::export_all_to(out).unwrap();
         InterruptedSession::export_all_to(out).unwrap();
+        DownloadStatus::export_all_to(out).unwrap();
+        DownloadEntry::export_all_to(out).unwrap();
+        DownloadList::export_all_to(out).unwrap();
+        ExportFormat::export_all_to(out).unwrap();
     }
 }

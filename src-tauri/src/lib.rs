@@ -14,7 +14,7 @@ mod watcher;
 // Re-exports for the audit binary target
 pub use commands::group::{group_roms, score_rom, COLLECTION_TAGS};
 pub use models::{FileCategory, RomFile, RomGroup, UserPreferences};
-pub use parser::parse_file;
+pub use parser::{parse_file, parse_from_filename};
 
 use commands::{dat, execute, group, history, metadata, prune, scan, settings, thumbnail};
 use db::AppState;
@@ -147,6 +147,8 @@ pub fn run() {
             dat::verify_roms,
             dat::get_verification_status,
             dat::get_completeness,
+            dat::generate_download_list,
+            dat::export_download_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

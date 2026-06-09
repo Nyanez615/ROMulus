@@ -101,7 +101,10 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     if rom.status_flags.iter().any(|f| {
         matches!(
             f.as_str(),
-            "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Demo" | "Sample" | "Promo" | "Kiosk" | "Preview" | "GameCube Preview"
+            "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Demo" | "Sample" | "Promo"
+            | "Kiosk" | "Wi-Fi Kiosk"
+            | "IS-NITRO-EMULATOR" | "IS-NITRO-PROGRAMMER"
+            | "Preview" | "GameCube Preview"
         )
     }) {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
@@ -265,12 +268,21 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
         })
         .collect();
 
-    // Group by (console, title_normalized) — but also handle multi-disc coalescing
-    // Key: (console, title_normalized_without_disc)
-    let mut groups: HashMap<(String, String), Vec<RomFile>> = HashMap::new();
+    // Group by (console, title_normalized, category_bucket).
+    // The category_bucket prevents Video / EReader files from merging into Game
+    // groups: "Professor Layton (Video)" and "Professor Layton (USA)" share the
+    // same title_normalized but are completely different content — grouping them
+    // causes the Video ROM to score below the game and be flagged for deletion.
+    // Video ROMs still group with other Video ROMs of the same title across regions.
+    let mut groups: HashMap<(String, String, &'static str), Vec<RomFile>> = HashMap::new();
 
     for rom in roms.drain(..) {
-        let key = (rom.console.clone(), rom.title_normalized.clone());
+        let bucket: &'static str = match rom.file_category {
+            FileCategory::Video   => "video",
+            FileCategory::EReader => "ereader",
+            _                     => "",
+        };
+        let key = (rom.console.clone(), rom.title_normalized.clone(), bucket);
         groups.entry(key).or_default().push(rom);
     }
 
@@ -1262,6 +1274,42 @@ mod tests {
     }
 
     #[test]
+    fn is_nitro_emulator_scores_as_prerelease() {
+        // IS-NITRO-EMULATOR is developer hardware — must score −100, same tier as Kiosk/Beta.
+        let dev = rom("Nintendo DS Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &["IS-NITRO-EMULATOR"]);
+        let prefs = en_prefs();
+        let (score, _, _) = score_rom(&dev, &prefs);
+        assert_eq!(score, -100, "IS-NITRO-EMULATOR firmware must score −100 (developer hardware)");
+    }
+
+    #[test]
+    fn consumer_firmware_preferred_over_is_nitro() {
+        // Consumer firmware (later date = higher revision) must beat IS-NITRO despite
+        // IS-NITRO having the highest date-derived revision number.
+        let mut consumer = rom("Nintendo DS Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &[]);
+        consumer.revision = 20051207; // 2005-12-07 — latest consumer firmware
+        consumer.extra_tags = vec!["2005-12-07".into()];
+        let mut dev = rom("Nintendo DS Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &["IS-NITRO-EMULATOR"]);
+        dev.revision = 20060220; // 2006-02-20 — later date but developer hardware
+        dev.extra_tags = vec!["2006-02-20".into(), "IS-NITRO-EMULATOR".into()];
+        let prefs = en_prefs();
+        let groups = group_roms(vec![consumer.clone(), dev], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert_eq!(preferred.revision, 20051207,
+            "consumer firmware (2005-12-07) must be preferred over IS-NITRO (2006-02-20)");
+    }
+
+    #[test]
+    fn wifi_kiosk_scores_as_prerelease() {
+        let kiosk = rom("Nintendo DS Lite Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &["Wi-Fi Kiosk"]);
+        let prefs = en_prefs();
+        let (score, _, _) = score_rom(&kiosk, &prefs);
+        assert_eq!(score, -100, "Wi-Fi Kiosk firmware must score −100");
+    }
+
+    #[test]
     fn mixed_game_utility_group_prefers_game_variant() {
         // In a mixed group, a Game variant must be preferred over a Utility variant.
         let game = rom("Zelda", &["USA"], &[], &[]);
@@ -1278,5 +1326,40 @@ mod tests {
             matches!(preferred.file_category, FileCategory::Game),
             "Game variant must be preferred over Utility in a mixed group"
         );
+    }
+
+    #[test]
+    fn video_rom_does_not_merge_into_game_group() {
+        // A (Video) ROM of the same title as a game ROM must form its own group,
+        // not score against the game and be flagged for deletion.
+        // Real-world case: "Professor Layton and the Unwound Future (USA) (Video)"
+        // vs "Professor Layton and the Unwound Future (USA)".
+        let game = rom("Professor Layton and the Unwound Future", &["USA"], &[], &[]);
+        let mut video = rom("Professor Layton and the Unwound Future", &["USA"], &[], &[]);
+        video.file_category = FileCategory::Video;
+        video.extra_tags = vec!["Video".into()];
+        video.filename = "Professor Layton and the Unwound Future (USA) (Video).zip".into();
+        let prefs = en_prefs();
+        let groups = group_roms(vec![game, video], &prefs);
+        assert_eq!(groups.len(), 2, "Video ROM must be in its own group, not merged with the game group");
+        // Both groups should have exactly one variant and a preferred index.
+        for g in &groups {
+            assert_eq!(g.variants.len(), 1, "each group should have exactly one variant");
+            assert!(g.preferred_idx.is_some(), "single-variant group must have preferred_idx");
+        }
+    }
+
+    #[test]
+    fn video_roms_of_same_title_group_together() {
+        // Two Video ROMs of the same title (different regions) should still group
+        // so the preferred region is selected between them.
+        let mut usa_vid = rom("Some Game", &["USA"], &[], &[]);
+        usa_vid.file_category = FileCategory::Video;
+        let mut eur_vid = rom("Some Game", &["Europe"], &[], &[]);
+        eur_vid.file_category = FileCategory::Video;
+        let prefs = en_prefs();
+        let groups = group_roms(vec![usa_vid, eur_vid], &prefs);
+        assert_eq!(groups.len(), 1, "Video ROMs of the same title must group together");
+        assert_eq!(groups[0].variants.len(), 2);
     }
 }
