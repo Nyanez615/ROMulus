@@ -503,6 +503,7 @@ fn to_zip_name(filename: &str) -> String {
         ".3ds", ".cci", ".cxi", ".nds", ".gba", ".nes", ".sfc", ".smc",
         ".gb", ".gbc", ".n64", ".z64", ".v64", ".gcm",
         ".smd", ".md", ".sms", ".gg", ".pce",
+        ".fds", ".dsi", ".min", ".vb", ".raw",
     ];
     let lower = filename.to_lowercase();
     for ext in ROM_EXTS {
@@ -691,6 +692,44 @@ mod tests {
         assert!(parse_from_filename("Manual (USA).pdf", "Any Console").is_none());
     }
 
+    #[test]
+    fn parse_from_filename_console_specific_extensions() {
+        // .fds — Family Computer Disk System
+        let fds = parse_from_filename(
+            "Metroid (Japan) (Disk 1).fds",
+            "Nintendo - Family Computer Disk System (FDS)",
+        ).unwrap();
+        assert_eq!(fds.regions, vec!["Japan"]);
+
+        // .dsi — Nintendo DSi
+        let dsi = parse_from_filename(
+            "Flipnote Studio (USA).dsi",
+            "Nintendo - Nintendo DSi (Decrypted)",
+        ).unwrap();
+        assert_eq!(dsi.regions, vec!["USA"]);
+
+        // .min — Pokémon Mini
+        let min = parse_from_filename(
+            "Pichu Bros. Mini (Japan).min",
+            "Nintendo - Pokemon Mini",
+        ).unwrap();
+        assert_eq!(min.regions, vec!["Japan"]);
+
+        // .vb — Virtual Boy
+        let vb = parse_from_filename(
+            "3-D Tetris (USA).vb",
+            "Nintendo - Virtual Boy",
+        ).unwrap();
+        assert_eq!(vb.regions, vec!["USA"]);
+
+        // .raw — GBA e-Reader
+        let raw = parse_from_filename(
+            "Animal Crossing-e - Series 1 - A-001 - K.K. Slider (USA).raw",
+            "Nintendo - Game Boy Advance (e-Reader)",
+        ).unwrap();
+        assert_eq!(raw.regions, vec!["USA"]);
+    }
+
     // ── to_zip_name tests ─────────────────────────────────────────────────────
 
     #[test]
@@ -716,6 +755,15 @@ mod tests {
     #[test]
     fn to_zip_name_passthrough_for_unknown() {
         assert_eq!(to_zip_name("Archive.7z"), "Archive.7z");
+    }
+
+    #[test]
+    fn to_zip_name_console_specific_extensions() {
+        assert_eq!(to_zip_name("Metroid (Japan) (Disk 1).fds"), "Metroid (Japan) (Disk 1).zip");
+        assert_eq!(to_zip_name("Flipnote Studio (USA).dsi"), "Flipnote Studio (USA).zip");
+        assert_eq!(to_zip_name("Pichu Bros. Mini (Japan).min"), "Pichu Bros. Mini (Japan).zip");
+        assert_eq!(to_zip_name("3-D Tetris (USA).vb"), "3-D Tetris (USA).zip");
+        assert_eq!(to_zip_name("K.K. Slider (USA).raw"), "K.K. Slider (USA).zip");
     }
 
     // ── generate_download_list integration tests ──────────────────────────────

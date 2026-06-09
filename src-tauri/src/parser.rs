@@ -374,7 +374,14 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
     let file_format = match ext.to_lowercase().as_str() {
         "zip" | "chd" | "cue" | "iso" | "7z"
         | "nes" | "sfc" | "smc" | "gb" | "gbc" | "gba" | "n64" | "z64"
-        | "v64" | "nds" | "3ds" | "gcm" | "bin" => FileFormat::from_extension(ext),
+        | "v64" | "nds" | "3ds" | "gcm" | "bin"
+        // Console-specific native formats
+        | "fds"   // Family Computer Disk System
+        | "dsi"   // Nintendo DSi
+        | "min"   // Pokémon Mini
+        | "vb"    // Virtual Boy
+        | "raw"   // GBA e-Reader strips
+        => FileFormat::from_extension(ext),
         _ => return None,
     };
 
