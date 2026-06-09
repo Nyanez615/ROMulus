@@ -27,7 +27,7 @@ import {
   getSettings, saveSettings, reapplyPreferences, isCloudPath,
   setIgdbCredentials, hasIgdbCredentials, clearIgdbCredentials,
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
-  getDatFiles, importDat, removeDat, verifyRoms, enrichAllGames,
+  getDatFiles, importDat, readDatHeader, removeDat, verifyRoms, enrichAllGames,
   scanRoots,
   getFormatPairs, applyFormatPairs, executeFormatPairs, formatBytes,
   getConsoles,
@@ -947,9 +947,13 @@ export default function Settings() {
         <Button variant="outline" size="sm" onClick={async () => {
           const path = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }] });
           if (typeof path === "string") {
-            const consoleName = prompt("Which console is this DAT for? (e.g. 'Nintendo - Game Boy Advance')") ?? "";
-            if (consoleName) {
-              const dat = await importDat(path, consoleName);
+            const [detectedName] = await readDatHeader(path);
+            const consoleName = prompt(
+              "Console name for this DAT (auto-detected — edit if wrong):",
+              detectedName,
+            ) ?? "";
+            if (consoleName.trim()) {
+              const dat = await importDat(path, consoleName.trim());
               setDatFiles((prev) => [...prev.filter((d) => d.console !== dat.console), dat]);
             }
           }

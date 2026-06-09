@@ -141,6 +141,7 @@ pub fn run() {
             thumbnail::clear_steamgriddb_key,
             thumbnail::get_thumbnail,
             // DAT files
+            dat::read_dat_header,
             dat::import_dat,
             dat::get_dat_files,
             dat::remove_dat,

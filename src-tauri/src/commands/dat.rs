@@ -25,6 +25,7 @@ struct DatEntry {
 }
 
 struct DatHeader {
+    name: Option<String>,
     version: Option<String>,
 }
 
@@ -32,16 +33,19 @@ fn parse_dat(xml: &str) -> Result<(DatHeader, Vec<DatEntry>), String> {
     let mut reader = Reader::from_str(xml);
     let mut buf = Vec::new();
     let mut entries: Vec<DatEntry> = vec![];
-    let header = DatHeader { version: None };
+    let mut header = DatHeader { name: None, version: None };
     let mut in_header = false;
+    let mut header_tag: Option<Vec<u8>> = None;
 
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 match e.name().as_ref() {
                     b"header" => in_header = true,
+                    b"name" | b"version" if in_header => {
+                        header_tag = Some(e.name().as_ref().to_vec());
+                    }
                     b"game" | b"machine" => {
-                        // Game name comes from the name attribute
                         let name = e.attributes()
                             .filter_map(|a| a.ok())
                             .find(|a| a.key.as_ref() == b"name")
@@ -53,7 +57,23 @@ fn parse_dat(xml: &str) -> Result<(DatHeader, Vec<DatEntry>), String> {
                 }
             }
             Ok(Event::End(ref e)) => {
-                if e.name().as_ref() == b"header" { in_header = false; }
+                match e.name().as_ref() {
+                    b"header" => { in_header = false; header_tag = None; }
+                    b"name" | b"version" => { header_tag = None; }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(ref t)) if in_header => {
+                if let Ok(text) = t.unescape() {
+                    let text = text.trim().to_string();
+                    if !text.is_empty() {
+                        match header_tag.as_deref() {
+                            Some(b"name")    => header.name    = Some(text),
+                            Some(b"version") => header.version = Some(text),
+                            _ => {}
+                        }
+                    }
+                }
             }
             Ok(Event::Empty(ref e)) => {
                 if e.name().as_ref() == b"rom" {
@@ -65,17 +85,10 @@ fn parse_dat(xml: &str) -> Result<(DatHeader, Vec<DatEntry>), String> {
                         .find(|a| a.key.as_ref() == b"crc")
                         .and_then(|a| String::from_utf8(a.value.to_vec()).ok());
                     if let Some(last) = entries.last_mut() {
-                        // First <rom> element per <game> wins — consistent with CRC behaviour.
                         if last.rom_name.is_none() { last.rom_name = rom_name; }
                         if last.crc32.is_none()    { last.crc32    = crc; }
                     }
                 }
-            }
-            Ok(Event::Text(ref t)) if in_header => {
-                // Capture version text from <version> element
-                // quick-xml gives us text content between tags; we need to track which tag we're in
-                // Simplified: we'll pick it up via the settings approach below
-                let _ = t;
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(format!("XML parse error: {e}")),
@@ -100,6 +113,18 @@ fn read_zip_crc(path: &Path) -> Option<String> {
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
+/// Returns the `<header><name>` and `<header><version>` from a DAT file without
+/// importing it. Used by the frontend to auto-populate the console name field.
+#[tauri::command]
+pub fn read_dat_header(path: String) -> Result<(String, String), String> {
+    let xml = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let (header, _) = parse_dat(&xml)?;
+    Ok((
+        header.name.unwrap_or_default(),
+        header.version.unwrap_or_default(),
+    ))
+}
+
 #[tauri::command]
 pub fn import_dat(
     state: State<'_, AppState>,
@@ -114,6 +139,15 @@ pub fn import_dat(
         .to_string();
 
     let (header, entries) = parse_dat(&xml)?;
+    // If the caller passes an empty console name, fall back to the DAT's own header name.
+    let console = if console.trim().is_empty() {
+        header.name.unwrap_or_default()
+    } else {
+        console
+    };
+    if console.is_empty() {
+        return Err("Could not determine console name from DAT header or caller".into());
+    }
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     // Delete existing DAT for this console before inserting new one
