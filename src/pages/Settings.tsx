@@ -905,31 +905,29 @@ export default function Settings() {
             </div>
 
             {/* Batch export bar — shown when ≥1 DAT is selected */}
-            {selectedDats.length > 0 && (
-              <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5 text-xs">
-                <span className="text-muted-foreground flex-1">
-                  {selectedDats.length} of {datFiles.length} selected
-                </span>
-                <button
-                  onClick={() => setSelectedDats(
-                    selectedDats.length === datFiles.length ? [] : datFiles.map((d) => d.console)
-                  )}
-                  className="text-primary hover:underline"
-                >
-                  {selectedDats.length === datFiles.length ? "Deselect all" : "Select all"}
-                </button>
-                <Button size="sm" variant="outline" className="text-xs h-7"
-                  disabled={batchExporting}
-                  onClick={() => handleBatchExport("text")}>
-                  {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .txt"}
-                </Button>
-                <Button size="sm" variant="outline" className="text-xs h-7"
-                  disabled={batchExporting}
-                  onClick={() => handleBatchExport("csv")}>
-                  {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
-                </Button>
-              </div>
-            )}
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-muted/20 text-xs">
+              <span className="text-muted-foreground flex-1">
+                {selectedDats.length > 0 ? `${selectedDats.length} of ${datFiles.length} selected` : "Select DATs to export"}
+              </span>
+              <button
+                onClick={() => setSelectedDats(
+                  selectedDats.length === datFiles.length ? [] : datFiles.map((d) => d.console)
+                )}
+                className="text-primary hover:underline"
+              >
+                {selectedDats.length === datFiles.length ? "Deselect all" : "Select all"}
+              </button>
+              <Button size="sm" variant="outline" className="text-xs h-7"
+                disabled={batchExporting || selectedDats.length === 0}
+                onClick={() => handleBatchExport("text")}>
+                {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .txt"}
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs h-7"
+                disabled={batchExporting || selectedDats.length === 0}
+                onClick={() => handleBatchExport("csv")}>
+                {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
+              </Button>
+            </div>
           </>
         )}
 
