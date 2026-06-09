@@ -192,6 +192,9 @@ export const getThumbnail = (title: string, console: string): Promise<string | n
   isTauri() ? invoke("get_thumbnail", { title, console }) : Promise.resolve(null);
 
 // DAT files
+export const readDatHeader = (path: string): Promise<[string, string]> =>
+  isTauri() ? invoke("read_dat_header", { path }) : Promise.resolve(["", ""]);
+
 export const importDat = (path: string, console: string): Promise<DatFile> =>
   isTauri() ? invoke("import_dat", { path, console }) : Promise.resolve({ console, filename: "", version: null, entry_count: 0, imported_at: "" });
 export const getDatFiles = (): Promise<DatFile[]> =>
