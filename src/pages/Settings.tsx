@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Trash2, Search, Loader2 } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   DndContext,
@@ -31,12 +31,16 @@ import {
   scanRoots,
   getFormatPairs, applyFormatPairs, executeFormatPairs, formatBytes,
   getConsoles,
+  generateDownloadList, exportDownloadList,
 } from "@/lib/tauri";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { DatFile } from "@/lib/bindings/DatFile";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+import type { DownloadList } from "@/lib/bindings/DownloadList";
+import type { DownloadEntry } from "@/lib/bindings/DownloadEntry";
+import type { ExportFormat } from "@/lib/bindings/ExportFormat";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
@@ -57,6 +61,23 @@ const FP_REASON_LABELS: Record<string, string> = {
   format_pair_non_preferred:  "Format variant",
   format_pair_no_counterpart: "No counterpart",
 };
+
+// ── Download list status chip ─────────────────────────────────────────────────
+
+const DL_STATUS: Record<string, { label: string; cls: string }> = {
+  preferred:       { label: "Preferred",   cls: "bg-green-500/15  text-green-400  border-green-500/30" },
+  prerelease_only: { label: "Pre-release", cls: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+};
+
+function DlStatusChip({ status }: { status: DownloadEntry["status"] }) {
+  const key = typeof status === "string" ? status : Object.keys(status)[0] ?? "";
+  const info = DL_STATUS[key] ?? { label: key, cls: "bg-muted/30 text-muted-foreground border-border" };
+  return (
+    <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium ${info.cls}`}>
+      {info.label}
+    </span>
+  );
+}
 
 const COMMON_LANGUAGES = ["En", "Ja", "Fr", "De", "Es", "It", "Pt", "Zh", "Ko", "Ru", "Nl", "Sv"];
 const COMMON_REGIONS = ["USA", "World", "Europe", "Japan", "Australia", "United Kingdom",
@@ -99,7 +120,7 @@ function SortableRegion({ region, index, onRemove }: { region: string; index: nu
 export default function Settings() {
   const { theme, setTheme, setActiveTab } = useUIStore();
   const { setPreferences } = usePreferencesStore();
-  const { setConsoles, setStatus, bumpCacheVersion } = useScanStore();
+  const { setConsoles, setStatus, bumpCacheVersion, cacheVersion } = useScanStore();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
@@ -112,6 +133,12 @@ export default function Settings() {
   const [sgdbKey, setSgdbKey] = useState("");
   const [datFiles, setDatFiles] = useState<DatFile[]>([]);
   const [enriching, setEnriching] = useState(false);
+
+  // ── Download list state ──────────────────────────────────────────────────────
+  const [dlList,    setDlList]    = useState<DownloadList | null>(null);
+  const [dlConsole, setDlConsole] = useState<string | null>(null);
+  const [dlLoading, setDlLoading] = useState<string | null>(null); // console key of in-flight request
+  const [dlSearch,  setDlSearch]  = useState("");
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
@@ -132,6 +159,11 @@ export default function Settings() {
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
     getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
+  // Re-fetch format pairs whenever a scan completes (cacheVersion bump) so the
+  // Format Variant Cleanup section appears/updates without requiring a full re-mount.
+  useEffect(() => {
     getFormatPairs().then((pairs) => {
       setFormatPairs(pairs);
       const incomingGroups = new Set(pairs.map((p) => p.console_group));
@@ -148,7 +180,7 @@ export default function Settings() {
       });
       prevPairGroupsRef.current = incomingGroups;
     }).catch(console.error);
-  }, []);
+  }, [cacheVersion]);
 
   async function save(next: AppSettings) {
     setSaved(false);
@@ -301,6 +333,30 @@ export default function Settings() {
       setFpScanState("done");
     } catch {
       setFpScanState("idle");
+    }
+  }
+
+  // ── Download list handlers ───────────────────────────────────────────────────
+
+  async function handleGenerate(consoleName: string) {
+    setDlLoading(consoleName);
+    setDlList(null);
+    setDlSearch("");
+    setDlConsole(consoleName);
+    try {
+      const list = await generateDownloadList(consoleName);
+      setDlList(list);
+    } finally {
+      setDlLoading(null);
+    }
+  }
+
+  async function handleExportList(format: ExportFormat) {
+    if (!dlList) return;
+    const ext = format === "text" ? "txt" : "csv";
+    const filePath = await saveFileDialog({ filters: [{ name: "Download list", extensions: [ext] }] });
+    if (typeof filePath === "string") {
+      await exportDownloadList(dlList.to_download, filePath, format);
     }
   }
 
@@ -797,13 +853,97 @@ export default function Settings() {
                   <div className="text-xs text-muted-foreground">{dat.entry_count.toLocaleString()} entries {dat.version ? `· ${dat.version}` : ""}</div>
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  <Button size="sm" variant="outline" className="text-xs h-7"
+                    disabled={dlLoading === dat.console}
+                    onClick={() => handleGenerate(dat.console)}>
+                    {dlLoading === dat.console
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : "Generate"}
+                  </Button>
                   <Button size="sm" variant="outline" className="text-xs h-7" onClick={async () => { await verifyRoms(dat.console); }}>Verify</Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); }}>Remove</Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); if (dlConsole === dat.console) { setDlList(null); setDlConsole(null); } }}>Remove</Button>
                 </div>
               </div>
             ))}
           </div>
         )}
+
+        {/* Download list preview — outside divide-y container so divider styling doesn't apply */}
+        {dlList && (
+          <div className="border border-border rounded-lg overflow-hidden">
+            {/* Header */}
+            <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-foreground truncate">
+                Download list — {getAbbrev(dlConsole ?? "")}
+                {dlList.total_in_dat > 0 && (
+                  <>
+                    {" · "}{dlList.to_download.length.toLocaleString()} to download
+                    {" · "}{dlList.preferred_count.toLocaleString()} preferred
+                    {dlList.prerelease_only_count > 0 && ` · ${dlList.prerelease_only_count} pre-release only`}
+                    {dlList.excluded_count > 0 && ` · ${dlList.excluded_count} excluded`}
+                  </>
+                )}
+              </span>
+              <button
+                onClick={() => { setDlList(null); setDlConsole(null); setDlSearch(""); }}
+                className="shrink-0 text-muted-foreground hover:text-foreground motion-safe:transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {dlList.total_in_dat === 0 ? (
+              /* Re-import prompt — shown when all existing entries pre-date migration 010 */
+              <div className="px-4 py-4 text-xs text-muted-foreground flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                Re-import this DAT to populate ROM filenames and enable download list generation.
+              </div>
+            ) : (
+              <>
+                {/* Search */}
+                <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+                  <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <Input
+                    placeholder="Search filenames…"
+                    value={dlSearch}
+                    onChange={(e) => setDlSearch(e.target.value)}
+                    className="h-7 text-xs border-0 bg-transparent focus-visible:ring-0 p-0"
+                  />
+                </div>
+                {/* File list */}
+                <div className="h-56 overflow-y-auto [scrollbar-gutter:stable]">
+                  {dlList.to_download
+                    .filter((e) =>
+                      !dlSearch ||
+                      e.rom_name.toLowerCase().includes(dlSearch.toLowerCase())
+                    )
+                    .map((entry, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-4 py-1.5 border-b border-b-border/40 text-xs hover:bg-muted/20"
+                      >
+                        <span className="flex-1 truncate font-mono text-muted-foreground">
+                          {entry.rom_name}
+                        </span>
+                        <DlStatusChip status={entry.status} />
+                      </div>
+                    ))}
+                </div>
+                {/* Export row */}
+                <div className="px-4 py-3 border-t border-border flex gap-2">
+                  <Button size="sm" variant="outline" className="text-xs"
+                    onClick={() => handleExportList("text")}>
+                    Export .txt (torrent filter)
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs"
+                    onClick={() => handleExportList("csv")}>
+                    Export .csv (full metadata)
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <Button variant="outline" size="sm" onClick={async () => {
           const path = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }] });
           if (typeof path === "string") {

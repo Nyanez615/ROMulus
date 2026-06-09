@@ -161,6 +161,9 @@ import type { EnrichmentStatus } from "./bindings/EnrichmentStatus";
 import type { DatFile } from "./bindings/DatFile";
 import type { Completeness } from "./bindings/Completeness";
 import type { VerificationStatus } from "./bindings/VerificationStatus";
+import type { DownloadList } from "./bindings/DownloadList";
+import type { DownloadEntry } from "./bindings/DownloadEntry";
+import type { ExportFormat } from "./bindings/ExportFormat";
 
 // IGDB credentials
 export const setIgdbCredentials = (clientId: string, secret: string): Promise<void> =>
@@ -201,6 +204,14 @@ export const getVerificationStatus = (): Promise<VerificationStatus> =>
   isTauri() ? invoke("get_verification_status") : Promise.resolve({ running: false, verified: 0, modified: 0, unknown: 0, total: 0 });
 export const getCompleteness = (console: string): Promise<Completeness> =>
   isTauri() ? invoke("get_completeness", { console }) : Promise.resolve({ console, have: 0, total: 0, percent: 0 });
+
+export const generateDownloadList = (console: string): Promise<DownloadList> =>
+  isTauri()
+    ? invoke("generate_download_list", { console })
+    : Promise.resolve({ console, to_download: [], total_in_dat: 0, preferred_count: 0, prerelease_only_count: 0, excluded_count: 0 });
+
+export const exportDownloadList = (entries: DownloadEntry[], path: string, format: ExportFormat): Promise<void> =>
+  isTauri() ? invoke("export_download_list", { entries, path, format }) : Promise.resolve();
 
 // Event listeners for Phase 4 background tasks
 export const onEnrichProgress = (cb: (s: EnrichmentStatus) => void): Promise<UnlistenFn> =>

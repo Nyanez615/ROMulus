@@ -86,6 +86,14 @@ describe("getCanonicalConsoleName", () => {
     expect(getCanonicalConsoleName("Game Boy")).toBe("Game Boy");
   });
 
+  it("strips (Encrypted) suffix", () => {
+    expect(getCanonicalConsoleName("Nintendo DS (Encrypted)")).toBe("Nintendo DS");
+  });
+
+  it("strips (XBLA) suffix", () => {
+    expect(getCanonicalConsoleName("Xbox 360 (XBLA)")).toBe("Xbox 360");
+  });
+
   it("recursively strips multiple variant suffixes", () => {
     expect(getCanonicalConsoleName("Nintendo 3DS (Digital) (Decrypted)")).toBe("Nintendo 3DS");
     expect(getCanonicalConsoleName("Nintendo DSi (Digital) (CDN) (Decrypted)")).toBe("Nintendo DSi");

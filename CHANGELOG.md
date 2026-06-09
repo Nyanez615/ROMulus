@@ -6,6 +6,33 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-06-09
+
+### Added
+- **DAT pre-download filter** — generate a ranked download list from an imported No-Intro DAT before downloading any files. The same `parse_from_filename → group_roms → score_rom` pipeline used by the live pruner scores every title in the DAT against the user's real `UserPreferences`. The output is a deterministic list of preferred filenames ready for use as a torrent include-filter.
+  - Migration 010 (`dat_rom_name`) — adds nullable `rom_name TEXT` to `dat_entries`; existing rows get `NULL` until re-imported.
+  - `parse_dat()` now captures `<rom name="…">` (actual ROM filename) alongside the game title.
+  - `parse_from_filename(filename, console) -> Option<RomFile>` — new parser entry-point with no filesystem access; all tag-parsing logic shared with the live scanner.
+  - `generate_download_list(console)` Tauri command — multi-disc aware: collects all variants whose `(i32, u32, usize)` score triple equals the preferred score (sibling discs share an identical triple).
+  - `export_download_list(entries, path, format)` Tauri command — Text format maps ROM extensions (`.3ds`, `.nds`, `.gba`, etc.) to `.zip` for torrent client compatibility; CSV exports full metadata.
+  - Settings UI: "Generate" button per DAT row; preview panel with search, status chips (Preferred / Pre-release only), entry count, and export buttons (`.txt` / `.csv`); amber re-import prompt when `total_in_dat = 0` (pre-migration import).
+- **Right-click context menu on all file rows** — "Show in Folder" and "Copy Path" on every file row: ROM variants, System Files entries, History log entries, and Prune preview items. Calls `tauri-plugin-opener` `revealItemInDir`; toasts on error for already-deleted files. `revealInFinder(path)` added to `tauri.ts` with browser-preview safe fallback.
+- **Comprehensive console catalog** — `consoleUtils.ts` expanded to cover every common No-Intro/Redump distribution variant and platform:
+  - `VARIANT_SUFFIXES` expanded: `(Decrypted)`, `(Download Play)`, `(Digital)`, `(CDN)`, `(PSN)`, `(NoNpDrm)`, `(PSVgameSD)`, `(Minis)`, `(UMD Video)`, `(UMD Music)`, `(Games on Demand)` — every known variant suffix now collapses onto one console card.
+  - `getCanonicalConsoleName` is now recursive: multi-suffix names like `Nintendo 3DS (Digital) (Decrypted)` fully strip to `Nintendo 3DS`.
+  - `getAbbrev` / `getConsoleDisplayName` / `getFormatVariantLabel` all try the canonical name as a fallback before truncating, so no variant combination ever shows the `"NINT"` fallback abbreviation.
+  - `ABBREV` additions: Nintendo DS / DSi / 3DS / Switch / Wii / WiiU / GCN / FC / BSX, Atari 2600 / 5200 / 7800 / Jaguar / Lynx, SNK NGP / NGPC / NGCD, NEC PCE / SGX, Bandai WS / WSC, Sony PS3 / PS4, Microsoft XBX / X360, 3DO, ColecoVision, Intellivision, Vectrex, MSX, MSX2, and more.
+- **Storage size on Dashboard console tiles** — each console tile now shows the folder's total storage size alongside title and ROM counts.
+
+### Fixed
+- **Dashboard console tile tooltip** — removed redundant `title` attribute that caused the tooltip to show `"GBA, GBA, GBA"` when `getConsoleDisplayName` collapses sub-variants to the same short name.
+
+### Technical
+- `PRERELEASE_FLAGS` constant in `dat.rs` — defines No-Intro status tags that mark pre-release-only titles in the download list (entries with no non-pre-release counterpart get `DownloadStatus::PrereleaseOnly`).
+- New TS bindings: `DownloadEntry.ts`, `DownloadList.ts`, `DownloadStatus.ts`, `ExportFormat.ts`.
+- `src/components/FileContextMenu.tsx` (new); `src/components/ui/context-menu.tsx` (new shadcn component); `@radix-ui/react-context-menu` added.
+- Rust tests: 164 → 197 (+33). Vitest: 97 → 101 (+4 consoleUtils tests).
+
 ## [0.2.8] - 2026-06-06
 
 ### Added

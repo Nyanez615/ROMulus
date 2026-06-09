@@ -19,6 +19,10 @@ const KNOWN_REGIONS: &[&str] = &[
 const STATUS_FLAGS: &[&str] = &[
     "Alpha", "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
     "Preview", "GameCube Preview", "Possible Proto",
+    // Developer-hardware variants: never the consumer release.
+    "IS-NITRO-EMULATOR", "IS-NITRO-PROGRAMMER",
+    // Kiosk sub-variants not caught by the plain "Kiosk" token.
+    "Wi-Fi Kiosk",
     "Aftermarket", "Unl", "Pirate", "Hack", "Alt",
 ];
 
@@ -434,6 +438,18 @@ pub fn parse_file(path: &Path, console: &str, filesize: u64, _mtime: u64) -> Opt
     })
 }
 
+/// Parse a ROM filename string without any filesystem access.
+/// Delegates to `parse_file` using a no-directory path so all tag/scoring logic
+/// is shared exactly. `filesize` and `mtime` are zeroed — irrelevant for
+/// pre-download scoring.
+///
+/// `Path::new("Game (USA).3ds").file_name()` returns `"Game (USA).3ds"` (the full
+/// string, since there is no directory component), so the returned `RomFile.filename`
+/// equals `filename` verbatim — safe to use as a lookup key.
+pub fn parse_from_filename(filename: &str, console: &str) -> Option<RomFile> {
+    parse_file(std::path::Path::new(filename), console, 0, 0)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -805,5 +821,28 @@ mod tests {
         // "Sachen-Commin" has a non-digit suffix → not a catalog code → title unchanged.
         let r = parse("Some Game (Europe) (Sachen-Commin) (Unl).zip");
         assert_eq!(r.title, "Some Game");
+    }
+
+    // ── Developer-hardware tag tests ──────────────────────────────────────────
+
+    #[test]
+    fn is_nitro_emulator_is_status_flag() {
+        let r = parse("[BIOS] Nintendo DS Firmware (World) (En,Ja,Fr,De,Es,It) (2006-02-20) (IS-NITRO-EMULATOR).zip");
+        assert!(r.status_flags.contains(&"IS-NITRO-EMULATOR".to_string()),
+            "IS-NITRO-EMULATOR must be a status flag, not an extra_tag");
+        assert!(!r.extra_tags.iter().any(|t| t == "IS-NITRO-EMULATOR"),
+            "IS-NITRO-EMULATOR must not leak into extra_tags");
+        // The date should still be stored as extra_tag for display
+        assert!(r.extra_tags.iter().any(|t| t.contains("2006-02-20")),
+            "date must remain in extra_tags");
+    }
+
+    #[test]
+    fn wifi_kiosk_is_status_flag() {
+        let r = parse("[BIOS] Nintendo DS Lite Firmware (World) (En,Ja,Fr,De,Es,It) (2006-01-26) (Wi-Fi Kiosk).zip");
+        assert!(r.status_flags.contains(&"Wi-Fi Kiosk".to_string()),
+            "Wi-Fi Kiosk must be a status flag");
+        assert!(!r.extra_tags.iter().any(|t| t == "Wi-Fi Kiosk"),
+            "Wi-Fi Kiosk must not leak into extra_tags");
     }
 }

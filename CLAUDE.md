@@ -18,6 +18,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.5** ✅ Sort UX overhaul (SortControl, bidirectional sort), scoring tier split (Format Variant/Collection), Prune filter descriptions + preview scroll fix, format pair subset indicator, auto-rescan, React Compiler v7 hardening
 - **v0.2.6** ✅ Titles Count Architecture (game_groups sidebar/Dashboard), scoring overhaul (multi-language tag parsing, alt_penalty fix, version tiebreaker), AlphabetScrubber + VariantCountScrubber, Hacks merged into ROMs tab, Preferred filter chip
 - **v0.2.8** ✅ Scoring improvements (collection penalty −80, revision bonus, proto ordering, BIOS extra-tag), Prune integrated into Settings, Duplicates tab removed, Utilities moved to ROMs tab, Format Variant rename, faceted chip filtering, CSV export fixes, permanent-only deletion, cloud root blocking
+- **v0.2.9** ✅ DAT pre-download filter (generate_download_list + export_download_list, migration 010, parse_from_filename, Settings preview panel), right-click context menu on all file rows, comprehensive console catalog + recursive canonical stripping + ABBREV expansion, storage size on Dashboard console tiles
 
 ## Dev setup
 
@@ -29,7 +30,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 164 unit tests + regenerates src/lib/bindings/
+cargo test                    # 197 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -37,7 +38,7 @@ From project root:
 ```bash
 npx tsc --noEmit       # TypeScript type-check
 npm run lint           # ESLint
-npm run test:run       # 97 Vitest tests
+npm run test:run       # 101 Vitest tests
 ```
 
 ## Architecture
@@ -53,6 +54,7 @@ src/                             React frontend (Vite root)
     VariantCountScrubber.tsx     Numeric variant-count strip for ROMs tab (variants sort)
     FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab)
     SortControl.tsx              Field <select> + direction <button> pill; used on ROMs tab and Dashboard
+    FileContextMenu.tsx          Right-click wrapper: "Show in Folder" + "Copy Path"; applied to all file rows
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -89,10 +91,12 @@ src-tauri/
       metadata.rs      IGDB: set/has/clear_igdb_credentials, get_game_metadata, enrich_all_games
       thumbnail.rs     SteamGridDB: set/has/clear_steamgriddb_key, get_thumbnail
       dat.rs           import_dat, get_dat_files, remove_dat, verify_roms,
-                       get_verification_status, get_completeness
+                       get_verification_status, get_completeness,
+                       generate_download_list, export_download_list
   migrations/          001_initial.sql · 002_metadata.sql · 003_onboarding.sql
                        004_permanent_delete.sql · 005_known_tags.sql · 006_short_console_names.sql
                        007_clean_language_tags.sql · 008_fix_known_tags.sql
+                       009_clean_filter_settings.sql · 010_dat_rom_name.sql
   capabilities/        Tauri v2 permissions (fs, shell, dialog, notification, shortcuts)
   tauri.conf.json      Bundle ID: com.romulus.app · assetProtocol enabled
   Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip
@@ -171,6 +175,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 164 tests, in-memory SQLite only
-- Frontend: `npm run test:run` (Vitest + jsdom) — 97 tests in `src/**/*.test.tsx`
+- Rust: `cargo test` in `src-tauri/` — 197 tests, in-memory SQLite only
+- Frontend: `npm run test:run` (Vitest + jsdom) — 101 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

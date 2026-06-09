@@ -31,12 +31,14 @@
 - **IGDB metadata** — release year, genre, summary, ratings via background enrichment (requires free Twitch API key)
 - **SteamGridDB cover art** — locally cached thumbnails shown when expanding game rows
 - **No-Intro DAT verification** — import DAT files for CRC32 integrity checking and collection completeness tracking
+- **DAT pre-download filter** — generate a scored download list from any imported DAT using your real language/region preferences; export as `.txt` (torrent include-filter) or `.csv`
 
 ### Safety & logging
 - **Permanent deletion with manifest** — every prune session writes a plain-text backup manifest to `app_data_dir/manifests/` before any files are removed
 - **Atomic crash recovery** — SQLite `pending → deleted/failed` transaction; interrupted sessions detected on next launch with a resume banner in Dashboard
 - **Full action log** — every decision recorded, paginated History tab, CSV export
 - **Cloud path blocking** — OneDrive, iCloud, Dropbox, Google Drive, and Box roots are blocked at add-time to prevent sync conflicts
+- **Right-click context menu** — "Show in Folder" and "Copy Path" on every file row in all tabs
 
 ### 5 tabs
 Dashboard · ROMs · System Files · History · Settings
@@ -64,13 +66,13 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 164 unit tests + regenerates TypeScript bindings
+cargo test             # 197 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 
 From project root:
 ```bash
-npm run test:run       # 97 Vitest tests
+npm run test:run       # 101 Vitest tests
 npx tsc --noEmit       # TypeScript type-check
 ```
 

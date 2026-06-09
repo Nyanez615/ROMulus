@@ -26,6 +26,7 @@ const VARIANT_SUFFIXES = [
   " (Headered)",
   " (Headerless)",
   // Nintendo DS / 3DS / DSi encryption + distribution variants
+  " (Encrypted)",
   " (Decrypted)",
   " (Download Play)",
   " (Digital)",
@@ -37,8 +38,9 @@ const VARIANT_SUFFIXES = [
   " (Minis)",
   " (UMD Video)",
   " (UMD Music)",
-  // Xbox 360 digital storefront
+  // Xbox 360 digital storefronts
   " (Games on Demand)",
+  " (XBLA)",
 ] as const;
 
 // ── Alias map: separate products grouped under one canonical console ──────────
