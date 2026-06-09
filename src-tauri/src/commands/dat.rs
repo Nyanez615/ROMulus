@@ -887,7 +887,7 @@ mod tests {
             short_console_names: false,
         };
         let console = "Sony - PlayStation";
-        let filenames = vec![
+        let filenames = [
             "Final Fantasy VII (USA) (Disc 1).cue",
             "Final Fantasy VII (USA) (Disc 2).cue",
             "Final Fantasy VII (USA) (Disc 3).cue",
@@ -939,7 +939,7 @@ mod tests {
             short_console_names: false,
         };
         let console = "Sony - PlayStation";
-        let roms: Vec<_> = vec![
+        let roms: Vec<_> = [
             "Xenogears (USA) (Disc 1).cue",
             "Xenogears (USA) (Disc 2).cue",
         ].iter()
