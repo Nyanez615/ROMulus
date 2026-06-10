@@ -29,6 +29,7 @@ vi.mock("@/lib/tauri", () => ({
   importDat: () => Promise.resolve({ console: "Test", entry_count: 0, version: "" }),
   removeDat: () => Promise.resolve(),
   verifyRoms: () => Promise.resolve(),
+  onVerifyComplete: () => Promise.resolve(() => {}),
   enrichAllGames: () => Promise.resolve(),
   scanRoots: () => Promise.resolve({}),
   getConsoles: () => Promise.resolve([]),
