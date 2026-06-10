@@ -44,6 +44,7 @@ reqwest = { version = "0.12", features = ["json"] }
 ts-rs = "10"
 quick-xml = "0.36"
 zip = "2"
+crc32fast = "1"
 notify = "6"
 keyring = "3"
 sentry = { version = "0.34", default-features = false, features = ["backtrace", "contexts", "panic"] }
