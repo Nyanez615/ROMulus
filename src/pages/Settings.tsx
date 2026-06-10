@@ -33,7 +33,9 @@ import {
   getFormatPairs, applyFormatPairs, executeFormatPairs, formatBytes,
   getConsoles,
   generateDownloadList, exportDownloadList,
+  onVerifyComplete,
 } from "@/lib/tauri";
+import type { VerificationStatus } from "@/lib/bindings/VerificationStatus";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { DatFile } from "@/lib/bindings/DatFile";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
@@ -144,6 +146,9 @@ export default function Settings() {
   const [batchExporting, setBatchExporting] = useState(false);
   const [importDialog, setImportDialog] = useState<{ path: string; name: string } | null>(null);
   const [importName, setImportName] = useState("");
+  const [verifyingDats,  setVerifyingDats]  = useState<Set<string>>(new Set());
+  const [verifyResult,   setVerifyResult]   = useState<VerificationStatus | null>(null);
+  const verifyPendingRef = useRef(0);
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
@@ -164,6 +169,15 @@ export default function Settings() {
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
     getVersion().then(setAppVersion).catch(() => {});
+
+    const unlisten = onVerifyComplete((status) => {
+      verifyPendingRef.current = Math.max(0, verifyPendingRef.current - 1);
+      if (verifyPendingRef.current === 0) {
+        setVerifyingDats(new Set());
+        setVerifyResult(status);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
   }, []);
 
   // Re-fetch format pairs whenever a scan completes (cacheVersion bump) so the
@@ -370,6 +384,10 @@ export default function Settings() {
   }
 
   async function handleBatchVerify() {
+    if (selectedDats.length === 0) return;
+    setVerifyResult(null);
+    setVerifyingDats(new Set(selectedDats));
+    verifyPendingRef.current = selectedDats.length;
     for (const consoleName of selectedDats) {
       await verifyRoms(consoleName);
     }
@@ -914,7 +932,16 @@ export default function Settings() {
                           ? <Loader2 className="w-3 h-3 animate-spin" />
                           : "Generate"}
                       </Button>
-                      <Button size="sm" variant="outline" className="text-xs h-7" onClick={async () => { await verifyRoms(dat.console); }}>Verify</Button>
+                      <Button size="sm" variant="outline" className="text-xs h-7"
+                        disabled={verifyingDats.has(dat.console)}
+                        onClick={async () => {
+                          setVerifyResult(null);
+                          setVerifyingDats(new Set([dat.console]));
+                          verifyPendingRef.current = 1;
+                          await verifyRoms(dat.console);
+                        }}>
+                        {verifyingDats.has(dat.console) ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
+                      </Button>
                       <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive" onClick={async () => { await removeDat(dat.console); setDatFiles((prev) => prev.filter((d) => d.console !== dat.console)); if (dlConsole === dat.console) { setDlList(null); setDlConsole(null); } setSelectedDats((prev) => prev.filter((c) => c !== dat.console)); }}>Remove</Button>
                     </div>
                   </div>
@@ -946,9 +973,9 @@ export default function Settings() {
                 {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
               </Button>
               <Button size="sm" variant="outline" className="text-xs h-7"
-                disabled={selectedDats.length === 0}
+                disabled={selectedDats.length === 0 || verifyingDats.size > 0}
                 onClick={handleBatchVerify}>
-                Verify
+                {verifyingDats.size > 0 ? <Loader2 className="w-3 h-3 animate-spin" /> : "Verify"}
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -974,6 +1001,15 @@ export default function Settings() {
               </AlertDialog>
             </div>
           </>
+        )}
+
+        {verifyResult && (
+          <p className="text-xs text-muted-foreground">
+            Verification complete — {verifyResult.verified.toLocaleString()} verified
+            {verifyResult.modified > 0 && <>, <span className="text-destructive">{verifyResult.modified.toLocaleString()} modified</span></>}
+            {verifyResult.unknown > 0 && <>, {verifyResult.unknown.toLocaleString()} unknown</>}
+            {" "}of {verifyResult.total.toLocaleString()} checked
+          </p>
         )}
 
         {/* Download list preview — outside divide-y container so divider styling doesn't apply */}
