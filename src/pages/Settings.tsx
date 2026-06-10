@@ -1053,11 +1053,28 @@ export default function Settings() {
         )}
 
         <Button variant="outline" size="sm" onClick={async () => {
-          const path = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }] });
-          if (typeof path === "string") {
-            const [detectedName] = await readDatHeader(path);
+          const result = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }], multiple: true });
+          if (Array.isArray(result)) {
+            // Multi-select: import all using auto-detected names (No-Intro headers are reliable)
+            const imported: DatFile[] = [];
+            for (const path of result) {
+              const [detectedName] = await readDatHeader(path);
+              if (detectedName) {
+                const dat = await importDat(path, detectedName);
+                imported.push(dat);
+              }
+            }
+            if (imported.length > 0) {
+              setDatFiles((prev) => {
+                const importedNames = new Set(imported.map((d) => d.console));
+                return [...prev.filter((d) => !importedNames.has(d.console)), ...imported];
+              });
+            }
+          } else if (typeof result === "string") {
+            // Single file: show confirmation dialog so user can correct the name if needed
+            const [detectedName] = await readDatHeader(result);
             setImportName(detectedName);
-            setImportDialog({ path, name: detectedName });
+            setImportDialog({ path: result, name: detectedName });
           }
         }}>
           <Plus className="w-4 h-4 mr-2" /> Import DAT file
