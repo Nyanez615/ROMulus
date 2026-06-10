@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CheckSquare, Square } from "lucide-react";
 import {
@@ -141,6 +142,8 @@ export default function Settings() {
   const [dlSearch,       setDlSearch]       = useState("");
   const [selectedDats,   setSelectedDats]   = useState<string[]>([]);
   const [batchExporting, setBatchExporting] = useState(false);
+  const [importDialog, setImportDialog] = useState<{ path: string; name: string } | null>(null);
+  const [importName, setImportName] = useState("");
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
@@ -1011,18 +1014,48 @@ export default function Settings() {
           const path = await open({ filters: [{ name: "DAT", extensions: ["dat", "xml"] }] });
           if (typeof path === "string") {
             const [detectedName] = await readDatHeader(path);
-            const consoleName = prompt(
-              "Console name for this DAT (auto-detected — edit if wrong):",
-              detectedName,
-            ) ?? "";
-            if (consoleName.trim()) {
-              const dat = await importDat(path, consoleName.trim());
-              setDatFiles((prev) => [...prev.filter((d) => d.console !== dat.console), dat]);
-            }
+            setImportName(detectedName);
+            setImportDialog({ path, name: detectedName });
           }
         }}>
           <Plus className="w-4 h-4 mr-2" /> Import DAT file
         </Button>
+
+        {/* Import name confirmation dialog — replaces window.prompt() (unsupported in WKWebView) */}
+        <Dialog open={importDialog !== null} onOpenChange={(open) => { if (!open) setImportDialog(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Import DAT file</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">Console name (auto-detected — edit if wrong):</p>
+            <Input
+              value={importName}
+              onChange={(e) => setImportName(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Enter" && importName.trim() && importDialog) {
+                  const dat = await importDat(importDialog.path, importName.trim());
+                  setDatFiles((prev) => [...prev.filter((d) => d.console !== dat.console), dat]);
+                  setImportDialog(null);
+                }
+              }}
+              autoFocus
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setImportDialog(null)}>Cancel</Button>
+              <Button
+                disabled={!importName.trim()}
+                onClick={async () => {
+                  if (!importDialog) return;
+                  const dat = await importDat(importDialog.path, importName.trim());
+                  setDatFiles((prev) => [...prev.filter((d) => d.console !== dat.console), dat]);
+                  setImportDialog(null);
+                }}
+              >
+                Import
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </section>
 
       <footer className="mt-10 pt-6 border-t border-border/40 text-center text-xs text-muted-foreground/50 space-y-0.5">
