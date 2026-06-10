@@ -100,15 +100,28 @@ fn parse_dat(xml: &str) -> Result<(DatHeader, Vec<DatEntry>), String> {
     Ok((header, entries))
 }
 
-fn read_zip_crc(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    let _archive = zip::ZipArchive::new(file).ok()?;
-    // CRC of first entry (the ROM file inside the ZIP)
-    // ZipArchive::by_index requires &mut, so we open fresh
-    let file2 = std::fs::File::open(path).ok()?;
-    let mut archive2 = zip::ZipArchive::new(file2).ok()?;
-    let entry = archive2.by_index(0).ok()?;
-    Some(format!("{:08x}", entry.crc32()))
+/// Returns the lowercase hex CRC32 of the ROM content at `path`.
+/// For ZIP files, reads the stored CRC from the central directory (no decompression).
+/// For all other formats, streams the raw bytes and computes CRC32 directly.
+fn read_file_crc(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if ext == "zip" {
+        let file = std::fs::File::open(path).ok()?;
+        let mut archive = zip::ZipArchive::new(file).ok()?;
+        let entry = archive.by_index(0).ok()?;
+        Some(format!("{:08x}", entry.crc32()))
+    } else {
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut hasher = crc32fast::Hasher::new();
+        let mut buf = [0u8; 65536];
+        loop {
+            let n = file.read(&mut buf).ok()?;
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+        Some(format!("{:08x}", hasher.finalize()))
+    }
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -215,13 +228,12 @@ pub async fn verify_roms(
     state: State<'_, AppState>,
     console: Option<String>,
 ) -> Result<(), String> {
-    // Collect ROMs to verify
+    // Collect ROMs to verify — all formats, not just ZIP
     let roms: Vec<(i64, String, String)> = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        // Use nullable parameter to avoid SQL injection from console name
         let mut stmt = conn.prepare(
             "SELECT id, path, console FROM rom_cache
-             WHERE file_format = 'zip' AND (?1 IS NULL OR console = ?1)
+             WHERE (?1 IS NULL OR console = ?1)
              LIMIT 5000",
         ).map_err(|e| e.to_string())?;
         let mut rows = stmt.query(rusqlite::params![console]).map_err(|e| e.to_string())?;
@@ -247,14 +259,20 @@ pub async fn verify_roms(
         let mut modified = 0u32;
         let mut unknown = 0u32;
 
-        for (id, path, _console) in &roms {
-            let status = match read_zip_crc(Path::new(path)) {
+        for (id, path, console) in &roms {
+            let p = Path::new(path);
+            // Stem = filename without extension; matches e.name in dat_entries
+            // (No-Intro game titles have no extension, matching "Game (USA)" exactly)
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let status = match read_file_crc(p) {
                 Some(actual_crc) => {
-                    let filename = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if let Ok(conn) = db.lock() {
                         let expected: Option<String> = conn.query_row(
-                            "SELECT e.crc32 FROM dat_entries e JOIN dat_files d ON d.id=e.dat_file_id WHERE e.name LIKE ?1 LIMIT 1",
-                            [&format!("%{filename}%")],
+                            "SELECT e.crc32 FROM dat_entries e
+                             JOIN dat_files d ON d.id = e.dat_file_id
+                             WHERE d.console = ?1 AND e.name = ?2
+                             LIMIT 1",
+                            rusqlite::params![console, stem],
                             |r| r.get(0),
                         ).ok().flatten();
                         match expected {
