@@ -206,7 +206,9 @@ export function getFormatVariantLabel(folder: string): string {
   const suffix = short.slice(base.length).trim(); // e.g. "(QD)" or ""
   const canonical = getCanonicalConsoleName(base);
   const abbrev = ABBREV[base] ?? ABBREV[canonical] ?? base.slice(0, 4).toUpperCase();
-  return suffix ? `${abbrev} ${suffix}` : abbrev;
+  // Suppress suffix when it's redundant with the abbreviation (e.g. "FDS (FDS)" → "FDS")
+  const suffixContent = suffix.replace(/^\(|\)$/g, "").trim();
+  return (suffix && suffixContent.toUpperCase() !== abbrev.toUpperCase()) ? `${abbrev} ${suffix}` : abbrev;
 }
 
 export function getShortLabel(folder: string): string {

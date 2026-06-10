@@ -39,7 +39,7 @@ import { usePreferencesStore } from "@/store/preferences";
 import { refreshTagStore } from "@/components/Layout";
 
 export default function Dashboard() {
-  const { consoles, setConsoles, status, setStatus, setSelectedConsoles, bumpCacheVersion } = useScanStore();
+  const { consoles, setConsoles, status, setStatus, setSelectedConsoles, bumpCacheVersion, cacheVersion } = useScanStore();
   const { setActiveTab } = useUIStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const [interrupted, setInterrupted] = useState<InterruptedSession | null>(null);
@@ -61,16 +61,20 @@ export default function Dashboard() {
     getEmptyRoots().then(setEmptyRoots).catch(console.error);
     getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
     getEnrichmentStatus().then((s) => { if (s.total > 0) setEnrichment(s); }).catch(console.error);
-    getDatFiles().then((dats) => {
-      Promise.all(dats.map((d: DatFile) => getCompleteness(d.console)))
-        .then(setCompleteness).catch(console.error);
-    }).catch(console.error);
     let unlistenProgress: (() => void) | null = null;
     let unlistenComplete: (() => void) | null = null;
     onEnrichProgress((s) => setEnrichment(s)).then((fn) => { unlistenProgress = fn; });
     onEnrichComplete((s) => setEnrichment(s)).then((fn) => { unlistenComplete = fn; });
     return () => { unlistenProgress?.(); unlistenComplete?.(); };
   }, [setConsoles]);
+
+  // Re-fetch completeness whenever a scan finishes (cacheVersion bumps after each scan)
+  useEffect(() => {
+    getDatFiles().then((dats) => {
+      Promise.all(dats.map((d: DatFile) => getCompleteness(d.console)))
+        .then(setCompleteness).catch(console.error);
+    }).catch(console.error);
+  }, [cacheVersion]);
 
   const { totalTitles, officialTitles, preferredGroupsTotal, allGroupsTotal } = useMemo(() => {
     const byCanonical = new Map<string, typeof consoles>();
