@@ -311,22 +311,48 @@ pub fn get_completeness(
     state: State<'_, AppState>,
     console: String,
 ) -> Result<Completeness, String> {
+    use std::collections::HashSet;
+
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     let total: u32 = conn.query_row(
-        "SELECT COUNT(*) FROM dat_entries e JOIN dat_files d ON d.id = e.dat_file_id WHERE d.console = ?1",
-        [&console],
-        |r| r.get::<_, i64>(0),
-    ).unwrap_or(0) as u32;
-
-    let have: u32 = conn.query_row(
-        "SELECT COUNT(DISTINCT c.id) FROM rom_cache c
-         JOIN dat_entries e ON e.name LIKE '%' || c.path || '%'
+        "SELECT COUNT(*) FROM dat_entries e
          JOIN dat_files d ON d.id = e.dat_file_id
          WHERE d.console = ?1",
         [&console],
         |r| r.get::<_, i64>(0),
     ).unwrap_or(0) as u32;
+
+    // Collect all game names in the DAT for this console into a set for O(1) lookup
+    let mut dat_stmt = conn.prepare(
+        "SELECT e.name FROM dat_entries e
+         JOIN dat_files d ON d.id = e.dat_file_id
+         WHERE d.console = ?1",
+    ).map_err(|e| e.to_string())?;
+    let dat_names: HashSet<String> = dat_stmt
+        .query_map([&console], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .collect();
+
+    // For each local file, extract the stem (filename minus extension) and
+    // check if it matches a DAT game name exactly. This handles both ZIP
+    // files ("Game (USA).zip" → "Game (USA)") and native formats.
+    let mut path_stmt = conn.prepare(
+        "SELECT path FROM rom_cache WHERE console = ?1",
+    ).map_err(|e| e.to_string())?;
+    let have: u32 = path_stmt
+        .query_map([&console], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter(|path| {
+            Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|stem| dat_names.contains(stem))
+                .unwrap_or(false)
+        })
+        .count() as u32;
 
     let percent = if total > 0 { have as f32 / total as f32 * 100.0 } else { 0.0 };
     Ok(Completeness { console, have, total, percent })

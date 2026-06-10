@@ -377,6 +377,6 @@ export function canonicalFieldSum(
 export function getConsoleDisplayName(fullName: string, useShort: boolean): string {
   const shortName = getShortConsoleName(fullName);
   if (!useShort) return shortName;
-  const canonical = getCanonicalConsoleName(shortName);
-  return ABBREV[shortName] ?? ABBREV[canonical] ?? shortName.slice(0, 4).toUpperCase();
+  // Preserve the variant suffix so "GBA (Multiboot)" stays distinguishable from "GBA"
+  return getFormatVariantLabel(fullName);
 }
