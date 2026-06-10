@@ -221,10 +221,10 @@ describe("getConsoleDisplayName", () => {
     expect(getConsoleDisplayName("NEC - PC Engine", true)).toBe("PCE");
   });
 
-  it("useShort=true falls back through canonical for variant names", () => {
-    // "Nintendo 3DS (Decrypted)" has no direct ABBREV entry;
-    // getCanonicalConsoleName strips to "Nintendo 3DS" → ABBREV["Nintendo 3DS"] = "3DS"
-    expect(getConsoleDisplayName("Nintendo - Nintendo 3DS (Decrypted)", true)).toBe("3DS");
+  it("useShort=true preserves variant suffix for distinguishability", () => {
+    // Variant suffixes are kept so paired DATs stay distinguishable in the UI
+    // ("3DS (Decrypted)" vs a potential "3DS (Encrypted)")
+    expect(getConsoleDisplayName("Nintendo - Nintendo 3DS (Decrypted)", true)).toBe("3DS (Decrypted)");
   });
 });
 
