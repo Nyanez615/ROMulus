@@ -369,6 +369,21 @@ export default function Settings() {
     }
   }
 
+  async function handleBatchVerify() {
+    for (const consoleName of selectedDats) {
+      await verifyRoms(consoleName);
+    }
+  }
+
+  async function handleBatchRemove() {
+    for (const consoleName of selectedDats) {
+      await removeDat(consoleName);
+    }
+    setDatFiles((prev) => prev.filter((d) => !selectedDats.includes(d.console)));
+    if (dlConsole && selectedDats.includes(dlConsole)) { setDlList(null); setDlConsole(null); }
+    setSelectedDats([]);
+  }
+
   async function handleBatchExport(format: ExportFormat) {
     if (selectedDats.length === 0) return;
     const dir = await open({ directory: true, title: "Choose export folder" });
@@ -907,10 +922,10 @@ export default function Settings() {
               })}
             </div>
 
-            {/* Batch export bar — shown when ≥1 DAT is selected */}
+            {/* Batch action bar */}
             <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-muted/20 text-xs">
               <span className="text-muted-foreground flex-1">
-                {selectedDats.length > 0 ? `${selectedDats.length} of ${datFiles.length} selected` : "Select DATs to export"}
+                {selectedDats.length > 0 ? `${selectedDats.length} of ${datFiles.length} selected` : "Select DATs to batch-act"}
               </span>
               <button
                 onClick={() => setSelectedDats(
@@ -930,6 +945,33 @@ export default function Settings() {
                 onClick={() => handleBatchExport("csv")}>
                 {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
               </Button>
+              <Button size="sm" variant="outline" className="text-xs h-7"
+                disabled={selectedDats.length === 0}
+                onClick={handleBatchVerify}>
+                Verify
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive"
+                    disabled={selectedDats.length === 0}>
+                    Remove
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Remove {selectedDats.length} DAT{selectedDats.length !== 1 ? "s" : ""}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes the DAT files and all their entries from the database. Your ROM files are not affected.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBatchRemove} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Remove
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </>
         )}
