@@ -63,6 +63,7 @@ def main() -> None:
     parser.add_argument("--user",     default="admin",        help="Web UI username (default: admin)")
     parser.add_argument("--password", default="",             help="Web UI password (default: empty)")
     parser.add_argument("--dry-run",  action="store_true",    help="Print changes without applying them")
+    parser.add_argument("--no-auth",  action="store_true",    help="Skip login (use when localhost auth bypass is enabled in qBittorrent)")
     args = parser.parse_args()
 
     torrent_hash = args.hash.lower()
@@ -86,18 +87,27 @@ def main() -> None:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     urllib.request.install_opener(opener)
 
-    # Log in
+    # Log in (skip if --no-auth / localhost bypass is enabled in qBittorrent)
     host = args.host
-    login_url = f"http://{host}/api/v2/auth/login"
-    login_data = urllib.parse.urlencode({"username": args.user, "password": args.password}).encode()
-    login_req = urllib.request.Request(
-        login_url, data=login_data,
-        headers={"Referer": f"http://{host}", "Content-Type": "application/x-www-form-urlencoded"},
-    )
-    with urllib.request.urlopen(login_req, timeout=10) as r:
-        result = r.read().decode()
-    if result.strip() not in ("Ok.", ""):
-        sys.exit(f"Login failed: {result!r}")
+    if not args.no_auth:
+        login_url = f"http://{host}/api/v2/auth/login"
+        login_data = urllib.parse.urlencode({"username": args.user, "password": args.password}).encode()
+        login_req = urllib.request.Request(
+            login_url, data=login_data,
+            headers={"Referer": f"http://{host}", "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(login_req, timeout=10) as r:
+            result = r.read().decode()
+        if result.strip() not in ("Ok.", ""):
+            sys.exit(
+                f"Login failed: {result!r}\n\n"
+                "Fix options:\n"
+                "  A) qBittorrent → Preferences → Web UI → uncheck\n"
+                '     "Enable authentication for clients on localhost"\n'
+                "     then re-run with --no-auth\n\n"
+                "  B) Set a known password in Web UI preferences\n"
+                "     then re-run with --password <yourpassword>"
+            )
     print("Logged in.")
 
     # Fetch file list for this torrent
