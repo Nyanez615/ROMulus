@@ -228,24 +228,13 @@ pub async fn verify_roms(
     state: State<'_, AppState>,
     console: Option<String>,
 ) -> Result<(), String> {
-    // Collect ROMs to verify — all formats, not just ZIP
-    let roms: Vec<(i64, String, String)> = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare(
-            "SELECT id, path, console FROM rom_cache
-             WHERE (?1 IS NULL OR console = ?1)
-             LIMIT 5000",
-        ).map_err(|e| e.to_string())?;
-        let mut rows = stmt.query(rusqlite::params![console]).map_err(|e| e.to_string())?;
-        let mut result = vec![];
-        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-            result.push((
-                row.get::<_, i64>(0).map_err(|e| e.to_string())?,
-                row.get::<_, String>(1).map_err(|e| e.to_string())?,
-                row.get::<_, String>(2).map_err(|e| e.to_string())?,
-            ));
-        }
-        result
+    // Collect ROMs to verify from the in-memory ScanCache (rom_cache DB table is never written)
+    let roms: Vec<(String, String)> = {
+        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
+        cache.roms.iter()
+            .filter(|r| console.as_deref().map(|c| r.console == c).unwrap_or(true))
+            .map(|r| (r.path.clone(), r.console.clone()))
+            .collect()
     };
 
     let total = roms.len() as u32;
@@ -259,10 +248,9 @@ pub async fn verify_roms(
         let mut modified = 0u32;
         let mut unknown = 0u32;
 
-        for (id, path, console) in &roms {
+        for (path, console) in &roms {
             let p = Path::new(path);
-            // Stem = filename without extension; matches e.name in dat_entries
-            // (No-Intro game titles have no extension, matching "Game (USA)" exactly)
+            // Stem matches e.name in dat_entries (No-Intro titles have no extension)
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let status = match read_file_crc(p) {
                 Some(actual_crc) => {
@@ -284,14 +272,8 @@ pub async fn verify_roms(
                 }
                 None => { unknown += 1; "unknown" }
             };
-
-            if let Ok(conn) = db.lock() {
-                let _ = conn.execute(
-                    "INSERT INTO rom_verifications (rom_cache_id,status) VALUES (?1,?2)
-                     ON CONFLICT(rom_cache_id) DO UPDATE SET status=excluded.status,verified_at=datetime('now')",
-                    rusqlite::params![id, status],
-                );
-            }
+            // status recorded only in the VerificationStatus event — no DB write needed
+            let _ = status;
         }
 
         let done = VerificationStatus { running: false, verified, modified, unknown, total };
@@ -323,7 +305,7 @@ pub fn get_completeness(
         |r| r.get::<_, i64>(0),
     ).unwrap_or(0) as u32;
 
-    // Collect all game names in the DAT for this console into a set for O(1) lookup
+    // Collect all game names in this DAT into a set for O(1) lookup
     let mut dat_stmt = conn.prepare(
         "SELECT e.name FROM dat_entries e
          JOIN dat_files d ON d.id = e.dat_file_id
@@ -334,19 +316,21 @@ pub fn get_completeness(
         .map_err(|e| e.to_string())?
         .flatten()
         .collect();
+    drop(dat_stmt);
+    drop(conn); // release DB lock before taking scan_cache lock
 
-    // For each local file, extract the stem (filename minus extension) and
-    // check if it matches a DAT game name exactly. This handles both ZIP
-    // files ("Game (USA).zip" → "Game (USA)") and native formats.
-    let mut path_stmt = conn.prepare(
-        "SELECT path FROM rom_cache WHERE console = ?1",
-    ).map_err(|e| e.to_string())?;
-    let have: u32 = path_stmt
-        .query_map([&console], |r| r.get::<_, String>(0))
+    // Count local files whose filename stem matches a DAT game name.
+    // rom_cache (the DB table) is never written — ROM data lives in the
+    // in-memory ScanCache, so we read from there instead.
+    let have: u32 = state
+        .scan_cache
+        .lock()
         .map_err(|e| e.to_string())?
-        .flatten()
-        .filter(|path| {
-            Path::new(path)
+        .roms
+        .iter()
+        .filter(|rom| rom.console == console)
+        .filter(|rom| {
+            Path::new(&rom.path)
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .map(|stem| dat_names.contains(stem))
