@@ -4,7 +4,7 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.10] — 2026-06-11
 
 ### Added
 - **Accessories / amiibo in System Files** — `FileCategory::Accessory` (amiibo NFC dumps and similar non-playable accessories) now appears as an "Accessories" section in the System Files tab. Backend already filtered the category; frontend `ALL_CATEGORIES` array updated with a `Package` icon entry.
