@@ -64,6 +64,28 @@ export function Sidebar() {
     return total;
   }, [platformGroups]);
 
+  // Footer stats — scoped to selectedConsoles when one is active
+  const footerConsoles = useMemo(
+    () => selectedConsoles === null ? consoles : consoles.filter((c) => selectedConsoles.includes(c.name)),
+    [consoles, selectedConsoles],
+  );
+  const footerTitles = useMemo(() => {
+    const byCanonical = new Map<string, ConsoleStats[]>();
+    for (const c of footerConsoles) {
+      const { canonical } = getConsoleParts(c.name);
+      const arr = byCanonical.get(canonical) ?? [];
+      arr.push(c);
+      byCanonical.set(canonical, arr);
+    }
+    let total = 0;
+    for (const variants of byCanonical.values()) total += canonicalAllTitleCount(variants);
+    return total;
+  }, [footerConsoles]);
+  const footerPlatforms = useMemo(
+    () => new Set(footerConsoles.map((c) => getConsoleParts(c.name).platform)).size,
+    [footerConsoles],
+  );
+
   function togglePlatform(platform: string) {
     setCollapsedPlatforms((prev) =>
       prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform]
@@ -265,9 +287,9 @@ export function Sidebar() {
       {/* Scan stats footer */}
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
-          <div className="font-medium text-foreground">{allTitles.toLocaleString()} titles</div>
-          <div>{consoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {consoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs</div>
-          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} system files · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
+          <div className="font-medium text-foreground">{footerTitles.toLocaleString()} titles</div>
+          <div>{footerConsoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {footerConsoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs</div>
+          <div className="text-muted-foreground/70">{footerConsoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} system files · {footerPlatforms} platform{footerPlatforms !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (
