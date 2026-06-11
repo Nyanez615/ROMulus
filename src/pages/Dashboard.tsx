@@ -310,7 +310,7 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           icon={Files}
           label="Files"
@@ -602,10 +602,12 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
           </div>
         )}
       </div>
-      <div className="text-right shrink-0">
-        <div className={`text-sm font-semibold ${healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-muted-foreground"}`}>{healthPct}%</div>
-        <div className="text-xs text-muted-foreground/60">preferred</div>
-      </div>
+      {allGroups > 0 && (
+        <div className="text-right shrink-0">
+          <div className={`text-sm font-semibold ${healthPct >= 80 ? "text-green-400" : healthPct >= 50 ? "text-amber-400" : "text-muted-foreground"}`}>{healthPct}%</div>
+          <div className="text-xs text-muted-foreground/60">preferred</div>
+        </div>
+      )}
     </button>
   );
 }
