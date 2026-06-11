@@ -512,6 +512,23 @@ pub(crate) fn group_matches_consoles(g: &RomGroup, filter: &Option<Vec<String>>)
 
 // ── Format-pair merging ───────────────────────────────────────────────────────
 
+/// Override `preferred_idx` on a group when the user has saved a format folder
+/// preference. Uses `console_group_key` to derive the preference map key from
+/// the group's console name, so it works regardless of which variant ended up
+/// as `variants[0]` after scoring.
+fn apply_format_pref(g: &mut RomGroup, format_prefs: &HashMap<String, String>) {
+    let cg = console_group_key(&g.console);
+    if let Some(preferred_folder) = format_prefs.get(cg) {
+        let pref_idx = g.variants.iter().enumerate()
+            .find(|(_, v)| v.console.as_str() == preferred_folder.as_str())
+            .map(|(i, _)| i);
+        if let Some(idx) = pref_idx {
+            g.preferred_idx = Some(idx);
+            g.console = preferred_folder.clone();
+        }
+    }
+}
+
 /// Merge groups that share the same `title_normalized` across format-paired
 /// console folders (e.g. FDS + QD, Headered + Headerless).
 ///
@@ -559,13 +576,17 @@ pub fn merge_format_pairs(
             .push(g);
     }
 
-    for ((pair_key, _), mut title_groups) in by_title {
+    for ((_, _), mut title_groups) in by_title {
         if title_groups.len() == 1 {
             let mut g = title_groups.remove(0);
             g.is_format_pair = true;
+            // group_roms already merged variants from all format folders via console_group_key,
+            // so this is always the single-group path. Apply format preference here.
+            apply_format_pref(&mut g, format_prefs);
             result.push(g);
         } else {
-            // Sort so folder_a always wins as the primary console (stable key)
+            // Fallback for the rare case where group_roms produced separate groups
+            // (e.g. future category-bucket changes).
             title_groups.sort_by(|a, b| a.console.cmp(&b.console));
             let title_normalized = title_groups[0].title_normalized.clone();
             let primary_console = title_groups[0].console.clone();
@@ -577,23 +598,7 @@ pub fn merge_format_pairs(
             merged.title_normalized = title_normalized;
             merged.console = primary_console;
             merged.is_format_pair = true;
-
-            // Apply format preference override if the user has selected a preferred folder.
-            if let Some(pair) = folder_a_to_pair.get(pair_key.as_str()) {
-                if let Some(preferred_folder) = format_prefs.get(&pair.console_group) {
-                    let pref_indices: Vec<usize> = merged
-                        .variants
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, v)| &v.console == preferred_folder)
-                        .map(|(i, _)| i)
-                        .collect();
-                    if let Some(&best) = pref_indices.first() {
-                        merged.preferred_idx = Some(best);
-                    }
-                }
-            }
-
+            apply_format_pref(&mut merged, format_prefs);
             result.push(merged);
         }
     }
