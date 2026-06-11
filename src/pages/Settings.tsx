@@ -238,6 +238,24 @@ export default function Settings() {
 
   const formatPrefs = useMemo(() => settings?.format_preferences ?? {}, [settings]);
 
+  // Collapse pairwise FormatPair list into one entry per console group.
+  // Each entry lists every unique folder sorted by title count descending (superset first).
+  const formatGroups = useMemo(() => {
+    const byGroup = new Map<string, Map<string, number>>();
+    for (const pair of formatPairs) {
+      if (!byGroup.has(pair.console_group)) byGroup.set(pair.console_group, new Map());
+      const m = byGroup.get(pair.console_group)!;
+      m.set(pair.folder_a, Math.max(m.get(pair.folder_a) ?? 0, pair.folder_a_count));
+      m.set(pair.folder_b, Math.max(m.get(pair.folder_b) ?? 0, pair.folder_b_count));
+    }
+    return [...byGroup.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([consoleGroup, folderCounts]) => ({
+        consoleGroup,
+        folders: [...folderCounts.entries()].sort(([, a], [, b]) => b - a),
+      }));
+  }, [formatPairs]);
+
   async function selectFormatFolder(consoleGroup: string, folder: string) {
     if (!settings) return;
     const next: AppSettings = {
@@ -549,40 +567,32 @@ export default function Settings() {
           <h2 className="font-semibold text-foreground">Format Variant Preferences</h2>
         </div>
         <p className="text-xs text-muted-foreground">
-          When two console folders contain the same titles in different formats, select which format the pruner should keep. Changes trigger an immediate rescan.
+          When your collection has multiple format variants of the same console, choose which format the pruner should prefer. Changes trigger an immediate rescan.
         </p>
 
-        {formatPairs.length === 0 ? (
+        {formatGroups.length === 0 ? (
           <p className="text-xs text-muted-foreground/60">No format variant pairs detected in your collection.</p>
         ) : (
-          [...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
-            const pref = formatPrefs[pair.console_group] ?? pair.folder_b;
-            const isProperSubset = pair.folder_a_count < pair.folder_b_count;
-            const shortA = getFormatVariantLabel(pair.folder_a);
-            const shortB = getFormatVariantLabel(pair.folder_b);
-            const headerLabel = isProperSubset
-              ? `${shortA} ⊂ ${shortB} · ${pair.folder_a_count} of ${pair.folder_b_count} titles`
-              : `${Math.round(pair.overlap_percent * 100)}% overlap · ${pair.folder_a_count} / ${pair.folder_b_count} titles`;
+          formatGroups.map(({ consoleGroup, folders }) => {
+            const pref = formatPrefs[consoleGroup] ?? folders[0]?.[0];
             return (
-              <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
+              <div key={consoleGroup} className="border border-border rounded-lg overflow-hidden">
                 <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
-                  {headerLabel}
+                  {getFormatVariantLabel(consoleGroup)} · {folders.length} formats
                 </div>
                 <div className="divide-y divide-border">
-                  {[pair.folder_a, pair.folder_b].map((folder) => {
-                    const count = folder === pair.folder_a ? pair.folder_a_count : pair.folder_b_count;
-                    const isSubsetFolder = isProperSubset && folder === pair.folder_a;
+                  {folders.map(([folder, count]) => {
+                    const isSelected = pref === folder;
                     return (
                       <button
                         key={folder}
-                        onClick={() => selectFormatFolder(pair.console_group, folder)}
-                        className={["w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors", pref === folder ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30"].join(" ")}
+                        onClick={() => selectFormatFolder(consoleGroup, folder)}
+                        className={["w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors", isSelected ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30"].join(" ")}
                       >
-                        <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${pref === folder ? "bg-primary border-primary" : "border-muted-foreground"}`} />
-                        <span className={pref === folder ? "text-foreground font-medium" : "text-muted-foreground"}>{getFormatVariantLabel(folder)}</span>
+                        <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${isSelected ? "bg-primary border-primary" : "border-muted-foreground"}`} />
+                        <span className={isSelected ? "text-foreground font-medium" : "text-muted-foreground"}>{getFormatVariantLabel(folder)}</span>
                         <span className="text-xs text-muted-foreground/50 ml-1">{count} titles</span>
-                        {isSubsetFolder && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">subset</span>}
-                        {pref === folder && <span className="text-xs text-primary ml-auto">preferred</span>}
+                        {isSelected && <span className="text-xs text-primary ml-auto">preferred</span>}
                       </button>
                     );
                   })}
