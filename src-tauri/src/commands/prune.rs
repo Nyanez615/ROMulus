@@ -19,11 +19,27 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
     let mut no_preferred_count = 0u32;
 
     for group in &groups {
-        // No preferred version → delete all variants.
+        // System files (BIOS, Video, e-Reader, Accessory) are always preserved in full —
+        // language preference does not apply. If every variant in the group is a system
+        // file, keep them all and skip preference logic entirely.
+        let all_system = group.variants.iter().all(|r| {
+            matches!(r.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory)
+        });
+        if all_system {
+            to_keep.extend(group.variants.clone());
+            continue;
+        }
+
+        // No preferred version → delete all non-system variants.
         if !group.has_preferred_version {
             no_preferred_count += 1;
             for rom in &group.variants {
-                to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NoPreferredVersion });
+                let is_system = matches!(rom.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory);
+                if is_system {
+                    to_keep.push(rom.clone());
+                } else {
+                    to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NoPreferredVersion });
+                }
             }
             continue;
         }
@@ -35,15 +51,17 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
         }
 
         for (i, rom) in group.variants.iter().enumerate() {
-            // All file categories (Game, Unofficial, Demo, BIOS, etc.) use the same rule:
-            // keep the preferred variant, delete all others. Scoring handles pre-release
-            // (−100 penalty), revision ordering, and language preference.
-            match group.preferred_idx {
-                Some(pi) if i == pi => to_keep.push(rom.clone()),
-                _ => to_delete.push(DeletionItem {
-                    rom: rom.clone(),
-                    reason: DeletionReason::NonPreferred,
-                }),
+            let is_system = matches!(rom.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory);
+            if is_system {
+                to_keep.push(rom.clone());
+            } else {
+                match group.preferred_idx {
+                    Some(pi) if i == pi => to_keep.push(rom.clone()),
+                    _ => to_delete.push(DeletionItem {
+                        rom: rom.clone(),
+                        reason: DeletionReason::NonPreferred,
+                    }),
+                }
             }
         }
     }

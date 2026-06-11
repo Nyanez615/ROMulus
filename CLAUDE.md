@@ -111,7 +111,7 @@ src-tauri/
 - **Background tasks use Arc cloning** — `Arc::clone(&state.db)` and `Arc::clone(&state.scan_cache)` before `tauri::async_runtime::spawn`.
 - **Background tasks emit Tauri events** — frontend subscribes via `listen()`. Events: `scan:progress`, `scan:complete`, `watcher:new_rom`, `preferences:regrouped`, `enrich:progress`, `enrich:complete`, `verify:complete`.
 - **All deletions are permanent** — `execute_prune` uses `fs::remove_file`. No Trash, no staging. Pre-prune backup manifest written to `app_data_dir/manifests/` before every execution.
-- **BIOS files subject to language preference** — pruned like any other file; an English-preferred user keeps English BIOS variants and removes non-English ones.
+- **System files always preserved** — BIOS, Video, e-Reader, and Accessory variants are never deleted by the pruner or filtered out in the pre-download qBt workflow; language preference does not apply to them.
 - **Multi-disc games kept together** — `disc_number` coalesces into one `RomGroup`; delete/keep applies to full disc set.
 - **Action log is append-only** — no DELETE path on `action_log` table. Pending → deleted/failed via atomic SQLite transaction.
 - **Crash recovery** — `has_pending_actions()` checked on launch; banner shown in Dashboard.
