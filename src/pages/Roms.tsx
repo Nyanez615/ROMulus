@@ -262,13 +262,6 @@ export default function Roms() {
   const expandedSet = new Set(expanded);
   const allExpanded = displayGroups.length > 0 && displayGroups.every(g => expandedSet.has(`${g.console}::${g.title_normalized}`));
 
-  const uniqueTitleCount = displayGroups.length;
-  const playableFileCount = useMemo(
-    () => displayGroups.reduce((s, g) =>
-      s + g.variants.filter(v => v.file_category === "game" || v.file_category === "unofficial").length, 0),
-    [displayGroups],
-  );
-
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
@@ -347,19 +340,14 @@ export default function Roms() {
           </>
         }
         trailing={
-          <div className="flex items-center gap-3">
-            {displayGroups.length > 0 && (
-              <button
-                onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {allExpanded ? "Collapse all" : "Expand all"}
-              </button>
-            )}
-            <span className="text-xs text-muted-foreground">
-              {uniqueTitleCount.toLocaleString()} titles · {playableFileCount.toLocaleString()} ROMs
-            </span>
-          </div>
+          displayGroups.length > 0 ? (
+            <button
+              onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {allExpanded ? "Collapse all" : "Expand all"}
+            </button>
+          ) : undefined
         }
       />
 
