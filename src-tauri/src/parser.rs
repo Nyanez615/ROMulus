@@ -83,23 +83,18 @@ pub fn region_default_languages(region: &str) -> &'static [&'static str] {
 
 // ── Title normalisation ───────────────────────────────────────────────────────
 
-/// Convert a multi-character Roman numeral token (II–XXXIX) to its Arabic digit
-/// string. Single-character tokens (I, V, X, …) are intentionally excluded to
-/// avoid false positives like "Mega Man X" ≠ "Mega Man 10".
+/// Convert a Roman numeral token (I–XXXIX) to its Arabic digit string.
 pub fn roman_to_arabic(s: &str) -> Option<u32> {
-    if s.len() < 2 { return None; }
     Some(match s {
-        "ii"     => 2,  "iii"    => 3,  "iv"     => 4,
-        "vi"     => 6,  "vii"    => 7,  "viii"   => 8,
-        "ix"     => 9,  "xi"     => 11, "xii"    => 12,
-        "xiii"   => 13, "xiv"    => 14, "xv"     => 15,
-        "xvi"    => 16, "xvii"   => 17, "xviii"  => 18,
-        "xix"    => 19, "xx"     => 20, "xxi"    => 21,
-        "xxii"   => 22, "xxiii"  => 23, "xxiv"   => 24,
-        "xxv"    => 25, "xxvi"   => 26, "xxvii"  => 27,
-        "xxviii" => 28, "xxix"   => 29, "xxx"    => 30,
-        "xxxi"   => 31, "xxxii"  => 32, "xxxiii" => 33,
-        "xxxiv"  => 34, "xxxv"   => 35, "xxxvi"  => 36,
+        "i"      => 1,  "ii"     => 2,  "iii"    => 3,  "iv"     => 4,
+        "v"      => 5,  "vi"     => 6,  "vii"    => 7,  "viii"   => 8,
+        "ix"     => 9,  "x"      => 10, "xi"     => 11, "xii"    => 12,
+        "xiii"   => 13, "xiv"    => 14, "xv"     => 15, "xvi"    => 16,
+        "xvii"   => 17, "xviii"  => 18, "xix"    => 19, "xx"     => 20,
+        "xxi"    => 21, "xxii"   => 22, "xxiii"  => 23, "xxiv"   => 24,
+        "xxv"    => 25, "xxvi"   => 26, "xxvii"  => 27, "xxviii" => 28,
+        "xxix"   => 29, "xxx"    => 30, "xxxi"   => 31, "xxxii"  => 32,
+        "xxxiii" => 33, "xxxiv"  => 34, "xxxv"   => 35, "xxxvi"  => 36,
         "xxxvii" => 37, "xxxviii"=> 38, "xxxix"  => 39,
         _ => return None,
     })
@@ -643,9 +638,9 @@ mod tests {
         assert_eq!(normalize_title("Final Fantasy VII"), "final fantasy 7");
         assert_eq!(normalize_title("Final Fantasy IX"), "final fantasy 9");
         assert_eq!(normalize_title("Ultima XIV"), "ultima 14");
-        // Single-char tokens (I, V, X) must NOT be converted — too many false positives
-        assert_eq!(normalize_title("Mega Man X"), "mega man x");
-        assert_eq!(normalize_title("Street Fighter V"), "street fighter v");
+        // Single-char tokens are also normalised: X = 10, V = 5
+        assert_eq!(normalize_title("Mega Man X"), "mega man 10");
+        assert_eq!(normalize_title("Street Fighter V"), "street fighter 5");
     }
 
     #[test]
