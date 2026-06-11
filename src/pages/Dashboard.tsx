@@ -164,14 +164,16 @@ export default function Dashboard() {
   // We accumulate sub-folders per (platform, canonical) and call canonicalTitleCount
   // once per canonical so alias sub-folders like N64DD are included correctly.
   const platformStats = useMemo(() => {
-    const map = new Map<string, { consoles: Set<string>; titles: number; roms: number; bytes: number }>();
+    const map = new Map<string, { consoles: Set<string>; titles: number; files: number; roms: number; systemFiles: number; bytes: number }>();
     // Also collect variants per (platform, canonical) for canonicalTitleCount
     const variantsByCanonical = new Map<string, typeof consoles>();
     for (const c of consoles) {
       const { platform, canonical } = getConsoleParts(c.name);
-      const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, roms: 0, bytes: 0 };
+      const entry = map.get(platform) ?? { consoles: new Set(), titles: 0, files: 0, roms: 0, systemFiles: 0, bytes: 0 };
       entry.consoles.add(canonical);
+      entry.files += c.total_files;
       entry.roms += c.game_files + c.unofficial_files;
+      entry.systemFiles += c.system_file_count;
       entry.bytes += c.total_bytes;
       map.set(platform, entry);
       const key = `${platform}\0${canonical}`;
@@ -441,7 +443,9 @@ export default function Dashboard() {
                   <span className="text-xs text-muted-foreground">
                     · {pStats?.consoles.size ?? 0} console{(pStats?.consoles.size ?? 0) !== 1 ? "s" : ""}
                     · {(pStats?.titles ?? 0).toLocaleString()} titles
+                    · {(pStats?.files ?? 0).toLocaleString()} files
                     · {(pStats?.roms ?? 0).toLocaleString()} ROMs
+                    {(pStats?.systemFiles ?? 0) > 0 && ` · ${pStats!.systemFiles.toLocaleString()} sys`}
                     · {pStats && pStats.bytes > 0 ? formatBytes(pStats.bytes) : "—"}
                   </span>
                 </button>
@@ -563,7 +567,8 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
   onClick: () => void;
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
-  const totalFiles = variants.reduce((s, v) => s + v.game_files + v.unofficial_files, 0);
+  const totalAllFiles = variants.reduce((s, v) => s + v.total_files, 0);
+  const totalRoms = variants.reduce((s, v) => s + v.game_files + v.unofficial_files, 0);
   const totalSystemFiles = variants.reduce((s, v) => s + v.system_file_count, 0);
   const totalBytes = variants.reduce((s, v) => s + v.total_bytes, 0);
   const totalGroups = canonicalAllTitleCount(variants);
@@ -582,7 +587,9 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
     >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
-        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs{totalSystemFiles > 0 ? ` · ${totalSystemFiles.toLocaleString()} sys` : ""} · {formatBytes(totalBytes)}</div>
+        <div className="text-xs text-muted-foreground">
+          {totalGroups.toLocaleString()} titles · {totalAllFiles.toLocaleString()} files · {totalRoms.toLocaleString()} ROMs{totalSystemFiles > 0 ? ` · ${totalSystemFiles.toLocaleString()} sys` : ""} · {formatBytes(totalBytes)}
+        </div>
         {filledVariants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {
