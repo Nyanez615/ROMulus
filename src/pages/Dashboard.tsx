@@ -313,10 +313,25 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
+        <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard
-          icon={Files}
-          label="Files"
-          value={totalFiles > 0 ? totalFiles.toLocaleString() : "—"}
+          icon={LibraryBig}
+          label="Titles"
+          value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"}
+          labelSuffix={totalTitles > officialTitles ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="text-xs space-y-0.5 text-muted-foreground">
+                  <p>{officialTitles.toLocaleString()} official</p>
+                  <p>{(totalTitles - officialTitles).toLocaleString()} unofficial</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : undefined}
         />
         <StatCard
           icon={Gamepad2}
@@ -337,31 +352,15 @@ export default function Dashboard() {
           ) : undefined}
         />
         <StatCard
-          icon={LibraryBig}
-          label="Titles"
-          value={totalTitles > 0 ? totalTitles.toLocaleString() : "—"}
-          labelSuffix={totalTitles > officialTitles ? (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent className="text-xs space-y-0.5 text-muted-foreground">
-                  <p>{officialTitles.toLocaleString()} official</p>
-                  <p>{(totalTitles - officialTitles).toLocaleString()} unofficial</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : undefined}
-        />
-        <StatCard
           icon={Shield}
           label="System Files"
           value={totalSystemFiles > 0 ? totalSystemFiles.toLocaleString() : "—"}
         />
-        <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
-        <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
-        {/* F1: Use total_bytes for collection size */}
+        <StatCard
+          icon={Files}
+          label="Files"
+          value={totalFiles > 0 ? totalFiles.toLocaleString() : "—"}
+        />
         <StatCard icon={HardDrive} label="Collection size" value={totalBytes > 0 ? formatBytes(totalBytes) : "—"} />
         {/* F2: Language Match tile with breakdown tooltip */}
         <StatCard
@@ -443,9 +442,9 @@ export default function Dashboard() {
                   <span className="text-xs text-muted-foreground">
                     · {pStats?.consoles.size ?? 0} console{(pStats?.consoles.size ?? 0) !== 1 ? "s" : ""}
                     · {(pStats?.titles ?? 0).toLocaleString()} titles
-                    · {(pStats?.files ?? 0).toLocaleString()} files
                     · {(pStats?.roms ?? 0).toLocaleString()} ROMs
                     {(pStats?.systemFiles ?? 0) > 0 && ` · ${pStats!.systemFiles.toLocaleString()} sys`}
+                    · {(pStats?.files ?? 0).toLocaleString()} files
                     · {pStats && pStats.bytes > 0 ? formatBytes(pStats.bytes) : "—"}
                   </span>
                 </button>
@@ -588,7 +587,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
         <div className="text-xs text-muted-foreground">
-          {totalGroups.toLocaleString()} titles · {totalAllFiles.toLocaleString()} files · {totalRoms.toLocaleString()} ROMs{totalSystemFiles > 0 ? ` · ${totalSystemFiles.toLocaleString()} sys` : ""} · {formatBytes(totalBytes)}
+          {totalGroups.toLocaleString()} titles · {totalRoms.toLocaleString()} ROMs{totalSystemFiles > 0 ? ` · ${totalSystemFiles.toLocaleString()} sys` : ""} · {totalAllFiles.toLocaleString()} files · {formatBytes(totalBytes)}
         </div>
         {filledVariants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">

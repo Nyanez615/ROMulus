@@ -288,8 +288,8 @@ export function Sidebar() {
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{footerTitles.toLocaleString()} titles</div>
-          <div>{footerConsoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {footerConsoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs</div>
-          <div className="text-muted-foreground/70">{footerConsoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} system files · {footerPlatforms} platform{footerPlatforms !== 1 ? "s" : ""}</div>
+          <div>{footerConsoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs · {footerConsoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} sys</div>
+          <div className="text-muted-foreground/70">{footerConsoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {footerPlatforms} platform{footerPlatforms !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (
