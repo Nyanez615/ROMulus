@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { exportCsv, formatBytes } from "@/lib/tauri";
-import { getAbbrev } from "@/lib/consoleUtils";
+import { getAbbrev, getFormatVariantLabel } from "@/lib/consoleUtils";
 import { FileContextMenu } from "@/components/FileContextMenu";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import type { RomFile } from "@/lib/bindings/RomFile";
@@ -194,9 +194,7 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
                     {checked && <div className="w-1.5 h-1.5 rounded-sm bg-primary" />}
                   </div>
                   <span className="min-w-0 flex-1 font-mono text-[11px] text-muted-foreground" title={item.rom.filename}>{item.rom.filename}</span>
-                  {selectedConsoles === null && (
-                    <span className="text-muted-foreground/50 shrink-0 text-[10px]">{getAbbrev(item.rom.console)}</span>
-                  )}
+                  <span className="text-muted-foreground/50 shrink-0 text-[10px]">{getFormatVariantLabel(item.rom.console)}</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>
                     {PRUNE_REASON_LABELS[rk] ?? rk}
                   </span>
