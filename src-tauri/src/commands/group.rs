@@ -513,20 +513,47 @@ pub(crate) fn group_matches_consoles(g: &RomGroup, filter: &Option<Vec<String>>)
 // ── Format-pair merging ───────────────────────────────────────────────────────
 
 /// Override `preferred_idx` on a group when the user has saved a format folder
-/// preference. Uses `console_group_key` to derive the preference map key from
-/// the group's console name, so it works regardless of which variant ended up
-/// as `variants[0]` after scoring.
+/// preference. Format preference is a tiebreaker: it only overrides scoring when
+/// the preferred-folder's best variant is not version-inferior to the current
+/// winner. If the current winner has a higher revision or version string the
+/// scoring result stands — we never downgrade a newer release for a format.
 fn apply_format_pref(g: &mut RomGroup, format_prefs: &HashMap<String, String>) {
     let cg = console_group_key(&g.console);
-    if let Some(preferred_folder) = format_prefs.get(cg) {
-        let pref_idx = g.variants.iter().enumerate()
-            .find(|(_, v)| v.console.as_str() == preferred_folder.as_str())
-            .map(|(i, _)| i);
-        if let Some(idx) = pref_idx {
-            g.preferred_idx = Some(idx);
-            g.console = preferred_folder.clone();
+    let Some(preferred_folder) = format_prefs.get(cg) else { return };
+
+    let Some(curr_idx) = g.preferred_idx else { return };
+    let Some(curr) = g.variants.get(curr_idx) else { return };
+
+    // Already from the preferred folder — sync the display console name only.
+    if curr.console == *preferred_folder {
+        g.console = preferred_folder.clone();
+        return;
+    }
+
+    // Find the best variant from the preferred folder (highest revision, then
+    // highest version string as secondary key).
+    let best_in_pref = g.variants.iter().enumerate()
+        .filter(|(_, v)| v.console.as_str() == preferred_folder.as_str())
+        .max_by_key(|(_, v)| (v.revision, v.version.as_deref().unwrap_or("")));
+
+    let Some((pref_idx, pref_var)) = best_in_pref else { return };
+
+    // Don't override if the current winner has a strictly higher revision.
+    if curr.revision > pref_var.revision {
+        return;
+    }
+    // Don't override if revisions are equal but the current winner carries a
+    // version tag the preferred variant lacks, or a lexicographically higher one.
+    if curr.revision == pref_var.revision {
+        match (&curr.version, &pref_var.version) {
+            (Some(cv), Some(pv)) if cv.as_str() > pv.as_str() => return,
+            (Some(_), None) => return,
+            _ => {}
         }
     }
+
+    g.preferred_idx = Some(pref_idx);
+    g.console = preferred_folder.clone();
 }
 
 /// Merge groups that share the same `title_normalized` across format-paired
@@ -557,10 +584,6 @@ pub fn merge_format_pairs(
             .entry(p.folder_b.as_str())
             .or_insert(p.folder_a.as_str());
     }
-
-    // Reverse map: folder_a → &FormatPair, used to look up console_group for format prefs.
-    let folder_a_to_pair: HashMap<&str, &FormatPair> =
-        pairs.iter().map(|p| (p.folder_a.as_str(), p)).collect();
 
     let (paired, mut result): (Vec<RomGroup>, Vec<RomGroup>) = groups
         .into_iter()
@@ -1766,5 +1789,97 @@ mod tests {
         let groups = group_roms(vec![usa_vid, eur_vid], &prefs);
         assert_eq!(groups.len(), 1, "Video ROMs of the same title must group together");
         assert_eq!(groups[0].variants.len(), 2);
+    }
+
+    // ── apply_format_pref tiebreaker tests ───────────────────────────────────
+
+    fn make_group_with_console(console: &str, revision: u32, version: Option<&str>) -> RomFile {
+        let mut r = rom("Game (World)", &["World"], &["En"], &[]);
+        r.console = console.to_string();
+        r.revision = revision;
+        r.version = version.map(|s| s.to_string());
+        r
+    }
+
+    fn group_with_variants(variants: Vec<RomFile>, preferred_idx: Option<usize>) -> RomGroup {
+        let console = variants.first().map(|v| v.console.clone()).unwrap_or_default();
+        RomGroup {
+            title_normalized: "game (world)".into(),
+            console,
+            variants,
+            preferred_idx,
+            has_preferred_version: true,
+            is_format_pair: true,
+            disc_count: 1,
+        }
+    }
+
+    #[test]
+    fn format_pref_applies_when_versions_equal() {
+        // FDS and QD both have the same (base) version — format preference should pick FDS.
+        let fds = make_group_with_console("Nintendo - FDS (FDS)", 0, None);
+        let qd  = make_group_with_console("Nintendo - FDS (QD)",  0, None);
+        // Scoring picked QD (idx 1) — format preference should override to FDS (idx 0).
+        let mut g = group_with_variants(vec![fds, qd], Some(1));
+        let mut prefs = HashMap::new();
+        prefs.insert(
+            "Nintendo - FDS".to_string(),
+            "Nintendo - FDS (FDS)".to_string(),
+        );
+        apply_format_pref(&mut g, &prefs);
+        assert_eq!(g.preferred_idx, Some(0), "FDS should be preferred when versions are equal");
+    }
+
+    #[test]
+    fn format_pref_does_not_downgrade_higher_version() {
+        // FDS has base version; Aftermarket has v1.1 — scoring picked Aftermarket (idx 1).
+        // Format preference for FDS must NOT override because v1.1 > base.
+        let fds         = make_group_with_console("Nintendo - FDS (FDS)",         0, None);
+        let aftermarket = make_group_with_console("Nintendo - FDS (Aftermarket)",  0, Some("v1.1"));
+        let mut g = group_with_variants(vec![fds, aftermarket], Some(1));
+        let mut prefs = HashMap::new();
+        prefs.insert(
+            "Nintendo - FDS".to_string(),
+            "Nintendo - FDS (FDS)".to_string(),
+        );
+        apply_format_pref(&mut g, &prefs);
+        assert_eq!(
+            g.preferred_idx, Some(1),
+            "Aftermarket v1.1 should remain preferred over FDS base version",
+        );
+    }
+
+    #[test]
+    fn format_pref_does_not_downgrade_higher_revision() {
+        // FDS base; QD Rev 1 — format preference for FDS must not override.
+        let fds = make_group_with_console("Nintendo - FDS (FDS)", 0, None);
+        let qd  = make_group_with_console("Nintendo - FDS (QD)",  1, None); // Rev 1
+        let mut g = group_with_variants(vec![fds, qd], Some(1));
+        let mut prefs = HashMap::new();
+        prefs.insert(
+            "Nintendo - FDS".to_string(),
+            "Nintendo - FDS (FDS)".to_string(),
+        );
+        apply_format_pref(&mut g, &prefs);
+        assert_eq!(
+            g.preferred_idx, Some(1),
+            "QD Rev 1 should remain preferred over FDS base revision",
+        );
+    }
+
+    #[test]
+    fn format_pref_no_op_when_winner_already_preferred_folder() {
+        // Winner is already from the preferred folder — preferred_idx must not change.
+        let fds = make_group_with_console("Nintendo - FDS (FDS)", 0, None);
+        let qd  = make_group_with_console("Nintendo - FDS (QD)",  0, None);
+        let mut g = group_with_variants(vec![fds, qd], Some(0)); // FDS already wins
+        let mut prefs = HashMap::new();
+        prefs.insert(
+            "Nintendo - FDS".to_string(),
+            "Nintendo - FDS (FDS)".to_string(),
+        );
+        apply_format_pref(&mut g, &prefs);
+        assert_eq!(g.preferred_idx, Some(0));
+        assert_eq!(g.console, "Nintendo - FDS (FDS)");
     }
 }
