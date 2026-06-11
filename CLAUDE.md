@@ -19,7 +19,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.6** ✅ Titles Count Architecture (game_groups sidebar/Dashboard), scoring overhaul (multi-language tag parsing, alt_penalty fix, version tiebreaker), AlphabetScrubber + VariantCountScrubber, Hacks merged into ROMs tab, Preferred filter chip
 - **v0.2.8** ✅ Scoring improvements (collection penalty −80, revision bonus, proto ordering, BIOS extra-tag), Prune integrated into Settings, Duplicates tab removed, Utilities moved to ROMs tab, Format Variant rename, faceted chip filtering, CSV export fixes, permanent-only deletion, cloud root blocking
 - **v0.2.9** ✅ DAT pre-download filter (generate_download_list + export_download_list, migration 010, parse_from_filename, Settings preview panel), right-click context menu on all file rows, comprehensive console catalog + recursive canonical stripping + ABBREV expansion, storage size on Dashboard console tiles
-- **Unreleased** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
+- **v0.2.10** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
 
 ## Dev setup
 
