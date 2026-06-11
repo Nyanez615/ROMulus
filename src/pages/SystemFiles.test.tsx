@@ -26,7 +26,7 @@ function makeFile(filename: string, category: string, consoleName: string): RomF
     path: `/roms/${filename}`, filename, console: consoleName,
     title: filename, title_normalized: filename.toLowerCase(),
     regions: [], languages: [], status_flags: [], extra_tags: [],
-    bad_dump: false, revision: 0, disc_number: null, version: null,
+    bad_dump: false, revision: 0, build_date: null, disc_number: null, version: null,
     is_bios: category === "bios",
     file_format: "zip",
     file_category: category as RomFile["file_category"],

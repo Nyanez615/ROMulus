@@ -8,7 +8,7 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeConsole(name: string, total_files = 10): ConsoleStats {
-  return { name, total_files, total_groups: total_files, game_files: total_files, game_groups: total_files, preferred_groups: total_files, all_groups: total_files, unofficial_files: 0, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
+  return { name, total_files, total_groups: total_files, game_files: total_files, game_groups: total_files, preferred_groups: total_files, all_groups: total_files, unofficial_files: 0, preferred_count: total_files, preferred_explicit_count: 0, preferred_inferred_count: 0, system_file_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
 // Backend computes canonical-level total_groups for all sub-folders of the same

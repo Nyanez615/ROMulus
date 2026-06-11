@@ -19,6 +19,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.6** ✅ Titles Count Architecture (game_groups sidebar/Dashboard), scoring overhaul (multi-language tag parsing, alt_penalty fix, version tiebreaker), AlphabetScrubber + VariantCountScrubber, Hacks merged into ROMs tab, Preferred filter chip
 - **v0.2.8** ✅ Scoring improvements (collection penalty −80, revision bonus, proto ordering, BIOS extra-tag), Prune integrated into Settings, Duplicates tab removed, Utilities moved to ROMs tab, Format Variant rename, faceted chip filtering, CSV export fixes, permanent-only deletion, cloud root blocking
 - **v0.2.9** ✅ DAT pre-download filter (generate_download_list + export_download_list, migration 010, parse_from_filename, Settings preview panel), right-click context menu on all file rows, comprehensive console catalog + recursive canonical stripping + ABBREV expansion, storage size on Dashboard console tiles
+- **Unreleased** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
 
 ## Dev setup
 
@@ -84,7 +85,7 @@ src-tauri/
     commands/
       scan.rs          scan_roots, get_scan_status, get_consoles, get_format_pairs
       group.rs         get_roms, get_system_files, merge_format_pairs
-      prune.rs         apply_filters (→ DeletionPlan w/ DeletionItem+DeletionReason), export_csv
+      prune.rs         apply_filters (→ DeletionPlan w/ DeletionItem+DeletionReason), export_csv (DeletionReason: NonPreferred | NoPreferredVersion)
       execute.rs       execute_prune (atomic + backup manifest), get_interrupted_session
       history.rs       get_history
       settings.rs      get/save settings, get/save filter_settings, reapply_preferences, get/complete onboarding
@@ -109,7 +110,7 @@ src-tauri/
 - **Tauri commands, not HTTP** — frontend calls `invoke('command_name', args)` via wrappers in `tauri.ts`. All wrappers return safe defaults in browser preview.
 - **Background tasks use Arc cloning** — `Arc::clone(&state.db)` and `Arc::clone(&state.scan_cache)` before `tauri::async_runtime::spawn`.
 - **Background tasks emit Tauri events** — frontend subscribes via `listen()`. Events: `scan:progress`, `scan:complete`, `watcher:new_rom`, `preferences:regrouped`, `enrich:progress`, `enrich:complete`, `verify:complete`.
-- **All deletions are permanent** — `execute_prune` uses `fs::remove_file`; `execute_format_pairs` uses `fs::remove_dir_all`. No Trash, no staging. Pre-prune backup manifest written to `app_data_dir/manifests/` before every execution.
+- **All deletions are permanent** — `execute_prune` uses `fs::remove_file`. No Trash, no staging. Pre-prune backup manifest written to `app_data_dir/manifests/` before every execution.
 - **BIOS files subject to language preference** — pruned like any other file; an English-preferred user keeps English BIOS variants and removes non-English ones.
 - **Multi-disc games kept together** — `disc_number` coalesces into one `RomGroup`; delete/keep applies to full disc set.
 - **Action log is append-only** — no DELETE path on `action_log` table. Pending → deleted/failed via atomic SQLite transaction.
@@ -175,6 +176,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 197 tests, in-memory SQLite only
-- Frontend: `npm run test:run` (Vitest + jsdom) — 101 tests in `src/**/*.test.tsx`
+- Rust: `cargo test` in `src-tauri/` — 231 tests, in-memory SQLite only
+- Frontend: `npm run test:run` (Vitest + jsdom) — 134 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

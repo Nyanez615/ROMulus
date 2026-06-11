@@ -4,6 +4,7 @@ pub mod group;
 pub mod history;
 pub mod metadata;
 pub mod prune;
+pub mod qbt;
 pub mod scan;
 pub mod settings;
 pub mod thumbnail;

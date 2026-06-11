@@ -22,7 +22,7 @@ pub fn get_scan_status(state: State<'_, AppState>) -> ScanStatus {
 #[tauri::command]
 pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
     use crate::models::FileCategory;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     let cache = state.scan_cache.lock().unwrap();
     let mut stats = compute_console_stats(&cache.roms);
@@ -35,7 +35,14 @@ pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
     // Strategy: for every game group, attribute its title_normalized to the canonical
     // base-name of its primary console (strip_format_suffix).  All sub-folders that
     // share the same base-name get the same canonical count.
-    let mut canonical_game: HashMap<String, HashSet<&str>> = HashMap::new();
+    // Count groups directly rather than deduplicating by title_normalized.
+    // title_normalized strips variant parentheticals (e.g. "(Female)", "(Gold Edition)")
+    // so the HashSet approach wrongly collapses distinct products that share a base
+    // character name. Format pairs (FDS + QD) are already merged by merge_format_pairs
+    // before reaching here, so direct counting and HashSet dedup give the same result
+    // for those consoles — the only difference is for consoles like amiibo where
+    // variant parens identify genuinely different products.
+    let mut canonical_game: HashMap<String, u32> = HashMap::new();
     for group in &cache.groups {
         if group
             .variants
@@ -43,38 +50,32 @@ pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
             .any(|v| matches!(v.file_category, FileCategory::Game))
         {
             let base = strip_format_suffix(&group.console).to_owned();
-            canonical_game
-                .entry(base)
-                .or_default()
-                .insert(&group.title_normalized);
+            *canonical_game.entry(base).or_insert(0) += 1;
         }
     }
 
     for s in &mut stats {
         let base = strip_format_suffix(&s.name);
-        s.game_groups = canonical_game
-            .get(base)
-            .map(|t| t.len() as u32)
-            .unwrap_or(0);
+        s.game_groups = *canonical_game.get(base).unwrap_or(&0);
     }
 
-    let mut canonical_preferred: HashMap<String, HashSet<&str>> = HashMap::new();
-    let mut canonical_all: HashMap<String, HashSet<&str>> = HashMap::new();
+    let mut canonical_preferred: HashMap<String, u32> = HashMap::new();
+    let mut canonical_all: HashMap<String, u32> = HashMap::new();
     for group in &cache.groups {
         let has_playable = group.variants.iter().any(|v|
             matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)
         );
         if !has_playable { continue; }
         let base = strip_format_suffix(&group.console).to_owned();
-        canonical_all.entry(base.clone()).or_default().insert(&group.title_normalized);
+        *canonical_all.entry(base.clone()).or_insert(0) += 1;
         if group.variants.iter().any(|v| v.matches_preferred_language) {
-            canonical_preferred.entry(base).or_default().insert(&group.title_normalized);
+            *canonical_preferred.entry(base).or_insert(0) += 1;
         }
     }
     for s in &mut stats {
         let base = strip_format_suffix(&s.name);
-        s.preferred_groups = canonical_preferred.get(base).map(|t| t.len() as u32).unwrap_or(0);
-        s.all_groups       = canonical_all.get(base).map(|t| t.len() as u32).unwrap_or(0);
+        s.preferred_groups = *canonical_preferred.get(base).unwrap_or(&0);
+        s.all_groups       = *canonical_all.get(base).unwrap_or(&0);
     }
 
     stats
@@ -98,9 +99,12 @@ pub async fn scan_roots(
     let total = roms.len() as u32;
 
     // Load preferences from DB to score variants
-    let prefs = {
+    let (prefs, format_prefs) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        load_preferences(&conn)?
+        let p = load_preferences(&conn)?;
+        let fp = crate::commands::settings::load_format_preferences(&conn)
+            .map_err(|e| e.to_string())?;
+        (p, fp)
     };
 
     // Upsert all tag values discovered in this scan
@@ -112,7 +116,7 @@ pub async fn scan_roots(
     // Group + score variants, detect format pairs, merge cross-console groups
     let groups = group_roms(roms.clone(), &prefs);
     let format_pairs = detect_format_pairs(&roms);
-    let groups = merge_format_pairs(groups, &format_pairs, &prefs);
+    let groups = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
 
     // Rebuild flat roms list from group variants so matches_preferred_language flags are set.
     // group_roms() received a clone of roms and tagged the clone; the original had all-false.
@@ -298,11 +302,12 @@ fn upsert_known_tags(conn: &rusqlite::Connection, roms: &[RomFile]) -> rusqlite:
 fn file_category_str(rom: &RomFile) -> &'static str {
     use crate::models::FileCategory;
     match rom.file_category {
-        FileCategory::Bios     => "bios",
-        FileCategory::Utility  => "utility",
-        FileCategory::Demo     => "demo",
-        FileCategory::Video    => "video",
-        FileCategory::EReader  => "e_reader",
+        FileCategory::Bios      => "bios",
+        FileCategory::Utility   => "utility",
+        FileCategory::Demo      => "demo",
+        FileCategory::Video     => "video",
+        FileCategory::EReader   => "e_reader",
+        FileCategory::Accessory => "accessory",
         FileCategory::Game | FileCategory::Unofficial => "",
     }
 }
@@ -374,6 +379,7 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
+            system_file_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
             total_bytes: 0,
@@ -387,6 +393,12 @@ pub fn compute_console_stats(roms: &[RomFile]) -> Vec<ConsoleStats> {
             } else {
                 stats.preferred_explicit_count += 1;
             }
+        }
+        if matches!(
+            rom.file_category,
+            FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory
+        ) {
+            stats.system_file_count += 1;
         }
         let base = strip_format_suffix(&rom.console).to_owned();
         canonical_titles
@@ -444,6 +456,7 @@ mod tests {
             extra_tags: vec![],
             bad_dump: false,
             revision: 0,
+            build_date: None,
             disc_number: None,
             version: None,
             is_bios: false,
@@ -468,6 +481,7 @@ mod tests {
             extra_tags: vec![],
             bad_dump: false,
             revision: 0,
+            build_date: None,
             disc_number: None,
             version: None,
             is_bios: cat == crate::models::FileCategory::Bios,

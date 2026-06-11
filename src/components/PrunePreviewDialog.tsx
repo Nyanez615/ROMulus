@@ -10,17 +10,13 @@ import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import type { RomFile } from "@/lib/bindings/RomFile";
 
 export const PRUNE_REASON_LABELS: Record<string, string> = {
-  non_preferred:              "Lower-scored",
-  no_preferred_version:       "No preferred ver.",
-  format_pair_non_preferred:  "Format variant",
-  format_pair_no_counterpart: "No counterpart",
+  non_preferred:        "Lower-scored",
+  no_preferred_version: "No preferred ver.",
 };
 
 export const PRUNE_REASON_COLORS: Record<string, string> = {
-  non_preferred:              "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  no_preferred_version:       "bg-red-500/15 text-red-400 border-red-500/30",
-  format_pair_non_preferred:  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-  format_pair_no_counterpart: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  non_preferred:        "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  no_preferred_version: "bg-red-500/15 text-red-400 border-red-500/30",
 };
 
 export function pruneReasonKey(r: DeletionPlan["to_delete"][number]["reason"]): string {
@@ -31,8 +27,8 @@ export function matchesCat(fc: RomFile["file_category"], cat: "all" | "game" | "
   if (cat === "all") return true;
   // "game" bucket mirrors get_roms: Game | Unofficial | Demo | Utility
   if (cat === "game") return fc === "game" || fc === "unofficial" || fc === "demo" || fc === "utility";
-  // "system" bucket mirrors get_system_files: Bios | Video | EReader
-  return fc === "bios" || fc === "video" || fc === "e_reader";
+  // "system" bucket mirrors get_system_files: Bios | Video | EReader | Accessory
+  return fc === "bios" || fc === "video" || fc === "e_reader" || fc === "accessory";
 }
 
 function StatCell({ value, label, color }: { value: string; label: string; color?: string }) {

@@ -16,7 +16,7 @@ import { DiscBadge } from "@/components/DiscBadge";
 import { useScanStore } from "@/store/scan";
 import { useTagStore } from "@/store/tag";
 import { usePreferencesStore } from "@/store/preferences";
-import { getShortConsoleName, getConsoleDisplayName, stripFormatSuffix } from "@/lib/consoleUtils";
+import { getShortConsoleName, getConsoleDisplayName, getCanonicalConsoleName } from "@/lib/consoleUtils";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { FileContextMenu } from "@/components/FileContextMenu";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
@@ -36,7 +36,6 @@ function VerificationBadge({ status }: { status?: string }) {
 
 // ── Unofficial category colours (mirrors former HacksUnofficial.tsx) ──────────
 const CATEGORY_FLAGS = ["Pirate", "Unl", "Aftermarket", "Hack"] as const;
-type CategoryFlag = (typeof CATEGORY_FLAGS)[number];
 
 const CATEGORY_COLORS: Record<string, string> = {
   Pirate:      "bg-red-600/20 text-red-300 border-red-600/40",
@@ -44,8 +43,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   Aftermarket: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
   Hack:        "bg-purple-600/20 text-purple-300 border-purple-600/40",
 };
-const CATEGORY_PRIORITY: CategoryFlag[] = ["Aftermarket", "Pirate", "Hack", "Unl"];
-
 function getCategoryFlag(statusFlags: string[]): string {
   return statusFlags.find((f) => (CATEGORY_FLAGS as readonly string[]).includes(f)) ?? "Unl";
 }
@@ -265,10 +262,7 @@ export default function Roms() {
   const expandedSet = new Set(expanded);
   const allExpanded = displayGroups.length > 0 && displayGroups.every(g => expandedSet.has(`${g.console}::${g.title_normalized}`));
 
-  const uniqueTitleCount = useMemo(
-    () => new Set(displayGroups.map(g => `${stripFormatSuffix(g.console)}::${g.title_normalized}`)).size,
-    [displayGroups]
-  );
+  const uniqueTitleCount = displayGroups.length;
   const playableFileCount = useMemo(
     () => displayGroups.reduce((s, g) =>
       s + g.variants.filter(v => v.file_category === "game" || v.file_category === "unofficial").length, 0),
@@ -449,7 +443,12 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
     overscan: 10,
     measureElement: (el) => el?.getBoundingClientRect().height ?? 52,
     onChange: (instance) => {
-      const first = instance.getVirtualItems()[0];
+      // getVirtualItems() includes overscan items rendered above the viewport.
+      // Use scrollOffset to find the first item whose bottom edge clears the
+      // scroll position — that is the actual first *visible* item.
+      const offset = instance.scrollOffset ?? 0;
+      const items = instance.getVirtualItems();
+      const first = items.find((v) => v.end > offset) ?? items[0];
       if (first !== undefined) setFirstVisibleIndex(first.index);
     },
   });
@@ -492,17 +491,6 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
                 onClick={() => onToggle(key)}
               >
                 {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
-                {(() => {
-                  const flags = (preferred ?? g.variants[0])?.status_flags ?? [];
-                  const catFlag = CATEGORY_PRIORITY.find(f => flags.includes(f));
-                  if (!catFlag) return null;
-                  const colorClass = CATEGORY_COLORS[catFlag];
-                  return (
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>
-                      {catFlag}
-                    </span>
-                  );
-                })()}
                 {isOpen && preferred && (
                   <RomThumbnail title={preferred.title} consoleName={g.console} />
                 )}
@@ -519,15 +507,19 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
                 {!g.has_preferred_version && (
                   <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">no preferred</span>
                 )}
-                <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variant{g.variants.length !== 1 ? "s" : ""}</span>
+                {g.variants.length > 1 && (
+                  <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variants</span>
+                )}
               </div>
               {isOpen && (() => {
                 const uniqueConsoles = [...new Set(g.variants.map((v) => v.console))];
-                if (g.is_format_pair && uniqueConsoles.length > 1) {
+                if (uniqueConsoles.length > 1) {
                   return uniqueConsoles.map((console_) => {
                     const consoleVariants = g.variants.filter((v) => v.console === console_);
                     const short = getShortConsoleName(console_);
-                    const label = short.match(/\(([^)]+)\)$/)?.[1] ?? short;
+                    const canonical = getCanonicalConsoleName(short);
+                    const suffix = short.slice(canonical.length).trim();
+                    const label = [...suffix.matchAll(/\(([^)]+)\)/g)].map(m => m[1]).join(' · ') || short;
                     return (
                       <div key={console_}>
                         <div className="px-6 py-1 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider bg-muted/5 border-b border-border/20">{label}</div>

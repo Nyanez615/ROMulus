@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Trash2, Search, Loader2 } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Search, Loader2, Wifi } from "lucide-react";
 import { open, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -30,20 +30,20 @@ import {
   setSteamGridDbKey, hasSteamGridDbKey, clearSteamGridDbKey,
   getDatFiles, importDat, readDatHeader, removeDat, verifyRoms, enrichAllGames,
   scanRoots,
-  getFormatPairs, applyFormatPairs, executeFormatPairs, formatBytes,
+  getFormatPairs,
   getConsoles,
   generateDownloadList, exportDownloadList,
   onVerifyComplete,
+  getQbtSettings, saveQbtSettings, testQbtConnection,
 } from "@/lib/tauri";
+import type { QbtSettings } from "@/lib/bindings/QbtSettings";
 import type { VerificationStatus } from "@/lib/bindings/VerificationStatus";
 import type { AppSettings } from "@/lib/bindings/AppSettings";
 import type { DatFile } from "@/lib/bindings/DatFile";
 import type { FormatPair } from "@/lib/bindings/FormatPair";
-import type { DeletionItem } from "@/lib/bindings/DeletionItem";
-import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
+
 import type { DownloadList } from "@/lib/bindings/DownloadList";
 import type { DownloadEntry } from "@/lib/bindings/DownloadEntry";
-import type { ExportFormat } from "@/lib/bindings/ExportFormat";
 import { useUIStore } from "@/store/ui";
 import { usePreferencesStore } from "@/store/preferences";
 import { useScanStore } from "@/store/scan";
@@ -52,24 +52,13 @@ import { getFormatVariantLabel } from "@/lib/consoleUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { refreshTagStore } from "@/components/Layout";
 
-function reasonKey(r: DeletionItem["reason"]): string {
-  return typeof r === "string" ? r : Object.keys(r)[0] ?? "unknown";
-}
-
-const FP_REASON_COLORS: Record<string, string> = {
-  format_pair_non_preferred:  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-  format_pair_no_counterpart: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-};
-const FP_REASON_LABELS: Record<string, string> = {
-  format_pair_non_preferred:  "Format variant",
-  format_pair_no_counterpart: "No counterpart",
-};
 
 // ── Download list status chip ─────────────────────────────────────────────────
 
 const DL_STATUS: Record<string, { label: string; cls: string }> = {
   preferred:       { label: "Preferred",   cls: "bg-green-500/15  text-green-400  border-green-500/30" },
   prerelease_only: { label: "Pre-release", cls: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+  fallback_only:   { label: "Fallback",    cls: "bg-blue-500/15   text-blue-400   border-blue-500/30"  },
 };
 
 function DlStatusChip({ status }: { status: DownloadEntry["status"] }) {
@@ -131,6 +120,11 @@ export default function Settings() {
   const [cloudError, setCloudError] = useState<string | null>(null);
   const [hasIgdb, setHasIgdb] = useState(false);
   const [hasSgdb, setHasSgdb] = useState(false);
+  // qBt
+  const [qbtSettings, setQbtSettings] = useState<QbtSettings>({ host: "localhost:8080", user: "admin", has_password: false, no_auth: false });
+  const [qbtPassword, setQbtPassword] = useState("");
+  const [qbtTesting, setQbtTesting] = useState(false);
+  const [qbtTestResult, setQbtTestResult] = useState<boolean | null>(null);
   const [igdbClientId, setIgdbClientId] = useState("");
   const [igdbSecret, setIgdbSecret] = useState("");
   const [sgdbKey, setSgdbKey] = useState("");
@@ -152,14 +146,6 @@ export default function Settings() {
 
   // ── Format pair state ────────────────────────────────────────────────────────
   const [formatPairs, setFormatPairs] = useState<FormatPair[]>([]);
-  const [selectedPairGroups, setSelectedPairGroups] = useState<Record<string, true>>({});
-  const prevPairGroupsRef = useRef<Set<string>>(new Set());
-  const [fpPlan, setFpPlan] = useState<DeletionPlan | null>(null);
-  const [fpPreviewSearch, setFpPreviewSearch] = useState("");
-  const [fpLoading, setFpLoading] = useState(false);
-  const [fpExecuting, setFpExecuting] = useState(false);
-  const [fpScanState, setFpScanState] = useState<"idle" | "scanning" | "done">("idle");
-  const [fpResult, setFpResult] = useState<{ success: number; failed: number; foldersRemoved: number } | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -168,6 +154,7 @@ export default function Settings() {
     hasIgdbCredentials().then(setHasIgdb).catch(console.error);
     hasSteamGridDbKey().then(setHasSgdb).catch(console.error);
     getDatFiles().then(setDatFiles).catch(console.error);
+    getQbtSettings().then(setQbtSettings).catch(console.error);
     getVersion().then(setAppVersion).catch(() => {});
 
     const unlisten = onVerifyComplete((status) => {
@@ -180,25 +167,8 @@ export default function Settings() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
-  // Re-fetch format pairs whenever a scan completes (cacheVersion bump) so the
-  // Format Variant Cleanup section appears/updates without requiring a full re-mount.
   useEffect(() => {
-    getFormatPairs().then((pairs) => {
-      setFormatPairs(pairs);
-      const incomingGroups = new Set(pairs.map((p) => p.console_group));
-      setSelectedPairGroups((prev) => {
-        const next: Record<string, true> = {};
-        for (const g of incomingGroups) {
-          if (prevPairGroupsRef.current.has(g)) {
-            if (prev[g]) next[g] = true;
-          } else {
-            next[g] = true;
-          }
-        }
-        return next;
-      });
-      prevPairGroupsRef.current = incomingGroups;
-    }).catch(console.error);
+    getFormatPairs().then(setFormatPairs).catch(console.error);
   }, [cacheVersion]);
 
   async function save(next: AppSettings) {
@@ -266,92 +236,23 @@ export default function Settings() {
     save({ ...settings, preferences: { ...settings.preferences, preferred_regions: settings.preferences.preferred_regions.filter((r) => r !== region) } });
   }
 
-  function selectFormatFolder(consoleGroup: string, folder: string) {
+  const formatPrefs = useMemo(() => settings?.format_preferences ?? {}, [settings]);
+
+  async function selectFormatFolder(consoleGroup: string, folder: string) {
     if (!settings) return;
     const next: AppSettings = {
       ...settings,
       format_preferences: { ...settings.format_preferences, [consoleGroup]: folder },
     };
     setSettings(next);
-    saveSettings(next).catch(console.error);
-  }
-
-  function togglePairGroup(group: string) {
-    setSelectedPairGroups((prev) => {
-      if (prev[group]) { const next = { ...prev }; delete next[group]; return next; }
-      return { ...prev, [group]: true };
-    });
-  }
-
-  const formatPrefs = useMemo(() => settings?.format_preferences ?? {}, [settings]);
-
-  const anySelectedPrefSet = useMemo(
-    () => formatPairs.some((p) => selectedPairGroups[p.console_group] && formatPrefs[p.console_group] !== undefined),
-    [formatPairs, selectedPairGroups, formatPrefs],
-  );
-
-  const activeFpItems = (fpPlan?.to_delete ?? []).filter((d) =>
-    formatPairs.some(
-      (p) => (p.folder_a === d.rom.console || p.folder_b === d.rom.console) && !!selectedPairGroups[p.console_group],
-    )
-  );
-
-  const filteredFpItems = useMemo(() => {
-    const q = fpPreviewSearch.toLowerCase();
-    const items = activeFpItems.filter(
-      (d) => !q || d.rom.filename.toLowerCase().includes(q) || d.rom.title.toLowerCase().includes(q),
-    );
-    return items.sort((a, b) => {
-      const aNC = reasonKey(a.reason) === "format_pair_no_counterpart" ? 0 : 1;
-      const bNC = reasonKey(b.reason) === "format_pair_no_counterpart" ? 0 : 1;
-      return aNC - bNC;
-    });
-  }, [activeFpItems, fpPreviewSearch]);
-
-  const fpNoCounterpartCount = useMemo(
-    () => activeFpItems.filter((d) => reasonKey(d.reason) === "format_pair_no_counterpart").length,
-    [activeFpItems],
-  );
-
-  async function previewFormatPairs() {
-    setFpLoading(true);
-    setFpPlan(null);
-    try {
-      const p = await applyFormatPairs();
-      setFpPlan(p);
-    } finally {
-      setFpLoading(false);
-    }
-  }
-
-  async function executeFormatPairsAction() {
-    if (!fpPlan || activeFpItems.length === 0) return;
-    setFpScanState("idle");
-    setFpExecuting(true);
-    let currentSettings = settings;
-    try {
-      const toDelete = activeFpItems.map((d) => d.rom);
-      const res = await executeFormatPairs(toDelete);
-      setFpResult({ success: res.success_count, failed: res.failed.length, foldersRemoved: res.folders_removed.length });
-      setFpPlan(null);
-      setFpPreviewSearch("");
-      currentSettings = await getSettings().catch(() => settings);
-      setSettings(currentSettings);
-      await reapplyPreferences().catch(console.error);
-    } finally {
-      setFpExecuting(false);
-    }
-    if (!currentSettings?.rom_roots.length) return;
-    setFpScanState("scanning");
-    try {
-      const scanResult = await scanRoots(currentSettings.rom_roots);
+    await saveSettings(next).catch(console.error);
+    // Rescan so the new preference is reflected immediately in the ROMs tab.
+    if (next.rom_roots.length) {
+      const scanResult = await scanRoots(next.rom_roots);
       setStatus(scanResult);
       setConsoles(await getConsoles());
       refreshTagStore();
       bumpCacheVersion();
-      setFpScanState("done");
-    } catch {
-      setFpScanState("idle");
     }
   }
 
@@ -370,16 +271,15 @@ export default function Settings() {
     }
   }
 
-  async function handleExportList(format: ExportFormat) {
+  async function handleExportList() {
     if (!dlList) return;
-    const ext = format === "text" ? "txt" : "csv";
     const safeName = (dlConsole ?? "download-list").replace(/[/\\:*?"<>|]/g, "_");
     const filePath = await saveFileDialog({
-      filters: [{ name: "Download list", extensions: [ext] }],
-      defaultPath: `${safeName}.${ext}`,
+      filters: [{ name: "Download list", extensions: ["csv"] }],
+      defaultPath: `${safeName}.csv`,
     });
     if (typeof filePath === "string") {
-      await exportDownloadList(dlList.to_download, filePath, format);
+      await exportDownloadList(dlList.to_download, filePath);
     }
   }
 
@@ -402,18 +302,17 @@ export default function Settings() {
     setSelectedDats([]);
   }
 
-  async function handleBatchExport(format: ExportFormat) {
+  async function handleBatchExport() {
     if (selectedDats.length === 0) return;
     const dir = await open({ directory: true, title: "Choose export folder" });
     if (typeof dir !== "string") return;
-    const ext = format === "text" ? "txt" : "csv";
     setBatchExporting(true);
     try {
       for (const consoleName of selectedDats) {
         const list = await generateDownloadList(consoleName);
         if (list.to_download.length === 0) continue;
         const safeName = consoleName.replace(/[/\\:*?"<>|]/g, "_");
-        await exportDownloadList(list.to_download, `${dir}/${safeName}.${ext}`, format);
+        await exportDownloadList(list.to_download, `${dir}/${safeName}.csv`);
       }
     } finally {
       setBatchExporting(false);
@@ -643,51 +542,33 @@ export default function Settings() {
 
       <Separator />
 
-      {/* Format Pair Cleanup */}
-      {formatPairs.length > 0 && (
-        <>
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold text-foreground">Format Variant Cleanup</h2>
-            <div className="flex gap-1 ml-auto">
-              <button onClick={() => { const all: Record<string, true> = {}; for (const p of formatPairs) all[p.console_group] = true; setSelectedPairGroups(all); }} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
-                <CheckSquare className="w-3 h-3" /> All
-              </button>
-              <span className="text-muted-foreground/40">·</span>
-              <button onClick={() => setSelectedPairGroups({})} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
-                <Square className="w-3 h-3" /> None
-              </button>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Select your preferred format for each paired console folder. Click "Analyze" to preview which files will be removed, then execute to delete the non-preferred copies.
-          </p>
+      {/* Format Variant Preferences */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Format Variant Preferences</h2>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          When two console folders contain the same titles in different formats, select which format the pruner should keep. Changes trigger an immediate rescan.
+        </p>
 
-          {[...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
-            const pref = formatPrefs[pair.console_group];
-            const isSelected = !!selectedPairGroups[pair.console_group];
+        {formatPairs.length === 0 ? (
+          <p className="text-xs text-muted-foreground/60">No format variant pairs detected in your collection.</p>
+        ) : (
+          [...formatPairs].sort((a, b) => a.console_group.localeCompare(b.console_group)).map((pair) => {
+            const pref = formatPrefs[pair.console_group] ?? pair.folder_b;
             const isProperSubset = pair.folder_a_count < pair.folder_b_count;
-            const isIdentical = pair.folder_a_count === pair.folder_b_count && pair.overlap_percent >= 0.999;
             const shortA = getFormatVariantLabel(pair.folder_a);
             const shortB = getFormatVariantLabel(pair.folder_b);
             const headerLabel = isProperSubset
               ? `${shortA} ⊂ ${shortB} · ${pair.folder_a_count} of ${pair.folder_b_count} titles`
-              : isIdentical
-              ? `${pair.folder_a_count} titles each · 100% overlap`
               : `${Math.round(pair.overlap_percent * 100)}% overlap · ${pair.folder_a_count} / ${pair.folder_b_count} titles`;
             return (
               <div key={pair.console_group} className="border border-border rounded-lg overflow-hidden">
-                <button
-                  onClick={() => togglePairGroup(pair.console_group)}
-                  className="w-full px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground flex items-center gap-2 hover:bg-muted/50 transition-colors"
-                >
-                  <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${isSelected ? "bg-primary/20 border-primary/60" : "border-border"}`}>
-                    {isSelected && <div className="w-1.5 h-1.5 rounded-sm bg-primary" />}
-                  </div>
+                <div className="px-3 py-2 bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
                   {headerLabel}
-                </button>
-                <div className={`divide-y divide-border${!isSelected ? " opacity-50 pointer-events-none" : ""}`}>
+                </div>
+                <div className="divide-y divide-border">
                   {[pair.folder_a, pair.folder_b].map((folder) => {
                     const count = folder === pair.folder_a ? pair.folder_a_count : pair.folder_b_count;
                     const isSubsetFolder = isProperSubset && folder === pair.folder_a;
@@ -708,118 +589,10 @@ export default function Settings() {
                 </div>
               </div>
             );
-          })}
-
-          {fpResult && (
-            <Alert className="border-green-500/40 bg-green-500/10">
-              <AlertDescription className="text-green-300 text-sm flex items-center justify-between gap-3 flex-wrap">
-                <span>
-                  ✓ Removed {fpResult.success} file{fpResult.success !== 1 ? "s" : ""}.
-                  {fpResult.foldersRemoved > 0 && ` ${fpResult.foldersRemoved} empty folder${fpResult.foldersRemoved !== 1 ? "s" : ""} deleted from scan roots.`}
-                  {fpResult.failed > 0 && ` ${fpResult.failed} failed.`}
-                </span>
-                {fpScanState === "scanning" && (
-                  <span className="flex items-center gap-1.5 text-green-400/70 text-xs shrink-0">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Rescanning…
-                  </span>
-                )}
-                {fpScanState === "done" && <span className="text-green-400/70 text-xs shrink-0">Collection updated.</span>}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {fpNoCounterpartCount > 0 && (
-            <Alert className="border-amber-500/40 bg-amber-500/10">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              <AlertDescription className="text-amber-300 text-sm">
-                {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder and will also be deleted.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {fpPlan && activeFpItems.length > 0 && (
-            <div className="border border-border rounded-xl overflow-hidden">
-              <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
-                <span className="text-xs font-medium text-foreground">
-                  {activeFpItems.length.toLocaleString()} files · {formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))} to remove
-                </span>
-                <button onClick={() => { setFpPlan(null); setFpPreviewSearch(""); }} className="text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="px-4 py-2 border-b border-border flex items-center gap-2">
-                <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <Input
-                  placeholder="Search files…"
-                  value={fpPreviewSearch}
-                  onChange={(e) => setFpPreviewSearch(e.target.value)}
-                  className="h-7 text-xs border-0 bg-transparent focus-visible:ring-0 p-0"
-                />
-              </div>
-              <div className="h-64 overflow-y-auto overflow-x-hidden">
-                {filteredFpItems.map((item, i) => {
-                  const rk = reasonKey(item.reason);
-                  const isNoCounterpart = rk === "format_pair_no_counterpart";
-                  const colorClass = FP_REASON_COLORS[rk] ?? "bg-muted/40 text-muted-foreground border-border/60";
-                  return (
-                    <div key={i} className={`flex items-center gap-2 px-4 py-1.5 border-b text-xs ${isNoCounterpart ? "border-l-2 border-l-amber-500/50 border-b-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10" : "border-b-border/40 hover:bg-muted/20"}`}>
-                      <span className={`min-w-0 flex-1 truncate font-mono ${isNoCounterpart ? "text-amber-300/80" : "text-muted-foreground"}`}>{item.rom.filename}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${colorClass}`}>{FP_REASON_LABELS[rk] ?? rk}</span>
-                      <span className="text-muted-foreground/60 shrink-0">{getFormatVariantLabel(item.rom.console)}</span>
-                    </div>
-                  );
-                })}
-                {filteredFpItems.length === 0 && fpPreviewSearch && (
-                  <div className="px-4 py-4 text-xs text-muted-foreground text-center">No matches for "{fpPreviewSearch}"</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {fpPlan && activeFpItems.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              {fpPlan.to_delete.length === 0 ? "Nothing to remove — all files are already in the preferred format." : "No items match the selected pairs."}
-            </p>
-          )}
-
-          <div className="flex gap-3">
-            <Button size="sm" variant="outline" disabled={fpLoading || !anySelectedPrefSet} onClick={previewFormatPairs} className="gap-2">
-              {fpLoading ? "Analyzing…" : fpPlan ? "Re-analyze" : "Analyze Removals"}
-            </Button>
-            {fpPlan && activeFpItems.length > 0 && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="destructive" disabled={fpExecuting} className="gap-2">
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {fpExecuting ? "Removing…" : `Remove ${activeFpItems.length.toLocaleString()} files`}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Remove format-pair files?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {activeFpItems.length.toLocaleString()} files from non-preferred format folders ({formatBytes(activeFpItems.reduce((s, d) => s + d.rom.filesize, 0))}) will be permanently deleted.
-                      {fpNoCounterpartCount > 0 && (
-                        <span className="block mt-1 text-amber-400">
-                          {fpNoCounterpartCount} file{fpNoCounterpartCount !== 1 ? "s have" : " has"} no counterpart in the preferred folder.
-                        </span>
-                      )}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={executeFormatPairsAction} className="bg-destructive hover:bg-destructive/90">
-                      Delete permanently
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-          </div>
-        </section>
-        <Separator />
-        </>
-      )}
+          })
+        )}
+      </section>
+      <Separator />
 
       {/* Privacy */}
       <section className="space-y-4">
@@ -836,6 +609,98 @@ export default function Settings() {
             checked={settings.crash_reporting_enabled}
             onCheckedChange={(v) => save({ ...settings, crash_reporting_enabled: v })}
           />
+        </div>
+      </section>
+
+      <Separator />
+
+      {/* qBittorrent */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Wifi className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">qBittorrent</h2>
+          {qbtSettings.no_auth && <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">No Auth</span>}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Connect to the qBittorrent Web UI to set per-file download priorities from the Downloads tab.
+          Enable "Bypass authentication for clients on localhost" in qBittorrent preferences to use No Auth mode.
+        </p>
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Host</Label>
+              <Input
+                placeholder="localhost:8080"
+                value={qbtSettings.host}
+                onChange={(e) => setQbtSettings((s) => ({ ...s, host: e.target.value }))}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Username</Label>
+              <Input
+                placeholder="admin"
+                value={qbtSettings.user}
+                onChange={(e) => setQbtSettings((s) => ({ ...s, user: e.target.value }))}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+          {!qbtSettings.no_auth && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Password {qbtSettings.has_password ? "(saved — enter new value to change)" : ""}
+              </Label>
+              <Input
+                type="password"
+                placeholder={qbtSettings.has_password ? "••••••••" : "Password"}
+                value={qbtPassword}
+                onChange={(e) => setQbtPassword(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="qbt-no-auth"
+              checked={qbtSettings.no_auth}
+              onCheckedChange={(v) => setQbtSettings((s) => ({ ...s, no_auth: v }))}
+            />
+            <Label htmlFor="qbt-no-auth" className="text-sm cursor-pointer">No authentication (localhost bypass)</Label>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={async () => {
+              await saveQbtSettings(qbtSettings.host, qbtSettings.user, qbtPassword || null, qbtSettings.no_auth);
+              if (qbtPassword) { setQbtPassword(""); setQbtSettings((s) => ({ ...s, has_password: true })); }
+            }}
+          >
+            Save
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={qbtTesting}
+            onClick={async () => {
+              setQbtTesting(true);
+              setQbtTestResult(null);
+              try {
+                await saveQbtSettings(qbtSettings.host, qbtSettings.user, qbtPassword || null, qbtSettings.no_auth);
+                const ok = await testQbtConnection();
+                setQbtTestResult(ok);
+              } catch {
+                setQbtTestResult(false);
+              } finally {
+                setQbtTesting(false);
+              }
+            }}
+          >
+            {qbtTesting ? "Testing…" : "Test Connection"}
+          </Button>
+          {qbtTestResult === true && <span className="text-xs text-green-400">Connected</span>}
+          {qbtTestResult === false && <span className="text-xs text-destructive">Failed</span>}
         </div>
       </section>
 
@@ -964,13 +829,8 @@ export default function Settings() {
               </button>
               <Button size="sm" variant="outline" className="text-xs h-7"
                 disabled={batchExporting || selectedDats.length === 0}
-                onClick={() => handleBatchExport("text")}>
-                {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .txt"}
-              </Button>
-              <Button size="sm" variant="outline" className="text-xs h-7"
-                disabled={batchExporting || selectedDats.length === 0}
-                onClick={() => handleBatchExport("csv")}>
-                {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export .csv"}
+                onClick={handleBatchExport}>
+                {batchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Export Lists"}
               </Button>
               <Button size="sm" variant="outline" className="text-xs h-7"
                 disabled={selectedDats.length === 0 || verifyingDats.size > 0}
@@ -1024,6 +884,7 @@ export default function Settings() {
                     {" · "}{dlList.to_download.length.toLocaleString()} to download
                     {" · "}{dlList.preferred_count.toLocaleString()} preferred
                     {dlList.prerelease_only_count > 0 && ` · ${dlList.prerelease_only_count} pre-release only`}
+                    {dlList.fallback_count > 0 && ` · ${dlList.fallback_count} best-available`}
                     {dlList.excluded_count > 0 && ` · ${dlList.excluded_count} excluded`}
                   </>
                 )}
@@ -1075,12 +936,8 @@ export default function Settings() {
                 {/* Export row */}
                 <div className="px-4 py-3 border-t border-border flex gap-2">
                   <Button size="sm" variant="outline" className="text-xs"
-                    onClick={() => handleExportList("text")}>
-                    Export .txt (torrent filter)
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-xs"
-                    onClick={() => handleExportList("csv")}>
-                    Export .csv (full metadata)
+                    onClick={handleExportList}>
+                    Export Download List
                   </Button>
                 </div>
               </>

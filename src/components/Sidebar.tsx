@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   LayoutDashboard, Gamepad2, Cpu,
-  History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
+  Download, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon } from "./ConsoleIcon";
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "dashboard",  label: "Dashboard",   icon: LayoutDashboard },
   { id: "roms",       label: "ROMs",         icon: Gamepad2        },
   { id: "system",     label: "System Files", icon: Cpu             },
+  { id: "downloads",  label: "Downloads",    icon: Download        },
   { id: "history",    label: "History",      icon: History         },
   { id: "settings",   label: "Settings",     icon: Settings        },
 ];
@@ -265,7 +266,8 @@ export function Sidebar() {
       {!status.scanning && status.scanned > 0 && (
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{allTitles.toLocaleString()} titles</div>
-          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
+          <div>{consoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {consoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs</div>
+          <div className="text-muted-foreground/70">{consoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} system files · {platformGroups.size} platform{platformGroups.size !== 1 ? "s" : ""}</div>
         </div>
       )}
       {status.scanning && (

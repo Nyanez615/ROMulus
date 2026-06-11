@@ -17,8 +17,6 @@ vi.mock("@/lib/tauri", () => ({
   isOneDrivePath: (path: string) =>
     path.toLowerCase().includes("onedrive") || path.toLowerCase().includes("cloudstorage"),
   getFormatPairs: () => Promise.resolve([]),
-  applyFormatPairs: () => Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] }),
-  executeFormatPairs: () => Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] }),
   hasIgdbCredentials: () => Promise.resolve(false),
   hasSteamGridDbKey: () => Promise.resolve(false),
   getDatFiles: () => Promise.resolve([]),
@@ -34,6 +32,9 @@ vi.mock("@/lib/tauri", () => ({
   scanRoots: () => Promise.resolve({}),
   getConsoles: () => Promise.resolve([]),
   formatBytes: (b: number) => `${b} B`,
+  getQbtSettings: () => Promise.resolve({ host: "localhost:8080", user: "admin", has_password: false, no_auth: false }),
+  saveQbtSettings: () => Promise.resolve(),
+  testQbtConnection: () => Promise.resolve(false),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -82,7 +83,7 @@ describe("Section order", () => {
 describe("Section icons", () => {
   it("all named sections have an icon in their title row", async () => {
     await renderSettings();
-    const sectionNames = ["ROM Libraries", "Language", "Appearance", "Privacy", "IGDB", "SteamGridDB", "DAT File"];
+    const sectionNames = ["ROM Libraries", "Language", "Appearance", "Privacy", "qBittorrent", "IGDB", "SteamGridDB", "DAT File"];
     for (const name of sectionNames) {
       const heading = screen.getAllByRole("heading", { level: 2 }).find((h) => h.textContent?.includes(name));
       expect(heading, `heading for "${name}" should exist`).toBeTruthy();

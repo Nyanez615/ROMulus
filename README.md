@@ -16,16 +16,20 @@
 - **Smart pruning** — keep the best ROM per game in your preferred language; configurable region priority order
 - **Language-first** — fully configurable preferred languages and regions; nothing is hardcoded
 - **Any console, any manufacturer** — No-Intro naming convention with auto-detection for Nintendo, Sega, Sony, Atari, and beyond
-- **Format variant wizard** — whole-folder selection between format variants (NES Headered/Headerless, N64 BigEndian/ByteSwapped, FDS/QD, etc.)
+- **Format variant preferences** — per-pair preferred folder setting (NES Headered/Headerless, N64 BigEndian/ByteSwapped, FDS/QD, etc.); preference wired into pruner so the right format wins the ★
 - **Faceted chip filtering** — selecting a Region chip hides Category/Status chips that would produce zero results; no dead-end filter combinations
 - **Incremental scanning** — mtime-based cache; filesystem watcher auto-detects new ROMs without rescanning
 
 ### Browse
 - **Unified ROMs tab** — all games, hacks, unofficial releases, and utilities in one view with colour-coded category badges
-- **System Files tab** — BIOS, Video, and e-Reader firmware files, separate from regular ROMs
+- **System Files tab** — BIOS, Video, e-Reader, and Accessories (amiibo NFC dumps) separate from regular ROMs
 - **Alphabet scrubber** — A–Z strip for instant jump-to-letter navigation when sorted by name
 - **Variant count scrubber** — numeric strip for jump-to-count navigation when sorted by variants
 - **Console badge in All-ROMs mode** — short console abbreviation (N64, GBA, …) on each row so same-title entries from different consoles are distinguishable
+
+### Downloads
+- **qBittorrent integration** — connect to a local qBittorrent Web UI instance; preview which files in a torrent are worth downloading based on your language/region preferences; apply priority rules (download/skip) with one click, then auto-rescan your collection
+- **Pre-download filter** — same scoring pipeline as the live pruner applied to DAT entries before any files land on disk; export as `.txt` include-filter or `.csv`
 
 ### Enrichment & verification
 - **IGDB metadata** — release year, genre, summary, ratings via background enrichment (requires free Twitch API key)
@@ -40,8 +44,8 @@
 - **Cloud path blocking** — OneDrive, iCloud, Dropbox, Google Drive, and Box roots are blocked at add-time to prevent sync conflicts
 - **Right-click context menu** — "Show in Folder" and "Copy Path" on every file row in all tabs
 
-### 5 tabs
-Dashboard · ROMs · System Files · History · Settings
+### 6 tabs
+Dashboard · ROMs · System Files · Downloads · History · Settings
 
 ## Tech Stack
 
@@ -66,13 +70,13 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 197 unit tests + regenerates TypeScript bindings
+cargo test             # 231 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 
 From project root:
 ```bash
-npm run test:run       # 101 Vitest tests
+npm run test:run       # 134 Vitest tests
 npx tsc --noEmit       # TypeScript type-check
 ```
 
