@@ -81,10 +81,6 @@ export function Sidebar() {
     for (const variants of byCanonical.values()) total += canonicalAllTitleCount(variants);
     return total;
   }, [footerConsoles]);
-  const footerPlatforms = useMemo(
-    () => new Set(footerConsoles.map((c) => getConsoleParts(c.name).platform)).size,
-    [footerConsoles],
-  );
 
   function togglePlatform(platform: string) {
     setCollapsedPlatforms((prev) =>
@@ -289,7 +285,7 @@ export function Sidebar() {
         <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
           <div className="font-medium text-foreground">{footerTitles.toLocaleString()} titles</div>
           <div>{footerConsoles.reduce((s, c) => s + c.game_files + c.unofficial_files, 0).toLocaleString()} ROMs · {footerConsoles.reduce((s, c) => s + c.system_file_count, 0).toLocaleString()} sys</div>
-          <div className="text-muted-foreground/70">{footerConsoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files · {footerPlatforms} platform{footerPlatforms !== 1 ? "s" : ""}</div>
+          <div className="text-muted-foreground/70">{footerConsoles.reduce((s, c) => s + c.total_files, 0).toLocaleString()} files</div>
         </div>
       )}
       {status.scanning && (
