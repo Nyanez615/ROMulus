@@ -5,7 +5,7 @@ use tauri::State;
 use crate::commands::group::group_roms;
 use crate::commands::settings::get_settings_inner;
 use crate::db::{get_setting, set_setting, AppState};
-use crate::models::{QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
+use crate::models::{FileCategory, QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
 use crate::parser::parse_from_filename;
 
 // ── Keyring ───────────────────────────────────────────────────────────────────
@@ -220,7 +220,11 @@ async fn run_filter(
                 .map(|(idx, _)| *idx)
                 .unwrap_or(0);
 
-            let is_preferred = group.preferred_idx == Some(variant_pos);
+            let is_system = matches!(
+                rom.file_category,
+                FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory
+            );
+            let is_preferred = is_system || group.preferred_idx == Some(variant_pos);
             decisions.push((file_index, rom.filename.clone(), is_preferred));
         }
     }
