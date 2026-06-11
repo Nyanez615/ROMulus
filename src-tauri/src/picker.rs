@@ -350,7 +350,7 @@ mod tests {
         );
         // Final Fantasy VII ↔ 7
         assert_eq!(k("Final Fantasy VII (USA).zip"), k("Final Fantasy 7 (USA).zip"));
-        // Single-char Roman tokens must NOT be normalised (Mega Man X ≠ Mega Man 10)
-        assert_ne!(k("Mega Man X (USA).zip"), k("Mega Man 10 (USA).zip"));
+        // Single-char tokens are also normalised: X = 10, V = 5
+        assert_eq!(k("Mega Man X (USA).zip"), k("Mega Man 10 (USA).zip"));
     }
 }
