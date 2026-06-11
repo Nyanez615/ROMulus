@@ -61,12 +61,23 @@ fn normalize_key(s: &str) -> String {
     let collapsed = lowered.split(" - ").collect::<Vec<_>>().join(" ");
     // Step 4: strip trailing ! / ? from the title word (the part before the first
     // " (" variant parenthetical, if any).  Paren contents are left intact.
-    if let Some(paren_start) = collapsed.find(" (") {
+    let stripped = if let Some(paren_start) = collapsed.find(" (") {
         let title = collapsed[..paren_start].trim_end_matches(['!', '?']);
         format!("{}{}", title, &collapsed[paren_start..])
     } else {
         collapsed.trim_end_matches(['!', '?']).to_string()
-    }
+    };
+    // Step 5: normalize Roman numeral tokens (II→2, VII→7, etc.) so that
+    // "Genesis II" and "Genesis 2" land in the same group.
+    stripped
+        .split(' ')
+        .map(|tok| {
+            crate::parser::roman_to_arabic(tok)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| tok.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Same as `group_key` but preserves original casing — use for display only.
@@ -326,5 +337,20 @@ mod tests {
             k("NESert Golfing (World) (Aftermarket) (Unl).zip"),
             k("NESert Golfing (World) (v1.1) (Aftermarket) (Unl).zip"),
         );
+    }
+
+    #[test]
+    fn roman_numeral_titles_share_group_key() {
+        // Arabic and Roman numeral sequel designations must produce the same key
+        assert_eq!(k("Genesis 2 (World) (Aftermarket) (Unl).zip"), "genesis 2");
+        assert_eq!(k("Genesis II (World) (Demo) (Aftermarket) (Unl).zip"), "genesis 2");
+        assert_eq!(
+            k("Genesis 2 (World) (Aftermarket) (Unl).zip"),
+            k("Genesis II (World) (Demo) (Aftermarket) (Unl).zip"),
+        );
+        // Final Fantasy VII ↔ 7
+        assert_eq!(k("Final Fantasy VII (USA).zip"), k("Final Fantasy 7 (USA).zip"));
+        // Single-char Roman tokens must NOT be normalised (Mega Man X ≠ Mega Man 10)
+        assert_ne!(k("Mega Man X (USA).zip"), k("Mega Man 10 (USA).zip"));
     }
 }
