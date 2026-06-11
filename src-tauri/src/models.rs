@@ -41,6 +41,9 @@ pub enum FileCategory {
     Demo,
     Video,
     EReader,
+    /// Physical peripheral data (NFC dumps, figurine/card data).
+    /// Currently covers Nintendo amiibo; excluded from the ROMs tab.
+    Accessory,
 }
 
 // ── Core ROM types ───────────────────────────────────────────────────────────
@@ -59,6 +62,10 @@ pub struct RomFile {
     pub extra_tags: Vec<String>,
     pub bad_dump: bool,
     pub revision: u32,
+    /// ISO build date parsed from `(YYYY-MM-DD)` tags, stored as YYYYMMDD.
+    /// Separate from `revision` so date-stamped proto builds sort chronologically
+    /// without inflating `revision` for finished releases.
+    pub build_date: Option<u32>,
     pub disc_number: Option<u32>,
     pub version: Option<String>,
     pub is_bios: bool,
@@ -130,9 +137,6 @@ impl Default for AppSettings {
 #[ts(export)]
 pub enum DeletionReason {
     NonPreferred,
-    FormatPairNonPreferred,
-    /// Deleted from non-preferred folder AND has no counterpart in the preferred folder.
-    FormatPairNoCounterpart,
     NoPreferredVersion,
 }
 
@@ -177,6 +181,8 @@ pub struct ConsoleStats {
     pub preferred_explicit_count: u32,
     /// Subset of preferred_count matched via region→language inference (no explicit tag).
     pub preferred_inferred_count: u32,
+    /// Non-playable files (Bios + Video + EReader + Accessory)
+    pub system_file_count: u32,
     pub marked_for_deletion: u32,
     #[ts(type = "number")]
     pub bytes_to_free: u64,
@@ -385,10 +391,6 @@ pub struct VerificationStatus {
 /// Status of a preferred variant chosen for the download list.
 ///
 /// Note: `BestAvailable` is intentionally absent. `build_group()` only sets
-/// `preferred_idx` when `has_preferred = true`, which requires at least one
-/// variant with `matches_preferred_language = true` — so the chosen variant
-/// always has a language match. Titles with no language match (e.g. Japan-only
-/// for an English user) surface via `DownloadList::excluded_count` instead.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -398,6 +400,9 @@ pub enum DownloadStatus {
     /// Only pre-release (Alpha/Beta/Proto/Demo/…) variants exist in the DAT;
     /// the highest-scoring one is included so the user can opt in.
     PrereleaseOnly,
+    /// No language-matching variant exists, but the content type (BIOS or amiibo)
+    /// is language-agnostic — best-available regional variant is included.
+    FallbackOnly,
 }
 
 /// One entry in a download list — the preferred variant for a single title group.
@@ -429,21 +434,74 @@ pub struct DownloadList {
     pub total_in_dat: u32,
     pub preferred_count: u32,
     pub prerelease_only_count: u32,
-    /// Groups with no language-matching variant (e.g. Japan-only for an En user).
+    /// BIOS / amiibo entries included despite no language match (best-available variant).
+    pub fallback_count: u32,
+    /// Groups with no language-matching variant (regular ROM titles, not BIOS/amiibo).
     pub excluded_count: u32,
 }
 
-/// Output format for `export_download_list`.
+
+// ── qBittorrent integration types ────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
 #[ts(export)]
-pub enum ExportFormat {
-    /// One filename per line — paste into torrent client include-filter.
-    /// ROM extensions (`.3ds`, `.nds`, …) are mapped to `.zip`.
-    Text,
-    /// Full metadata CSV: rom_name, game_title, regions, languages, status_flags,
-    /// file_category, status, score.
-    Csv,
+pub struct QbtSettings {
+    pub host: String,
+    pub user: String,
+    pub has_password: bool,
+    pub no_auth: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QbtTorrent {
+    pub hash: String,
+    pub name: String,
+    pub num_files: u32,
+    /// Immediate parent folder of the torrent files (e.g. "Nintendo - amiibo").
+    /// `None` when the torrent has no sub-folder structure.
+    pub console_folder: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QbtFileDecision {
+    pub filename: String,
+    pub download: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QbtGroupInfo {
+    /// Normalized lowercase group key — used as a stable React key, not for display
+    pub key: String,
+    /// Properly-cased display title (pre-region portion of the chosen filename)
+    pub display_title: String,
+    /// Chosen filename (will be set to priority 1)
+    pub chosen: String,
+    /// Skipped filenames (will be set to priority 0)
+    pub skipped: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QbtFilterPreview {
+    /// Console name inferred from torrent folder, if detectable
+    pub console_name: Option<String>,
+    pub total: u32,
+    pub to_download: u32,
+    pub to_skip: u32,
+    /// Every file in the torrent with its download/skip decision
+    pub files: Vec<QbtFileDecision>,
+    /// Only groups where >1 variant exists (single-variant groups are silently kept)
+    pub multi_variant_groups: Vec<QbtGroupInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QbtApplyResult {
+    pub to_download: u32,
+    pub to_skip: u32,
 }
 
 // ── Type export test ─────────────────────────────────────────────────────────
@@ -484,6 +542,11 @@ mod tests {
         DownloadStatus::export_all_to(out).unwrap();
         DownloadEntry::export_all_to(out).unwrap();
         DownloadList::export_all_to(out).unwrap();
-        ExportFormat::export_all_to(out).unwrap();
+        QbtSettings::export_all_to(out).unwrap();
+        QbtTorrent::export_all_to(out).unwrap();
+        QbtFileDecision::export_all_to(out).unwrap();
+        QbtGroupInfo::export_all_to(out).unwrap();
+        QbtFilterPreview::export_all_to(out).unwrap();
+        QbtApplyResult::export_all_to(out).unwrap();
     }
 }

@@ -3608,6 +3608,7 @@ dependencies = [
 name = "romulus"
 version = "0.2.9"
 dependencies = [
+ "crc32fast",
  "keyring",
  "notify",
  "quick-xml 0.36.2",

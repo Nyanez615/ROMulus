@@ -9,8 +9,8 @@ use crate::commands::group::{group_roms, score_rom};
 use crate::commands::settings::get_settings_inner;
 use crate::db::AppState;
 use crate::models::{
-    Completeness, DatFile, DownloadEntry, DownloadList, DownloadStatus, ExportFormat,
-    VerificationStatus,
+    Completeness, DatFile, DownloadEntry, DownloadList, DownloadStatus,
+    FileCategory, VerificationStatus,
 };
 use crate::parser::parse_from_filename;
 
@@ -356,6 +356,14 @@ const PRERELEASE_FLAGS: &[&str] = &[
     "IS-NITRO-EMULATOR", "IS-NITRO-PROGRAMMER",
 ];
 
+/// BIOS files and amiibo NFC dumps are language-agnostic: every unique title
+/// should be included regardless of language match, using the best-available
+/// regional variant. Returns true when the group should follow this rule.
+fn is_include_all_group(roms: &[crate::models::RomFile], console: &str) -> bool {
+    roms.iter().any(|r| r.file_category == FileCategory::Bios)
+        || console.to_ascii_lowercase().contains("amiibo")
+}
+
 #[tauri::command]
 pub fn generate_download_list(
     state: State<'_, AppState>,
@@ -394,6 +402,7 @@ pub fn generate_download_list(
             total_in_dat: 0,
             preferred_count: 0,
             prerelease_only_count: 0,
+            fallback_count: 0,
             excluded_count: 0,
         });
     }
@@ -417,13 +426,35 @@ pub fn generate_download_list(
     let mut to_download: Vec<DownloadEntry> = vec![];
     let mut preferred_count = 0u32;
     let mut prerelease_only_count = 0u32;
+    let mut fallback_count = 0u32;
     let mut excluded_count = 0u32;
 
     for group in &groups {
-        // preferred_idx = None → no language-matching variant (Japan-only for En
-        // user, etc.) → excluded from the download list.
+        // preferred_idx = None → no language-matching variant (Japan-only for En user, etc.)
+        // For BIOS and amiibo content, include the best-available variant anyway.
         let Some(pi) = group.preferred_idx else {
-            excluded_count += 1;
+            if is_include_all_group(&group.variants, &console) {
+                // variants is sorted by score descending (see build_group in deduper.rs),
+                // so variants[0] is the highest-scoring available variant.
+                let fallback = group.variants.iter()
+                    .max_by_key(|r| score_rom(r, &prefs))
+                    .expect("group has at least one variant");
+                to_download.push(DownloadEntry {
+                    rom_name: fallback.filename.clone(),
+                    game_title: title_map.get(&fallback.filename).cloned()
+                        .unwrap_or_else(|| fallback.title.clone()),
+                    title_normalized: fallback.title_normalized.clone(),
+                    regions: fallback.regions.clone(),
+                    languages: fallback.languages.clone(),
+                    status_flags: fallback.status_flags.clone(),
+                    file_category: fallback.file_category.clone(),
+                    status: DownloadStatus::FallbackOnly,
+                    score: score_rom(fallback, &prefs).0,
+                });
+                fallback_count += 1;
+            } else {
+                excluded_count += 1;
+            }
             continue;
         };
 
@@ -444,11 +475,13 @@ pub fn generate_download_list(
         };
 
         // Include the preferred variant AND any sibling discs of the same set.
-        // Sibling discs have an identical score triple (same region/language/
-        // version/flags, only disc_number differs), so matching on score is both
-        // necessary and sufficient. Non-preferred regions/revisions always produce
-        // a different score; the preferred disc itself is included naturally.
-        for variant in group.variants.iter().filter(|v| score_rom(v, &prefs) == preferred_score) {
+        // Genuine disc siblings share score + version (only disc_number differs).
+        // Checking score alone is insufficient: version alternatives (v1.0 vs v1.1)
+        // produce identical score triples and would both pass, so we also gate on
+        // v.version == preferred.version.
+        for variant in group.variants.iter().filter(|v| {
+            score_rom(v, &prefs) == preferred_score && v.version == preferred.version
+        }) {
             to_download.push(DownloadEntry {
                 rom_name: variant.filename.clone(),
                 game_title: title_map.get(&variant.filename).cloned()
@@ -473,6 +506,7 @@ pub fn generate_download_list(
         total_in_dat,
         preferred_count,
         prerelease_only_count,
+        fallback_count,
         excluded_count,
     })
 }
@@ -481,65 +515,37 @@ pub fn generate_download_list(
 pub fn export_download_list(
     entries: Vec<DownloadEntry>,
     path: String,
-    format: ExportFormat,
 ) -> Result<(), String> {
     use std::io::Write;
 
     let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
 
-    match format {
-        ExportFormat::Text => {
-            // One filename per line with ROM extensions mapped to .zip so the
-            // output matches Myrient torrent archive names directly.
-            for e in &entries {
-                writeln!(file, "{}", to_zip_name(&e.rom_name))
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        ExportFormat::Csv => {
-            writeln!(
-                file,
-                "rom_name,game_title,regions,languages,status_flags,file_category,status,score"
-            ).map_err(|e| e.to_string())?;
-            for e in &entries {
-                let status_str = match e.status {
-                    DownloadStatus::Preferred      => "preferred",
-                    DownloadStatus::PrereleaseOnly => "prerelease_only",
-                };
-                writeln!(
-                    file,
-                    "{},{},{},{},{},{},{},{}",
-                    csv_esc(&e.rom_name),
-                    csv_esc(&e.game_title),
-                    csv_esc(&e.regions.join("|")),
-                    csv_esc(&e.languages.join("|")),
-                    csv_esc(&e.status_flags.join("|")),
-                    csv_esc(&format!("{:?}", e.file_category).to_lowercase()),
-                    status_str,
-                    e.score,
-                ).map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    Ok(())
-}
+    writeln!(
+        file,
+        "rom_name,game_title,regions,languages,status_flags,file_category,status,score"
+    ).map_err(|e| e.to_string())?;
 
-/// Map a ROM filename extension to `.zip` so the output matches Myrient
-/// torrent archive names. Files already ending in `.zip` are returned as-is.
-fn to_zip_name(filename: &str) -> String {
-    const ROM_EXTS: &[&str] = &[
-        ".3ds", ".cci", ".cxi", ".nds", ".gba", ".nes", ".sfc", ".smc",
-        ".gb", ".gbc", ".n64", ".z64", ".v64", ".gcm",
-        ".smd", ".md", ".sms", ".gg", ".pce",
-        ".fds", ".dsi", ".min", ".vb", ".raw",
-    ];
-    let lower = filename.to_lowercase();
-    for ext in ROM_EXTS {
-        if lower.ends_with(ext) {
-            return format!("{}.zip", &filename[..filename.len() - ext.len()]);
-        }
+    for e in &entries {
+        let status_str = match e.status {
+            DownloadStatus::Preferred      => "preferred",
+            DownloadStatus::PrereleaseOnly => "prerelease_only",
+            DownloadStatus::FallbackOnly   => "fallback_only",
+        };
+        writeln!(
+            file,
+            "{},{},{},{},{},{},{},{}",
+            csv_esc(&e.rom_name),
+            csv_esc(&e.game_title),
+            csv_esc(&e.regions.join("|")),
+            csv_esc(&e.languages.join("|")),
+            csv_esc(&e.status_flags.join("|")),
+            csv_esc(&format!("{:?}", e.file_category).to_lowercase()),
+            status_str,
+            e.score,
+        ).map_err(|e| e.to_string())?;
     }
-    filename.to_string()
+
+    Ok(())
 }
 
 fn csv_esc(s: &str) -> String {
@@ -758,42 +764,6 @@ mod tests {
         assert_eq!(raw.regions, vec!["USA"]);
     }
 
-    // ── to_zip_name tests ─────────────────────────────────────────────────────
-
-    #[test]
-    fn to_zip_name_maps_3ds_to_zip() {
-        assert_eq!(to_zip_name("Game (USA).3ds"), "Game (USA).zip");
-    }
-
-    #[test]
-    fn to_zip_name_maps_nds_to_zip() {
-        assert_eq!(to_zip_name("Game (Europe).nds"), "Game (Europe).zip");
-    }
-
-    #[test]
-    fn to_zip_name_maps_gba_to_zip() {
-        assert_eq!(to_zip_name("Game (Japan).gba"), "Game (Japan).zip");
-    }
-
-    #[test]
-    fn to_zip_name_passthrough_for_zip() {
-        assert_eq!(to_zip_name("Game (USA).zip"), "Game (USA).zip");
-    }
-
-    #[test]
-    fn to_zip_name_passthrough_for_unknown() {
-        assert_eq!(to_zip_name("Archive.7z"), "Archive.7z");
-    }
-
-    #[test]
-    fn to_zip_name_console_specific_extensions() {
-        assert_eq!(to_zip_name("Metroid (Japan) (Disk 1).fds"), "Metroid (Japan) (Disk 1).zip");
-        assert_eq!(to_zip_name("Flipnote Studio (USA).dsi"), "Flipnote Studio (USA).zip");
-        assert_eq!(to_zip_name("Pichu Bros. Mini (Japan).min"), "Pichu Bros. Mini (Japan).zip");
-        assert_eq!(to_zip_name("3-D Tetris (USA).vb"), "3-D Tetris (USA).zip");
-        assert_eq!(to_zip_name("K.K. Slider (USA).raw"), "K.K. Slider (USA).zip");
-    }
-
     // ── generate_download_list integration tests ──────────────────────────────
 
     #[test]
@@ -934,6 +904,28 @@ mod tests {
         let groups = group_roms(roms, &prefs);
         assert_eq!(groups.len(), 1);
         assert!(groups[0].preferred_idx.is_none(), "Japan-only should be excluded for En user");
+    }
+
+    #[test]
+    fn is_include_all_group_detects_amiibo_console() {
+        let roms: Vec<_> = vec!["Amiibo B (Japan) (Figurine).bin"]
+            .into_iter()
+            .filter_map(|rn| parse_from_filename(rn, "Nintendo - amiibo"))
+            .collect();
+        assert!(!roms.is_empty());
+        assert!(is_include_all_group(&roms, "Nintendo - amiibo"));
+        assert!(!is_include_all_group(&roms, "Nintendo - Game Boy Advance"));
+    }
+
+    #[test]
+    fn is_include_all_group_detects_bios_file_category() {
+        let roms: Vec<_> = vec!["[BIOS] Game Boy Boot ROM (World) (Rev 1).bin"]
+            .into_iter()
+            .filter_map(|rn| parse_from_filename(rn, "Nintendo - Game Boy"))
+            .collect();
+        assert!(!roms.is_empty());
+        assert!(is_include_all_group(&roms, "Nintendo - Game Boy"),
+            "BIOS file_category should trigger include-all regardless of console name");
     }
 
     #[test]

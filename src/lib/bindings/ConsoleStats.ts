@@ -36,4 +36,8 @@ preferred_explicit_count: number,
 /**
  * Subset of preferred_count matched via region→language inference (no explicit tag).
  */
-preferred_inferred_count: number, marked_for_deletion: number, bytes_to_free: number, total_bytes: number, };
+preferred_inferred_count: number, 
+/**
+ * Non-playable files (Bios + Video + EReader + Accessory)
+ */
+system_file_count: number, marked_for_deletion: number, bytes_to_free: number, total_bytes: number, };

@@ -3,65 +3,16 @@ use std::io::Write;
 use tauri::State;
 
 use crate::commands::group::group_matches_consoles;
-use crate::commands::settings::load_format_preferences;
 use crate::db::AppState;
-use crate::deduper::detect_format_pairs;
 use crate::models::{
-    ConsoleStats, DeletionItem, DeletionPlan, DeletionReason, FileCategory,
-    FormatPair, RomFile, RomGroup,
+    ConsoleStats, DeletionItem, DeletionPlan, DeletionReason, FileCategory, RomFile, RomGroup,
 };
-
-// ── Format-pair deletion helpers ──────────────────────────────────────────────
-
-/// Returns a map of file path → DeletionReason for all files to delete due to format-pair
-/// preferences. For each is_format_pair group where a preference is configured, ALL variants
-/// from the non-preferred folder are included (including BIOS — the entire folder is removed).
-///
-/// Reason assignment:
-/// - `FormatPairNonPreferred`   — title also exists in the preferred folder (safe to delete)
-/// - `FormatPairNoCounterpart`  — title exists ONLY in the non-preferred folder (no counterpart)
-pub(crate) fn build_format_delete_map(
-    groups: &[RomGroup],
-    format_prefs: &HashMap<String, String>,
-    format_pairs: &[FormatPair],
-) -> HashMap<String, DeletionReason> {
-    let mut map = HashMap::new();
-    if format_prefs.is_empty() || format_pairs.is_empty() {
-        return map;
-    }
-    for group in groups {
-        if !group.is_format_pair {
-            continue;
-        }
-        // Find the FormatPair whose folder_a or folder_b appears in this group's variants.
-        let pair = format_pairs.iter().find(|fp| {
-            group.variants.iter().any(|v| v.console == fp.folder_a || v.console == fp.folder_b)
-        });
-        let Some(pair) = pair else { continue };
-        let Some(preferred_folder) = format_prefs.get(&pair.console_group) else { continue };
-        // Does this group have any variant in the preferred folder?
-        let has_counterpart = group.variants.iter().any(|v| v.console == *preferred_folder);
-        let reason = if has_counterpart {
-            DeletionReason::FormatPairNonPreferred
-        } else {
-            DeletionReason::FormatPairNoCounterpart
-        };
-        // All non-preferred-folder variants go in the map — BIOS included.
-        for rom in &group.variants {
-            if rom.console != *preferred_folder {
-                map.insert(rom.path.clone(), reason.clone());
-            }
-        }
-    }
-    map
-}
 
 // ── Filter application ────────────────────────────────────────────────────────
 
 /// Apply language/region preferences to groups and return a deletion plan.
 /// All file categories (Game, Unofficial, Demo, etc.) are handled identically:
 /// keep the preferred variant, delete the rest.
-/// Format-pair removal is handled separately by `apply_format_pairs`.
 pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
     let mut to_delete: Vec<DeletionItem> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
@@ -117,6 +68,7 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
+            system_file_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
             total_bytes: 0,
@@ -137,6 +89,7 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
             preferred_count: 0,
             preferred_explicit_count: 0,
             preferred_inferred_count: 0,
+            system_file_count: 0,
             marked_for_deletion: 0,
             bytes_to_free: 0,
             total_bytes: 0,
@@ -157,7 +110,6 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
 }
 
 /// Produce a deletion plan for all groups (optionally scoped to a console list).
-/// Format-pair cleanup is a separate operation — see `apply_format_pairs`.
 #[tauri::command]
 pub fn apply_filters(
     state: State<'_, AppState>,
@@ -176,67 +128,6 @@ pub fn apply_filters(
     Ok(apply_filters_inner(groups))
 }
 
-/// Build a deletion plan for format-pair cleanup: remove all variants from the
-/// non-preferred folder for each pair where the user has set a preference.
-/// This is intentionally separate from `apply_filters` — format-pair removal is a
-/// structural, one-time operation; variant pruning is preference-driven and recurring.
-#[tauri::command]
-pub fn apply_format_pairs(state: State<'_, AppState>) -> Result<DeletionPlan, String> {
-    // Load format preferences before acquiring the scan cache lock.
-    let format_prefs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        load_format_preferences(&conn)?
-    };
-
-    if format_prefs.is_empty() {
-        return Ok(DeletionPlan {
-            to_delete: vec![],
-            to_keep: vec![],
-            no_preferred_version_count: 0,
-            total_bytes_freed: 0,
-            console_summary: vec![],
-        });
-    }
-
-    let (groups, format_pairs) = {
-        let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
-        let pairs = detect_format_pairs(&cache.roms);
-        (cache.groups.clone(), pairs)
-    };
-
-    let delete_map = build_format_delete_map(&groups, &format_prefs, &format_pairs);
-
-    let mut to_delete: Vec<DeletionItem> = vec![];
-    let mut to_keep: Vec<RomFile> = vec![];
-
-    for group in &groups {
-        for rom in &group.variants {
-            if let Some(reason) = delete_map.get(&rom.path) {
-                to_delete.push(DeletionItem {
-                    rom: rom.clone(),
-                    reason: reason.clone(),
-                });
-            } else {
-                to_keep.push(rom.clone());
-            }
-        }
-    }
-
-    to_delete.sort_by(|a, b| {
-        a.rom.console.cmp(&b.rom.console).then_with(|| a.rom.filename.cmp(&b.rom.filename))
-    });
-
-    let total_bytes_freed = to_delete.iter().map(|d| d.rom.filesize).sum();
-
-    Ok(DeletionPlan {
-        to_delete,
-        to_keep,
-        no_preferred_version_count: 0,
-        total_bytes_freed,
-        console_summary: vec![],
-    })
-}
-
 // ── CSV helper ────────────────────────────────────────────────────────────────
 
 fn csv_escape(s: &str) -> String {
@@ -249,10 +140,8 @@ fn csv_escape(s: &str) -> String {
 
 fn deletion_reason_str(r: &DeletionReason) -> &'static str {
     match r {
-        DeletionReason::NonPreferred            => "non_preferred",
-        DeletionReason::FormatPairNonPreferred  => "format_pair_non_preferred",
-        DeletionReason::FormatPairNoCounterpart => "format_pair_no_counterpart",
-        DeletionReason::NoPreferredVersion      => "no_preferred_version",
+        DeletionReason::NonPreferred       => "non_preferred",
+        DeletionReason::NoPreferredVersion => "no_preferred_version",
     }
 }
 
@@ -265,6 +154,7 @@ fn file_category_label(cat: &FileCategory) -> &'static str {
         FileCategory::Demo       => "demo",
         FileCategory::Video      => "video",
         FileCategory::EReader    => "e_reader",
+        FileCategory::Accessory  => "accessory",
     }
 }
 
@@ -300,7 +190,7 @@ pub fn export_csv(to_delete: Vec<DeletionItem>, path: String) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{FileCategory, FormatPair, RomFile, RomGroup};
+    use crate::models::{FileCategory, RomFile, RomGroup};
 
     fn make_rom(title: &str, category: FileCategory) -> RomFile {
         RomFile {
@@ -312,6 +202,7 @@ mod tests {
             languages: vec![],
             regions: vec![],
             revision: 0,
+            build_date: None,
             disc_number: None,
             version: None,
             status_flags: vec![],
@@ -420,143 +311,5 @@ mod tests {
         assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPreferred));
     }
 
-    #[test]
-    fn build_format_delete_map_marks_non_preferred_folder() {
-        let fds = "Nintendo - Family Computer Disk System (FDS)";
-        let qd  = "Nintendo - Family Computer Disk System (QD)";
-        let group_name = "Nintendo - Family Computer Disk System";
-
-        let mut fds_rom = make_rom("Game", FileCategory::Game);
-        fds_rom.path = "/roms/fds/Game.zip".into();
-        fds_rom.console = fds.into();
-        let mut qd_rom = make_rom("Game", FileCategory::Game);
-        qd_rom.path = "/roms/qd/Game.zip".into();
-        qd_rom.console = qd.into();
-
-        let mut group = make_group(vec![fds_rom, qd_rom]);
-        group.is_format_pair = true;
-
-        let mut format_prefs = HashMap::new();
-        format_prefs.insert(group_name.to_string(), fds.to_string());
-
-        let pairs = vec![FormatPair {
-            console_group: group_name.into(),
-            folder_a: fds.into(),
-            folder_b: qd.into(),
-            overlap_percent: 1.0,
-            folder_a_count: 0,
-            folder_b_count: 0,
-        }];
-
-        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
-        assert_eq!(delete_map.len(), 1, "only the non-preferred (QD) path should be in the map");
-        assert!(delete_map.contains_key("/roms/qd/Game.zip"));
-        assert!(!delete_map.contains_key("/roms/fds/Game.zip"));
-        assert!(matches!(delete_map["/roms/qd/Game.zip"], DeletionReason::FormatPairNonPreferred));
-    }
-
-    #[test]
-    fn build_format_delete_map_includes_bios_in_non_preferred_folder() {
-        // BIOS in the non-preferred folder IS included — the whole folder is being removed.
-        let fds = "Nintendo - Family Computer Disk System (FDS)";
-        let qd  = "Nintendo - Family Computer Disk System (QD)";
-        let group_name = "Nintendo - Family Computer Disk System";
-
-        let mut bios = make_rom("[BIOS] Disk System BIOS", FileCategory::Game);
-        bios.path = "/roms/qd/bios.zip".into();
-        bios.console = qd.into();
-        bios.is_bios = true;
-        let mut fds_bios = make_rom("[BIOS] Disk System BIOS", FileCategory::Game);
-        fds_bios.path = "/roms/fds/bios.zip".into();
-        fds_bios.console = fds.into();
-        fds_bios.is_bios = true;
-
-        let mut group = make_group(vec![fds_bios, bios]);
-        group.is_format_pair = true;
-
-        let mut format_prefs = HashMap::new();
-        format_prefs.insert(group_name.to_string(), fds.to_string());
-        let pairs = vec![FormatPair {
-            console_group: group_name.into(),
-            folder_a: fds.into(),
-            folder_b: qd.into(),
-            overlap_percent: 1.0,
-            folder_a_count: 0,
-            folder_b_count: 0,
-        }];
-
-        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
-        assert!(delete_map.contains_key("/roms/qd/bios.zip"), "BIOS in non-preferred folder must be included");
-        assert!(!delete_map.contains_key("/roms/fds/bios.zip"), "BIOS in preferred folder must be kept");
-    }
-
-    #[test]
-    fn build_format_delete_map_no_counterpart_reason() {
-        // Title exists ONLY in the non-preferred folder → FormatPairNoCounterpart reason.
-        let fds = "Nintendo - Family Computer Disk System (FDS)";
-        let qd  = "Nintendo - Family Computer Disk System (QD)";
-        let group_name = "Nintendo - Family Computer Disk System";
-
-        // QD-only ROM (no FDS counterpart)
-        let mut qd_only = make_rom("QD Exclusive Title", FileCategory::Game);
-        qd_only.path = "/roms/qd/exclusive.zip".into();
-        qd_only.console = qd.into();
-
-        let mut group = make_group(vec![qd_only]);
-        group.is_format_pair = true;
-
-        let mut format_prefs = HashMap::new();
-        format_prefs.insert(group_name.to_string(), fds.to_string());
-        let pairs = vec![FormatPair {
-            console_group: group_name.into(),
-            folder_a: fds.into(),
-            folder_b: qd.into(),
-            overlap_percent: 0.95,
-            folder_a_count: 0,
-            folder_b_count: 0,
-        }];
-
-        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
-        assert_eq!(delete_map.len(), 1);
-        assert!(matches!(
-            delete_map["/roms/qd/exclusive.zip"],
-            DeletionReason::FormatPairNoCounterpart
-        ), "title with no preferred-folder counterpart must use FormatPairNoCounterpart");
-    }
-
-    #[test]
-    fn build_format_delete_map_with_counterpart_reason() {
-        // Title exists in BOTH folders → FormatPairNonPreferred reason for non-preferred copy.
-        let fds = "Nintendo - Family Computer Disk System (FDS)";
-        let qd  = "Nintendo - Family Computer Disk System (QD)";
-        let group_name = "Nintendo - Family Computer Disk System";
-
-        let mut fds_rom = make_rom("Shared Title", FileCategory::Game);
-        fds_rom.path = "/roms/fds/shared.zip".into();
-        fds_rom.console = fds.into();
-        let mut qd_rom = make_rom("Shared Title", FileCategory::Game);
-        qd_rom.path = "/roms/qd/shared.zip".into();
-        qd_rom.console = qd.into();
-
-        let mut group = make_group(vec![fds_rom, qd_rom]);
-        group.is_format_pair = true;
-
-        let mut format_prefs = HashMap::new();
-        format_prefs.insert(group_name.to_string(), fds.to_string());
-        let pairs = vec![FormatPair {
-            console_group: group_name.into(),
-            folder_a: fds.into(),
-            folder_b: qd.into(),
-            overlap_percent: 1.0,
-            folder_a_count: 0,
-            folder_b_count: 0,
-        }];
-
-        let delete_map = build_format_delete_map(&[group], &format_prefs, &pairs);
-        assert!(matches!(
-            delete_map["/roms/qd/shared.zip"],
-            DeletionReason::FormatPairNonPreferred
-        ), "title with a counterpart must use FormatPairNonPreferred");
-    }
 
 }

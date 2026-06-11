@@ -9,6 +9,7 @@ mod db;
 mod deduper;
 mod models;
 mod parser;
+mod picker;
 mod watcher;
 
 // Re-exports for the audit binary target
@@ -16,7 +17,7 @@ pub use commands::group::{group_roms, score_rom, COLLECTION_TAGS};
 pub use models::{FileCategory, RomFile, RomGroup, UserPreferences};
 pub use parser::{parse_file, parse_from_filename};
 
-use commands::{dat, execute, group, history, metadata, prune, scan, settings, thumbnail};
+use commands::{dat, execute, group, history, metadata, prune, qbt, scan, settings, thumbnail};
 use db::AppState;
 
 fn build_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
@@ -110,11 +111,9 @@ pub fn run() {
             group::get_system_files,
             // Prune
             prune::apply_filters,
-            prune::apply_format_pairs,
             prune::export_csv,
             // Execute
             execute::execute_prune,
-            execute::execute_format_pairs,
             execute::resume_session,
             execute::get_interrupted_session,
             execute::get_empty_roots,
@@ -150,6 +149,13 @@ pub fn run() {
             dat::get_completeness,
             dat::generate_download_list,
             dat::export_download_list,
+            // qBittorrent pre-download filter
+            qbt::save_qbt_settings,
+            qbt::get_qbt_settings,
+            qbt::test_qbt_connection,
+            qbt::list_qbt_torrents,
+            qbt::preview_qbt_filter,
+            qbt::apply_qbt_filter,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

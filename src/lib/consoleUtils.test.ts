@@ -13,7 +13,7 @@ import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 function makeConsole(name: string): ConsoleStats {
-  return { name, total_files: 1, total_groups: 1, game_files: 1, game_groups: 1, preferred_groups: 1, all_groups: 1, unofficial_files: 0, preferred_count: 1, preferred_explicit_count: 0, preferred_inferred_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
+  return { name, total_files: 1, total_groups: 1, game_files: 1, game_groups: 1, preferred_groups: 1, all_groups: 1, unofficial_files: 0, preferred_count: 1, preferred_explicit_count: 0, preferred_inferred_count: 0, system_file_count: 0, marked_for_deletion: 0, bytes_to_free: 0, total_bytes: 0 };
 }
 
 // ── getCanonicalConsoleName ───────────────────────────────────────────────────
@@ -98,6 +98,44 @@ describe("getCanonicalConsoleName", () => {
     expect(getCanonicalConsoleName("Nintendo 3DS (Digital) (Decrypted)")).toBe("Nintendo 3DS");
     expect(getCanonicalConsoleName("Nintendo DSi (Digital) (CDN) (Decrypted)")).toBe("Nintendo DSi");
   });
+
+  // New VARIANT_SUFFIXES
+  it("strips (Aftermarket) suffix", () => {
+    expect(getCanonicalConsoleName("Game Boy (Aftermarket)")).toBe("Game Boy");
+  });
+
+  it("strips (Private) suffix", () => {
+    expect(getCanonicalConsoleName("Atari ST (Private)")).toBe("Atari ST");
+  });
+
+  it("strips (WIP) suffix", () => {
+    expect(getCanonicalConsoleName("N-Gage (WIP)")).toBe("N-Gage");
+  });
+
+  it("strips (Flux) suffix", () => {
+    expect(getCanonicalConsoleName("CPC (Flux)")).toBe("CPC");
+  });
+
+  it("strips (Tapes) then (Waveform) recursively", () => {
+    expect(getCanonicalConsoleName("Atom (Waveform) (Tapes)")).toBe("Atom");
+  });
+
+  it("strips (LNX) and (LYX) for Atari Lynx container formats", () => {
+    expect(getCanonicalConsoleName("Atari Lynx (LNX)")).toBe("Atari Lynx");
+    expect(getCanonicalConsoleName("Atari Lynx (LYX)")).toBe("Atari Lynx");
+  });
+
+  it("strips PC storefront suffixes to canonical PC name", () => {
+    expect(getCanonicalConsoleName("PC and Compatibles (Steam)")).toBe("PC and Compatibles");
+    expect(getCanonicalConsoleName("PC and Compatibles (GOG)")).toBe("PC and Compatibles");
+    expect(getCanonicalConsoleName("PC and Compatibles (Tiger Electronics - Net Jet)"))
+      .toBe("PC and Compatibles");
+  });
+
+  it("resolves NeoGeo Pocket alias", () => {
+    expect(getCanonicalConsoleName("NeoGeo Pocket")).toBe("Neo Geo Pocket");
+    expect(getCanonicalConsoleName("NeoGeo Pocket Color")).toBe("Neo Geo Pocket Color");
+  });
 });
 
 // ── getPlatform ───────────────────────────────────────────────────────────────
@@ -124,6 +162,43 @@ describe("getShortConsoleName", () => {
 
   it("falls back to the full string when no separator", () => {
     expect(getShortConsoleName("GameBoy")).toBe("GameBoy");
+  });
+
+  // indexOf fix: parentheticals with " - " inside must not be severed
+  it("preserves parenthetical containing ' - '", () => {
+    expect(getShortConsoleName("IBM - PC and Compatibles (Tiger Electronics - Net Jet)"))
+      .toBe("PC and Compatibles (Tiger Electronics - Net Jet)");
+  });
+
+  // indexOf fix: multi-hyphen Sega console names
+  it("returns full multi-segment Sega name", () => {
+    expect(getShortConsoleName("Sega - Master System - Mark III"))
+      .toBe("Master System - Mark III");
+  });
+
+  it("returns full NEC multi-segment name", () => {
+    expect(getShortConsoleName("NEC - PC Engine - TurboGrafx-16"))
+      .toBe("PC Engine - TurboGrafx-16");
+  });
+
+  // META_PREFIX fix: strip category prefix, return actual console (last segment)
+  it("strips Non-Redump prefix and returns last segment", () => {
+    expect(getShortConsoleName("Non-Redump - Nintendo - Nintendo GameCube"))
+      .toBe("Nintendo GameCube");
+  });
+
+  it("strips Unofficial prefix and returns last segment", () => {
+    expect(getShortConsoleName("Unofficial - Sony - PlayStation Vita (NoNpDrm)"))
+      .toBe("PlayStation Vita (NoNpDrm)");
+  });
+
+  it("strips Source Code prefix with four segments", () => {
+    expect(getShortConsoleName("Source Code - Nintendo - Nintendo - Game Boy Color"))
+      .toBe("Game Boy Color");
+  });
+
+  it("falls back to second segment when META_PREFIX folder has only one extra segment", () => {
+    expect(getShortConsoleName("Various - itch.io")).toBe("itch.io");
   });
 });
 
@@ -225,6 +300,96 @@ describe("getConsoleDisplayName", () => {
     // Variant suffixes are kept so paired DATs stay distinguishable in the UI
     // ("3DS (Decrypted)" vs a potential "3DS (Encrypted)")
     expect(getConsoleDisplayName("Nintendo - Nintendo 3DS (Decrypted)", true)).toBe("3DS (Decrypted)");
+  });
+
+  // New consoles from catalog expansion
+  it("Atari Lynx with modern No-Intro naming", () => {
+    expect(getConsoleDisplayName("Atari - Atari Lynx", true)).toBe("LYNX");
+  });
+
+  it("Commodore 64", () => {
+    expect(getConsoleDisplayName("Commodore - Commodore 64", true)).toBe("C64");
+  });
+
+  it("SNK NeoGeo Pocket resolves alias to NGP", () => {
+    expect(getConsoleDisplayName("SNK - NeoGeo Pocket", true)).toBe("NGP");
+  });
+
+  it("Non-Redump GameCube folder resolves to GCN", () => {
+    expect(getConsoleDisplayName("Non-Redump - Nintendo - Nintendo GameCube", true)).toBe("GCN");
+  });
+
+  it("Aftermarket variant preserves suffix in label", () => {
+    expect(getConsoleDisplayName("Nintendo - Game Boy (Aftermarket)", true)).toBe("GB (Aftermarket)");
+  });
+
+  it("Panic Playdate", () => {
+    expect(getConsoleDisplayName("Panic - Playdate", true)).toBe("PD");
+  });
+
+  it("NEC PC Engine TurboGrafx-16 multi-segment name", () => {
+    expect(getConsoleDisplayName("NEC - PC Engine - TurboGrafx-16", true)).toBe("PCE");
+  });
+
+  it("IBM PC Tiger Electronics Net Jet variant", () => {
+    // Folder has " - " inside its parenthetical; indexOf fix preserves it
+    expect(getConsoleDisplayName("IBM - PC and Compatibles (Tiger Electronics - Net Jet)", true))
+      .toBe("PC (Tiger Electronics - Net Jet)");
+  });
+});
+
+// ── ABBREV coverage — new entries ────────────────────────────────────────────
+
+describe("ABBREV — new catalog entries", () => {
+  it("Atari modern naming keys", () => {
+    expect(ABBREV["Atari 2600"]).toBe("2600");
+    expect(ABBREV["Atari Lynx"]).toBe("LYNX");
+    expect(ABBREV["Atari Jaguar"]).toBe("JAG");
+  });
+
+  it("NEC multi-segment and standalone keys", () => {
+    expect(ABBREV["PC Engine - TurboGrafx-16"]).toBe("PCE");
+    expect(ABBREV["PC Engine"]).toBe("PCE");
+    expect(ABBREV["PC-FX"]).toBe("PCFX");
+  });
+
+  it("Sega SG-1000 multi-segment key", () => {
+    expect(ABBREV["SG-1000 - SC-3000"]).toBe("SG1K");
+    expect(ABBREV["SG-1000"]).toBe("SG1K");
+  });
+
+  it("Commodore 64 with manufacturer prefix", () => {
+    expect(ABBREV["Commodore 64"]).toBe("C64");
+  });
+
+  it("Apple retrocomputer family", () => {
+    expect(ABBREV["Macintosh"]).toBe("MAC");
+    expect(ABBREV["IIGS"]).toBe("A2GS");
+    expect(ABBREV["Pippin"]).toBe("PIP");
+  });
+
+  it("WonderSwan family", () => {
+    expect(ABBREV["WonderSwan"]).toBe("WS");
+    expect(ABBREV["WonderSwan Color"]).toBe("WSC");
+  });
+
+  it("Non-game / misc entries", () => {
+    expect(ABBREV["amiibo"]).toBe("amiibo");
+    expect(ABBREV["Audio CD"]).toBe("ACD");
+    expect(ABBREV["DVD-Video"]).toBe("DVDV");
+  });
+
+  it("N-Gage after (WIP) strip", () => {
+    // ABBREV["N-Gage"] is the key; (WIP) is stripped by VARIANT_SUFFIXES before lookup
+    expect(ABBREV["N-Gage"]).toBe("NGE");
+  });
+
+  it("Playdate", () => {
+    expect(ABBREV["Playdate"]).toBe("PD");
+  });
+
+  it("PC and Compatibles → PC", () => {
+    expect(ABBREV["PC and Compatibles"]).toBe("PC");
   });
 });
 

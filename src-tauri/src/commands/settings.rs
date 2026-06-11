@@ -180,9 +180,12 @@ pub fn reapply_preferences(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let settings = get_settings_inner(&conn)?;
-    drop(conn);
+    let (settings, format_prefs) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let s = get_settings_inner(&conn)?;
+        let fp = load_format_preferences(&conn)?;
+        (s, fp)
+    };
 
     let mut cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
     if cache.roms.is_empty() {
@@ -196,7 +199,7 @@ pub fn reapply_preferences(
 
     let format_pairs = detect_format_pairs(&cache.roms);
     let new_groups = group_roms(cache.roms.clone(), &settings.preferences);
-    cache.groups = merge_format_pairs(new_groups, &format_pairs, &settings.preferences);
+    cache.groups = merge_format_pairs(new_groups, &format_pairs, &settings.preferences, &format_prefs);
     drop(cache);
 
     app_handle.emit("preferences:regrouped", ()).ok();

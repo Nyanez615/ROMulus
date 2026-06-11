@@ -4,9 +4,5 @@
  * Status of a preferred variant chosen for the download list.
  *
  * Note: `BestAvailable` is intentionally absent. `build_group()` only sets
- * `preferred_idx` when `has_preferred = true`, which requires at least one
- * variant with `matches_preferred_language = true` — so the chosen variant
- * always has a language match. Titles with no language match (e.g. Japan-only
- * for an English user) surface via `DownloadList::excluded_count` instead.
  */
-export type DownloadStatus = "preferred" | "prerelease_only";
+export type DownloadStatus = "preferred" | "prerelease_only" | "fallback_only";

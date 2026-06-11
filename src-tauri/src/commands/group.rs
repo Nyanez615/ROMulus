@@ -76,6 +76,19 @@ pub const COLLECTION_TAGS: &[&str] = &[
     "Phantasy Star Online Episode I & II",  // Mini-game extracted from PSO disc
     "Pixel Heart",                           // French limited physical release label
 ];
+// Hardware capability / patch tags — not platform variants; exempt from the unknown penalty.
+const HARDWARE_FEATURE_TAGS: &[&str] = &[
+    // Post-release patch already encoded as revision=1 in the parser; adding a score
+    // penalty on top would invert the revision bonus that intentionally rewards it.
+    "Bugfix",
+    // Game Boy / GBC / GBA / DS hardware-feature descriptors: ROM capability flags.
+    "SGB Enhanced", "CGB Enhanced", "GBC Mode", "GBC Required",
+    "GBA Mode", "DSi Enhanced", "DSi Exclusive",
+    // Memory bank controller specs: purely technical metadata, not release variants.
+    "MBC1", "MBC2", "MBC3", "MBC5", "MBC6", "MBC7",
+    "HuC1", "HuC3", "MMM01",
+];
+
 // Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
 // Switch Online, Switch, Classic Mini, GameCube) are not listed here — they receive
 // the generic extra_tag penalty below (-5) so plain cartridge releases are preferred.
@@ -111,7 +124,10 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         let lang_count = rom.languages.iter()
             .filter(|l| prefs.preferred_languages.contains(*l))
             .count();
-        return (-100 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
+        // build_date (YYYYMMDD) orders dated protos chronologically; fall back to
+        // the explicit sequence number (e.g. "Proto 2") when no date is present.
+        let build_ord = rom.build_date.unwrap_or(rom.revision);
+        return (-100 + alt_penalty, build_ord, lang_count * 1000 + r_score);
     }
 
     // Bad dump → very low; same lang+region+alt tiebreaker for consistency.
@@ -137,10 +153,22 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
                 -80
             } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
                 -5
+            } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
+                .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part)) {
+                // Any unrecognised extra_tag that isn't a hardware capability flag
+                // (platform port, store label, date stamp, studio label, etc.)
+                // indicates a platform/distribution variant — prefer the base ROM.
+                -5
             } else {
                 0
             };
-        return (-30 + alt_penalty + format_penalty, rom.revision, lang_count * 1000 + r_score);
+        // Completeness bonus: positive signals that the ROM is the most complete artifact.
+        //   Digital  = developer-native release (physical cartridge is a manufactured product)
+        //   Unlocked = full version with no content gate (vs a locked jam/Patreon entry)
+        // +6 overcomes the -5 unknown-tag penalty, netting -29 vs bare physical -30.
+        let completeness_bonus: i32 = if rom.extra_tags.iter().flat_map(|t| t.split(", "))
+            .any(|part| part == "Digital" || part == "Unlocked") { 6 } else { 0 };
+        return (-30 + alt_penalty + format_penalty + completeness_bonus, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
@@ -236,13 +264,25 @@ fn version_ord(v: &Option<String>) -> u64 {
         Some(s) => s,
         None => return 0,
     };
-    let parts: Vec<u64> = s.split('.').filter_map(|p| p.parse().ok()).collect();
-    match parts.as_slice() {
-        [major]               => major * 1_000_000,
-        [major, minor]        => major * 1_000_000 + minor * 1_000,
-        [major, minor, patch] => major * 1_000_000 + minor * 1_000 + patch,
-        _                     => 0,
-    }
+    // Base-27 encoding per component: "N" → N*27, "Na" → N*27+1, "Nb" → N*27+2 …
+    // This preserves ordering across alpha variants ("v0.1a" < "v0.1b") and handles
+    // 4+ part versions ("v0.0.1.1.5.2") by taking the first three components.
+    // Scale chosen so one major unit always dominates a fully-saturated minor:
+    //   max minor contribution ≈ 999*27+26 = 26 999  ×  27 000 ≈ 729 M
+    //   min major unit          = 1*27      =     27  ×  27 000 000 = 729 M  (27 000 > 26 999 ✓)
+    let enc = |p: &str| -> u64 {
+        let digit_end = p.bytes().position(|b| !b.is_ascii_digit()).unwrap_or(p.len());
+        let num: u64 = p[..digit_end].parse().unwrap_or(0);
+        let alpha: u64 = p.as_bytes().get(digit_end)
+            .map(|&b| (b.to_ascii_lowercase().saturating_sub(b'a') as u64) + 1)
+            .unwrap_or(0);
+        num * 27 + alpha
+    };
+    let mut parts = s.split('.');
+    let major = parts.next().map(enc).unwrap_or(0);
+    let minor = parts.next().map(enc).unwrap_or(0);
+    let patch = parts.next().map(enc).unwrap_or(0);
+    major * 27_000_000 + minor * 27_000 + patch
 }
 
 fn default_region_score(region: &str) -> i32 {
@@ -253,6 +293,105 @@ fn default_region_score(region: &str) -> i32 {
         "Europe" => 50,
         _ => 5,
     }
+}
+
+// ── Console key normalisation ─────────────────────────────────────────────────
+
+/// Console-directory suffixes stripped before grouping so ROMs from variant
+/// folders land in the same title group and scoring can pick the best one.
+///
+/// This is the Rust mirror of `VARIANT_SUFFIXES` in `consoleUtils.ts`.  Keep
+/// both lists in sync when No-Intro adds new folder-naming conventions.
+///
+/// Suffixes are stripped iteratively from the trailing end so that compound
+/// names like "…(FDS) (Aftermarket)" or "…(Steam) (Hentai)" collapse to their
+/// base name in one pass.
+///
+/// Format-pair detection (`detect_format_pairs`) still runs on the raw
+/// `rom.console` values, so the Prune bulk-delete workflow for paired
+/// directories (FDS/QD, Headered/Headerless, etc.) is unaffected — those groups
+/// are already merged by `console_group_key` and `merge_format_pairs` simply
+/// marks them `is_format_pair = true`.
+const CONSOLE_VARIANT_SUFFIXES: &[&str] = &[
+    // Famicom Disk System media formats
+    "(FDS)", "(QD)",
+    // Game Boy Advance special cart types
+    "(Multiboot)", "(Video)", "(e-Reader)", "(Play-Yan)",
+    // Nintendo 64 byte-order variants
+    "(BigEndian)", "(ByteSwapped)",
+    // NES ROM header variants
+    "(Headered)", "(Headerless)",
+    // Nintendo DS / 3DS / DSi encryption + distribution variants
+    "(Encrypted)", "(Decrypted)", "(Download Play)", "(Digital)", "(CDN)",
+    "(SpotPass)", "(Pre-Install)", "(Dev ROMs)", "(Lotcheck)", "(Dev)",
+    "(DSvision SD cards)", "(Updates and DLC)", "(Split DLC)", "(WAD)",
+    // Nintendo kiosk / GameCube special media
+    "(CardImage)", "(Extracted)", "(Memory Card)", "(NPDP Carts)",
+    "(Starlight Fun Center)", "(Mario no Photopi SmartMedia)",
+    // Nintendo audio content
+    "(M4A)", "(Tracks)",
+    // PlayStation distribution variants (PSP / PS3 / Vita)
+    "(PSN)", "(NoNpDrm)", "(PSVgameSD)", "(Minis)", "(UMD Video)", "(UMD Music)",
+    "(PS one Classics)", "(Avatars)", "(Content)", "(DLC)", "(Themes)", "(Updates)",
+    // Sony Vita / PSP unofficial formats
+    "(BlackFinPSV)", "(VPK)", "(PSX2PSP)", "(BD-Video Extras)",
+    // Xbox 360 digital storefronts
+    "(Games on Demand)", "(XBLA)", "(Title Updates)",
+    // Content-category variants (same hardware, different ROM-set status)
+    "(Aftermarket)", "(Private)",
+    // Atari container formats
+    "(A78)", "(LNX)", "(LYX)", "(BLL)", "(JAG)", "(J64)", "(ROM)", "(ABS)", "(COF)", "(BIN)",
+    // Commodore
+    "(PP)",
+    // Casio Loopy byte-order
+    "(LittleEndian)",
+    // NEC disk formats / floppy preservation
+    "(Greaseweazle)", "(HardDisk)", "(HDM)",
+    "(Flux)", "(A2R)", "(WOZ)", "(Kryoflux)", "(KryoFlux)", "(IPF)", "(SCP)",
+    "(Bitstream)", "(Sector)", "(DC42)", "(Floppies)", "(FluxDumps)",
+    // Apple Macintosh BETA releases
+    "(BETA)",
+    // Tape / audio formats
+    "(Tapes)", "(Waveform)", "(WAV)",
+    // Sega special hardware accessories
+    "(Visual Memory Unit)", "(Development Kit Hard Drives)",
+    // Preservation / content formats
+    "(WARC)", "(Mame)", "(PDF)", "(CBZ)", "(RAW)", "(JPEG)",
+    "(Playbutton)", "(Catalog)", "(itch.io)", "(APK)",
+    "(Amazon Appstore)", "(Google Play Store)", "(Samsung Galaxy Apps)",
+    // Deprecation / misc
+    "(WIP)", "(Deprecated)", "(Uncategorized)", "(Misc)", "(Various)",
+    // IBM PC digital storefronts
+    "(Tiger Electronics - Net Jet)",
+    "(Steam)", "(GOG)", "(Epic Games Launcher)", "(Humble Bundle)", "(GamersGate)",
+    "(Microsoft Store)", "(Amazon)", "(BOOTH)", "(Ci-en)", "(DLsite)", "(Denpasoft)",
+    "(Desura)", "(FANZA)", "(Freem!)", "(Getchu.com)", "(Groupees)", "(JAST USA)",
+    "(Johren)", "(Kagura Games)", "(MangaGamer)", "(NovelGameCollection)",
+    "(Games for Windows Live)", "(Games for Windows Marketplace)",
+    "(Press Kits)", "(LooseFilesArchive)", "(Flash)", "(Doujin)", "(Hentai)",
+    "(Unknown)", "(Spillover Tracks)",
+    // Dev-stage variants — not in TypeScript VARIANT_SUFFIXES (those suffixes only
+    // appear in ROM filenames, not directory names in No-Intro) but kept here for
+    // user-organised collections and defensive coverage.
+    "(Demo)", "(Beta)", "(Alpha)", "(Prototype)", "(Proto)", "(Sample)", "(Promo)",
+];
+
+/// Return the console key used for grouping, with trailing variant suffixes
+/// removed. The original `rom.console` value is kept for display purposes.
+fn console_group_key(console: &str) -> &str {
+    let mut s = console.trim_end();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &suffix in CONSOLE_VARIANT_SUFFIXES {
+            if let Some(stripped) = s.strip_suffix(suffix) {
+                s = stripped.trim_end();
+                changed = true;
+                break;
+            }
+        }
+    }
+    s
 }
 
 // ── Grouping ──────────────────────────────────────────────────────────────────
@@ -268,7 +407,15 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
         })
         .collect();
 
-    // Group by (console, title_normalized, category_bucket).
+    // Group by (console_group_key, title_key, category_bucket).
+    //
+    // console_group_key strips content-category suffixes like "(Aftermarket)" and
+    // "(Private)" and dev-stage suffixes like "(Demo)" and "(Beta)" before grouping,
+    // so ROMs from parallel torrent folders ("Nintendo - Game Boy (Aftermarket)" and
+    // "Nintendo - Game Boy (Private)") land in the same title group and scoring can
+    // pick the best variant across all folders. The raw rom.console is kept for
+    // display — only the hash key is normalised.
+    //
     // The category_bucket prevents Video / EReader files from merging into Game
     // groups: "Professor Layton (Video)" and "Professor Layton (USA)" share the
     // same title_normalized but are completely different content — grouping them
@@ -282,7 +429,11 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
             FileCategory::EReader => "ereader",
             _                     => "",
         };
-        let key = (rom.console.clone(), rom.title_normalized.clone(), bucket);
+        let key = (
+            console_group_key(&rom.console).to_string(),
+            crate::picker::group_key(&rom.filename),
+            bucket,
+        );
         groups.entry(key).or_default().push(rom);
     }
 
@@ -372,6 +523,7 @@ pub fn merge_format_pairs(
     groups: Vec<RomGroup>,
     pairs: &[FormatPair],
     prefs: &UserPreferences,
+    format_prefs: &HashMap<String, String>,
 ) -> Vec<RomGroup> {
     if pairs.is_empty() {
         return groups;
@@ -389,6 +541,10 @@ pub fn merge_format_pairs(
             .or_insert(p.folder_a.as_str());
     }
 
+    // Reverse map: folder_a → &FormatPair, used to look up console_group for format prefs.
+    let folder_a_to_pair: HashMap<&str, &FormatPair> =
+        pairs.iter().map(|p| (p.folder_a.as_str(), p)).collect();
+
     let (paired, mut result): (Vec<RomGroup>, Vec<RomGroup>) = groups
         .into_iter()
         .partition(|g| console_to_key.contains_key(g.console.as_str()));
@@ -403,7 +559,7 @@ pub fn merge_format_pairs(
             .push(g);
     }
 
-    for (_, mut title_groups) in by_title {
+    for ((pair_key, _), mut title_groups) in by_title {
         if title_groups.len() == 1 {
             let mut g = title_groups.remove(0);
             g.is_format_pair = true;
@@ -421,6 +577,23 @@ pub fn merge_format_pairs(
             merged.title_normalized = title_normalized;
             merged.console = primary_console;
             merged.is_format_pair = true;
+
+            // Apply format preference override if the user has selected a preferred folder.
+            if let Some(pair) = folder_a_to_pair.get(pair_key.as_str()) {
+                if let Some(preferred_folder) = format_prefs.get(&pair.console_group) {
+                    let pref_indices: Vec<usize> = merged
+                        .variants
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, v)| &v.console == preferred_folder)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if let Some(&best) = pref_indices.first() {
+                        merged.preferred_idx = Some(best);
+                    }
+                }
+            }
+
             result.push(merged);
         }
     }
@@ -480,7 +653,7 @@ pub fn get_system_files(
             if !g.variants.iter().any(|v| {
                 matches!(
                     v.file_category,
-                    FileCategory::Bios | FileCategory::Video | FileCategory::EReader
+                    FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory
                 )
             }) {
                 return false;
@@ -529,6 +702,7 @@ mod tests {
             extra_tags: vec![],
             bad_dump: false,
             revision: 0,
+            build_date: None,
             disc_number: None,
             version: None,
             is_bios: false,
@@ -635,6 +809,45 @@ mod tests {
     }
 
     #[test]
+    fn version_ord_multipart_and_alpha_suffix() {
+        // 4-part version must outrank unversioned (Graveblood regression).
+        assert!(version_ord(&Some("v0.0.1.1.5.2".into())) > version_ord(&None));
+        // Alpha suffix ordering: v0.1 < v0.1a < v0.1b.
+        assert!(version_ord(&Some("v0.1a".into())) > version_ord(&Some("v0.1".into())));
+        assert!(version_ord(&Some("v0.1b".into())) > version_ord(&Some("v0.1a".into())));
+        // Standard ordering still holds.
+        assert!(version_ord(&Some("v2.1".into())) > version_ord(&Some("v2.0".into())));
+        assert!(version_ord(&Some("v1.0".into())) > version_ord(&Some("v0.95".into())));
+    }
+
+    #[test]
+    fn versioned_prerelease_preferred_over_unversioned() {
+        // v0.0.1.1.5.2 (Demo) must be preferred over plain (Demo) — version tiebreaker.
+        let make_demo = |filename: &str, version: Option<&str>| -> RomFile {
+            let mut r = rom("Graveblood", &["World"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.status_flags = vec!["Demo".into(), "Aftermarket".into(), "Unl".into()];
+            r.version = version.map(|s| s.to_string());
+            r
+        };
+        let plain = make_demo("Graveblood (World) (Demo) (Aftermarket) (Unl).zip", None);
+        let versioned = make_demo(
+            "Graveblood (World) (v0.0.1.1.5.2) (Demo) (Aftermarket) (Unl).zip",
+            Some("v0.0.1.1.5.2"),
+        );
+        let prefs = en_prefs();
+        let groups = group_roms(vec![plain, versioned], &prefs);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.version.as_deref() == Some("v0.0.1.1.5.2"),
+            "versioned Demo must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
     fn non_alt_preferred_over_alt_pre_release() {
         // (Demo) (Unl) (Alt) must score lower than (Demo) (Unl) with no Alt tag.
         let mut alt = rom("Doctor GB Card Demo", &["World"], &[], &[]);
@@ -667,6 +880,192 @@ mod tests {
             "non-Alt must be preferred, got: {}",
             preferred.filename,
         );
+    }
+
+    #[test]
+    fn digital_aftermarket_preferred_over_physical() {
+        // "(Digital)" indicates the developer-made digital release; the physical cartridge
+        // is a manufactured product. Digital should win the tiebreaker.
+        let mut physical = rom("Batty Zabella", &["World"], &[], &[]);
+        physical.file_category = FileCategory::Unofficial;
+        physical.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+        physical.filename = "Batty Zabella (World) (Aftermarket) (Unl).zip".into();
+
+        let mut digital = rom("Batty Zabella", &["World"], &[], &[]);
+        digital.file_category = FileCategory::Unofficial;
+        digital.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+        digital.extra_tags = vec!["Digital".into()];
+        digital.filename = "Batty Zabella (World) (Digital) (Aftermarket) (Unl).zip".into();
+
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&digital, &prefs) > score_rom(&physical, &prefs),
+            "Digital {:?} must score above physical {:?}",
+            score_rom(&digital, &prefs),
+            score_rom(&physical, &prefs),
+        );
+
+        let groups = group_roms(vec![physical, digital], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.extra_tags.contains(&"Digital".to_string()),
+            "Digital must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn unlocked_aftermarket_preferred_over_locked() {
+        // "(Unlocked)" = full version with no content gate; locked jam entry is a demo.
+        let mut locked = rom("Toadally Awesome", &["World"], &[], &[]);
+        locked.file_category = FileCategory::Unofficial;
+        locked.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+        locked.extra_tags = vec!["GBA Jam 2021".into()];
+        locked.filename = "Toadally Awesome (World) (GBA Jam 2021) (Aftermarket) (Unl).zip".into();
+
+        let mut unlocked = rom("Toadally Awesome", &["World"], &[], &[]);
+        unlocked.file_category = FileCategory::Unofficial;
+        unlocked.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+        unlocked.extra_tags = vec!["GBA Jam 2021".into(), "Unlocked".into()];
+        unlocked.filename =
+            "Toadally Awesome (World) (GBA Jam 2021) (Unlocked) (Aftermarket) (Unl).zip".into();
+
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&unlocked, &prefs) > score_rom(&locked, &prefs),
+            "Unlocked {:?} must score above locked {:?}",
+            score_rom(&unlocked, &prefs),
+            score_rom(&locked, &prefs),
+        );
+
+        let groups = group_roms(vec![locked, unlocked], &prefs);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.extra_tags.contains(&"Unlocked".to_string()),
+            "Unlocked must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn demo_folder_and_release_folder_merge_into_one_group() {
+        // Simulates two torrents unpacked into sibling directories:
+        //   "Nintendo - Game Boy (Aftermarket)"         → full release
+        //   "Nintendo - Game Boy (Aftermarket) (Demo)"  → demo build
+        // Both must land in the same group so scoring can pick the full release.
+        let release_console = "Nintendo - Game Boy (Aftermarket)";
+        let demo_console    = "Nintendo - Game Boy (Aftermarket) (Demo)";
+
+        let mut full = rom("Dragon Battle", &["World"], &[], &[]);
+        full.console = release_console.into();
+        full.filename = "Dragon Battle (World) (Aftermarket) (Unl).zip".into();
+        full.file_category = FileCategory::Unofficial;
+        full.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+
+        let mut demo = rom("Dragon Battle", &["World"], &[], &[]);
+        demo.console = demo_console.into();
+        demo.filename = "Dragon Battle (World) (Demo) (Aftermarket) (Unl).zip".into();
+        demo.file_category = FileCategory::Unofficial;
+        demo.status_flags = vec!["Demo".into(), "Aftermarket".into(), "Unl".into()];
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![full, demo], &prefs);
+
+        assert_eq!(groups.len(), 1, "Demo and full release must be in the same group");
+        let g = &groups[0];
+        assert_eq!(g.variants.len(), 2);
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            !preferred.status_flags.contains(&"Demo".to_string()),
+            "Full release must be preferred over demo, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn same_console_demo_and_release_already_group_together() {
+        // When both files live in the exact same console directory they must land in
+        // one group without any fix — this test documents the invariant and lets us
+        // detect if something downstream ever breaks it.
+        let console = "Nintendo - Game Boy (Aftermarket)";
+
+        let mut full = rom("Dragon Battle", &["World"], &[], &[]);
+        full.console = console.into();
+        full.filename = "Dragon Battle (World) (Aftermarket) (Unl).zip".into();
+        full.file_category = FileCategory::Unofficial;
+        full.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+
+        let mut demo = rom("Dragon Battle", &["World"], &[], &[]);
+        demo.console = console.into();
+        demo.filename = "Dragon Battle (World) (Demo) (Aftermarket) (Unl).zip".into();
+        demo.file_category = FileCategory::Unofficial;
+        demo.status_flags = vec!["Demo".into(), "Aftermarket".into(), "Unl".into()];
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![full, demo], &prefs);
+
+        assert_eq!(groups.len(), 1, "Same-console Demo and full release must be in one group");
+        assert_eq!(groups[0].variants.len(), 2);
+    }
+
+    #[test]
+    fn console_group_key_strips_variant_suffixes() {
+        // Content-category suffixes are stripped
+        assert_eq!(console_group_key("Nintendo - Game Boy (Aftermarket)"), "Nintendo - Game Boy");
+        assert_eq!(console_group_key("Nintendo - Game Boy (Private)"), "Nintendo - Game Boy");
+        // Dev-stage suffixes are stripped
+        assert_eq!(console_group_key("Nintendo - Game Boy (Demo)"), "Nintendo - Game Boy");
+        assert_eq!(console_group_key("Nintendo - Game Boy (Beta)"), "Nintendo - Game Boy");
+        // Multiple trailing suffixes are stripped iteratively
+        assert_eq!(console_group_key("Nintendo - Game Boy (Aftermarket) (Demo)"), "Nintendo - Game Boy");
+        assert_eq!(console_group_key("Nintendo - Game Boy (Aftermarket) (Beta)"), "Nintendo - Game Boy");
+        assert_eq!(console_group_key("Nintendo - Game Boy (Aftermarket) (Demo) (Beta)"), "Nintendo - Game Boy");
+        // Format-pair suffixes are also stripped (merge_format_pairs marks them is_format_pair)
+        assert_eq!(console_group_key("Nintendo - Family Computer Disk System (FDS)"), "Nintendo - Family Computer Disk System");
+        assert_eq!(console_group_key("Nintendo - Family Computer Disk System (QD)"), "Nintendo - Family Computer Disk System");
+        assert_eq!(console_group_key("Nintendo - Nintendo Entertainment System (Headered)"), "Nintendo - Nintendo Entertainment System");
+        assert_eq!(console_group_key("Nintendo - Nintendo Entertainment System (Headerless)"), "Nintendo - Nintendo Entertainment System");
+        assert_eq!(console_group_key("Nintendo - Nintendo 64 (BigEndian)"), "Nintendo - Nintendo 64");
+        assert_eq!(console_group_key("Nintendo - Nintendo 64 (ByteSwapped)"), "Nintendo - Nintendo 64");
+        // IBM PC digital storefronts collapse to base
+        assert_eq!(console_group_key("IBM - PC and Compatibles (Digital) (Steam)"), "IBM - PC and Compatibles");
+        assert_eq!(console_group_key("IBM - PC and Compatibles (Digital) (GOG)"), "IBM - PC and Compatibles");
+        // Compound content+format suffixes collapse completely
+        assert_eq!(console_group_key("Nintendo - Family Computer Disk System (FDS) (Aftermarket)"), "Nintendo - Family Computer Disk System");
+        // Base name without any suffix is unchanged
+        assert_eq!(console_group_key("Nintendo - Game Boy"), "Nintendo - Game Boy");
+    }
+
+    #[test]
+    fn aftermarket_and_private_folders_merge_into_one_group() {
+        // Reproduces the observed Athletic World / Cat and His Boy split: the same
+        // title exists in both "(Aftermarket)" and "(Private)" console directories.
+        // Without normalisation the two directories produced separate 1-variant groups.
+        let mut aftermarket = rom("Athletic World", &["World"], &[], &[]);
+        aftermarket.console = "Nintendo - Game Boy (Aftermarket)".into();
+        aftermarket.filename =
+            "Athletic World (World) (SGB Enhanced) (Aftermarket) (Unl).zip".into();
+        aftermarket.file_category = FileCategory::Unofficial;
+        aftermarket.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+
+        let mut private = rom("Athletic World", &["World"], &[], &[]);
+        private.console = "Nintendo - Game Boy (Private)".into();
+        private.filename = "Athletic World (World) (SGB Enhanced) (Unl).zip".into();
+        private.file_category = FileCategory::Unofficial;
+        private.status_flags = vec!["Unl".into()];
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![aftermarket, private], &prefs);
+
+        assert_eq!(
+            groups.len(),
+            1,
+            "Aftermarket and Private copies of the same title must be one group"
+        );
+        assert_eq!(groups[0].variants.len(), 2);
     }
 
     #[test]
@@ -882,6 +1281,7 @@ mod tests {
                 extra_tags: vec![],
                 bad_dump: false,
                 revision: 0,
+                build_date: None,
                 disc_number: None,
                 version: None,
                 is_bios: false,
@@ -899,7 +1299,7 @@ mod tests {
             build_group(vec![make(fds, "unique fds title")], &en_prefs()),
         ];
 
-        let merged = merge_format_pairs(groups, &[pair], &en_prefs());
+        let merged = merge_format_pairs(groups, &[pair], &en_prefs(), &HashMap::new());
 
         // "adian no tsue" should be merged into 1 group with 2 variants
         let shared: Vec<_> = merged.iter().filter(|g| g.title_normalized == "adian no tsue").collect();

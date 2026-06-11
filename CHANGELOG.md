@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Accessories / amiibo in System Files** — `FileCategory::Accessory` (amiibo NFC dumps and similar non-playable accessories) now appears as an "Accessories" section in the System Files tab. Backend already filtered the category; frontend `ALL_CATEGORIES` array updated with a `Package` icon entry.
+- **System Files count everywhere** — `ConsoleStats` gains `system_file_count: u32` (BIOS + Video + e-Reader + Accessory). Sidebar footer shows a 3-line breakdown: Titles / Files · ROMs / System Files · Platforms. Dashboard gains two new stat tiles (Files and System Files), and per-console cards show the system file count inline. `compute_console_stats` counts system files in the per-ROM loop.
+- **Format Variant Preferences** — new Settings section replaces the old "Format Variant Cleanup" delete workflow. For each detected format pair (FDS/QD, Headered/Headerless, etc.) the user picks their preferred folder via radio buttons. Selecting a preference saves to the `format_preferences` DB table and immediately triggers a rescan so the ★ preferred marker updates throughout the ROMs tab.
+- **Format preference wired into `merge_format_pairs`** — fourth parameter `format_prefs: &HashMap<String, String>` added. After `build_group` scores variants, the function overrides `preferred_idx` when a saved preference matches the pair's `console_group`. `scan_roots` and `reapply_preferences` both load preferences from DB and pass them through. The FDS vs. QD alphabetical tie bug is resolved.
+- **Downloads: rescan after applying qBittorrent priorities** — after `apply_qbt_filter` succeeds, the pre-download section automatically rescans ROM roots and shows inline "Scanning…" / "Collection updated." feedback identical to the post-settings-change flow.
+
+### Changed
+- **Format Variant Cleanup removed** — `apply_format_pairs` and `execute_format_pairs` Tauri commands deleted from Rust (`prune.rs`, `execute.rs`) and unregistered from `lib.rs`. `applyFormatPairs` and `executeFormatPairs` wrappers removed from `tauri.ts`. The deletion workflow is superseded by the new preference-driven prune flow.
+- **`DeletionReason` simplified** — `FormatPairNonPreferred` and `FormatPairNoCounterpart` variants removed. Only `NonPreferred` and `NoPreferredVersion` remain. `PRUNE_REASON_LABELS`/`PRUNE_REASON_COLORS` in `PrunePreviewDialog.tsx` updated accordingly.
+- **`matchesCat` in PrunePreviewDialog** — "system" bucket now includes `accessory` to match the updated `get_system_files` filter.
+
+### Technical
+- `merge_format_pairs` signature: 3 args → 4 args (`format_prefs: &HashMap<String, String>`). Builds a `folder_a_to_pair` reverse map internally to resolve `console_group` from bucket key.
+- `build_format_delete_map`, `apply_format_pairs` functions removed from `prune.rs`.
+- `execute_format_pairs` function removed from `execute.rs` (`resume_session` still handles `format_pair_cleanup` rows for crash recovery of interrupted old sessions).
+- `ConsoleStats` struct: new `system_file_count: u32` field. TS binding regenerated (`cargo test`).
+- `CATEGORY_PRIORITY` dead constant removed from `Roms.tsx`; `CategoryFlag` type removed.
+- Rust tests: 197 → 231 (+34). Vitest: 101 → 134 (+33).
+
 ## [0.2.9] - 2026-06-09
 
 ### Added

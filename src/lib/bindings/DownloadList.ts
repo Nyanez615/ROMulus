@@ -10,6 +10,10 @@ export type DownloadList = { console: string, to_download: Array<DownloadEntry>,
  */
 total_in_dat: number, preferred_count: number, prerelease_only_count: number, 
 /**
- * Groups with no language-matching variant (e.g. Japan-only for an En user).
+ * BIOS / amiibo entries included despite no language match (best-available variant).
+ */
+fallback_count: number, 
+/**
+ * Groups with no language-matching variant (regular ROM titles, not BIOS/amiibo).
  */
 excluded_count: number, };

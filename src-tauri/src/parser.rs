@@ -4,7 +4,7 @@ use crate::models::{FileCategory, FileFormat, RomFile};
 
 // ── Known vocabulary ──────────────────────────────────────────────────────────
 
-const KNOWN_REGIONS: &[&str] = &[
+pub(crate) const KNOWN_REGIONS: &[&str] = &[
     "USA", "Japan", "Europe", "World", "Germany", "France", "Australia",
     "Korea", "Brazil", "Taiwan", "China", "Russia", "Spain", "Italy",
     "United Kingdom", "Unknown", "Asia", "Hong Kong", "Netherlands",
@@ -105,6 +105,7 @@ struct ParsedTags {
     extra_tags: Vec<String>,
     bad_dump: bool,
     revision: u32,
+    build_date: Option<u32>,
     disc_number: Option<u32>,
     version: Option<String>,
 }
@@ -116,6 +117,7 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
     let mut extra_tags = vec![];
     let mut bad_dump = false;
     let mut revision = 0u32;
+    let mut build_date: Option<u32> = None;
     let mut disc_number: Option<u32> = None;
     let mut version: Option<String> = None;
 
@@ -191,13 +193,13 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
             revision = 1;
         }
 
-        // ISO build date "YYYY-MM-DD": store as revision = YYYYMMDD so that later
-        // date-stamped protos rank above earlier ones via the pre-release tiebreaker.
-        // Only set when no Rev/Proto sequence number was already parsed.
-        // Fall through so the date string is also kept in extra_tags for display.
-        if revision == 0 {
+        // ISO build date "YYYY-MM-DD": stored separately as build_date (YYYYMMDD)
+        // so proto builds sort chronologically without inflating `revision` for
+        // finished releases. Fall through so the date string stays in extra_tags
+        // for display.
+        if build_date.is_none() {
             if let Some(date_num) = parse_iso_date(content) {
-                revision = date_num;
+                build_date = Some(date_num);
             }
         }
 
@@ -205,7 +207,7 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
         extra_tags.push(content.to_string());
     }
 
-    ParsedTags { regions, languages, status_flags, extra_tags, bad_dump, revision, disc_number, version }
+    ParsedTags { regions, languages, status_flags, extra_tags, bad_dump, revision, build_date, disc_number, version }
 }
 
 /// Returns true for No-Intro catalog/product codes like "4B-003", "8B-001".
@@ -298,6 +300,10 @@ fn detect_category(
     }
     if console.contains("e-Reader") {
         return FileCategory::EReader;
+    }
+    // NFC peripheral data (amiibo figurine/card dumps) — not playable ROMs.
+    if console.to_ascii_lowercase().contains("amiibo") {
+        return FileCategory::Accessory;
     }
     FileCategory::Game
 }
@@ -440,6 +446,7 @@ fn parse_file_inner(path: &Path, console: &str, filesize: u64, _mtime: u64, skip
         extra_tags: tags.extra_tags,
         bad_dump: tags.bad_dump,
         revision: tags.revision,
+        build_date: tags.build_date,
         disc_number: tags.disc_number,
         version: tags.version,
         is_bios,
@@ -793,10 +800,11 @@ mod tests {
     // ── ISO date build-stamp tests ────────────────────────────────────────────
 
     #[test]
-    fn iso_date_stored_as_revision() {
+    fn iso_date_stored_as_build_date() {
         let r = parse("Mick & Mack as the Global Gladiators (USA) (Proto) (1993-07-20).zip");
         assert!(r.status_flags.contains(&"Proto".to_string()));
-        assert_eq!(r.revision, 19930720, "1993-07-20 → revision = 19930720");
+        assert_eq!(r.build_date, Some(19930720), "1993-07-20 → build_date = Some(19930720)");
+        assert_eq!(r.revision, 0, "no explicit Rev tag → revision stays 0");
         assert!(r.extra_tags.contains(&"1993-07-20".to_string()), "date must remain in extra_tags for display");
     }
 
@@ -821,6 +829,29 @@ mod tests {
             "latest proto (1994-01-18) must be preferred, got extra_tags: {:?}",
             preferred.extra_tags,
         );
+    }
+
+    #[test]
+    fn explicit_rev_preferred_over_dated_release() {
+        // A finished release with (Rev 2) must beat one with only a date stamp.
+        // Previously both were Unofficial, date set revision=YYYYMMDD (20241016>>2),
+        // which incorrectly made the dated version win.
+        let prefs = crate::models::UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec!["World".into()],
+            short_console_names: false,
+        };
+        let dated = parse("Some Game (World) (2024-10-16) (Aftermarket) (Unl).zip");
+        let revised = parse("Some Game (World) (Rev 2) (Aftermarket) (Unl).zip");
+        assert_eq!(dated.build_date, Some(20241016), "date must land in build_date");
+        assert_eq!(dated.revision, 0, "date must not inflate revision");
+        assert_eq!(revised.revision, 2, "Rev 2 must set revision = 2");
+        assert_eq!(revised.build_date, None, "Rev 2 must not set build_date");
+        let groups = crate::commands::group::group_roms(vec![dated, revised], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert_eq!(preferred.revision, 2, "Rev 2 must be preferred over dated release");
     }
 
     // ── Catalog number split tests ─────────────────────────────────────────────

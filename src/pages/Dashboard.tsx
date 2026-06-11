@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2, LibraryBig } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2, LibraryBig, Files, Shield } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SortControl } from "@/components/SortControl";
 import type { SortDir } from "@/lib/romUtils";
@@ -100,6 +100,14 @@ export default function Dashboard() {
   );
   const unofficialRomCount = useMemo(
     () => consoles.reduce((s, c) => s + c.unofficial_files, 0),
+    [consoles],
+  );
+  const totalFiles = useMemo(
+    () => consoles.reduce((s, c) => s + c.total_files, 0),
+    [consoles],
+  );
+  const totalSystemFiles = useMemo(
+    () => consoles.reduce((s, c) => s + c.system_file_count, 0),
     [consoles],
   );
   const totalBytes = consoles.reduce((s, c) => s + c.total_bytes, 0);
@@ -302,7 +310,12 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+        <StatCard
+          icon={Files}
+          label="Files"
+          value={totalFiles > 0 ? totalFiles.toLocaleString() : "—"}
+        />
         <StatCard
           icon={Gamepad2}
           label="ROMs"
@@ -338,6 +351,11 @@ export default function Dashboard() {
               </Tooltip>
             </TooltipProvider>
           ) : undefined}
+        />
+        <StatCard
+          icon={Shield}
+          label="System Files"
+          value={totalSystemFiles > 0 ? totalSystemFiles.toLocaleString() : "—"}
         />
         <StatCard icon={Server} label="Consoles" value={totalCanonicals > 0 ? totalCanonicals.toString() : "—"} />
         <StatCard icon={Globe} label="Platforms" value={platformStats.size > 0 ? platformStats.size.toString() : "—"} />
@@ -546,6 +564,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
 }) {
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
   const totalFiles = variants.reduce((s, v) => s + v.game_files + v.unofficial_files, 0);
+  const totalSystemFiles = variants.reduce((s, v) => s + v.system_file_count, 0);
   const totalBytes = variants.reduce((s, v) => s + v.total_bytes, 0);
   const totalGroups = canonicalAllTitleCount(variants);
   const preferredGroups = canonicalFieldSum(variants, "preferred_groups");
@@ -563,7 +582,7 @@ function CanonicalConsoleCard({ canonicalName, variants, onClick }: {
     >
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
-        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs · {formatBytes(totalBytes)}</div>
+        <div className="text-xs text-muted-foreground">{totalGroups.toLocaleString()} titles · {totalFiles.toLocaleString()} ROMs{totalSystemFiles > 0 ? ` · ${totalSystemFiles.toLocaleString()} sys` : ""} · {formatBytes(totalBytes)}</div>
         {filledVariants.length > 1 && (
           <div className="flex gap-1 mt-1 flex-wrap">
             {variants.map((v) => {

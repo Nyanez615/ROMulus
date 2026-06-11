@@ -25,6 +25,12 @@ import type { ScanStatus } from "./bindings/ScanStatus";
 import type { FormatPair } from "./bindings/FormatPair";
 import type { HistoryFilter } from "./bindings/HistoryFilter";
 import type { InterruptedSession } from "./bindings/InterruptedSession";
+import type { QbtSettings } from "./bindings/QbtSettings";
+import type { QbtTorrent } from "./bindings/QbtTorrent";
+import type { QbtFilterPreview } from "./bindings/QbtFilterPreview";
+import type { QbtApplyResult } from "./bindings/QbtApplyResult";
+// QbtFileDecision imported for component use
+export type { QbtFileDecision } from "./bindings/QbtFileDecision";
 
 // ── Defaults for browser-preview mode ────────────────────────────────────────
 
@@ -94,12 +100,6 @@ export const executePrune = (
     ? invoke("execute_prune", { toDelete })
     : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
-export const executeFormatPairs = (
-  toDelete: RomFile[],
-): Promise<ExecutionResult> =>
-  isTauri()
-    ? invoke("execute_format_pairs", { toDelete })
-    : Promise.resolve({ success_count: 0, failed: [], skipped_count: 0, folders_removed: [] });
 
 export const getInterruptedSession = (): Promise<InterruptedSession | null> =>
   isTauri() ? invoke("get_interrupted_session") : Promise.resolve(null);
@@ -120,10 +120,6 @@ export const applyFilters = (consoles?: string[]): Promise<DeletionPlan> =>
     ? invoke("apply_filters", { consoles: consoles ?? null })
     : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
-export const applyFormatPairs = (): Promise<DeletionPlan> =>
-  isTauri()
-    ? invoke("apply_format_pairs")
-    : Promise.resolve({ to_delete: [], to_keep: [], no_preferred_version_count: 0, total_bytes_freed: 0, console_summary: [] });
 
 export const exportCsv = (toDelete: DeletionItem[], path: string): Promise<void> =>
   isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
@@ -163,7 +159,6 @@ import type { Completeness } from "./bindings/Completeness";
 import type { VerificationStatus } from "./bindings/VerificationStatus";
 import type { DownloadList } from "./bindings/DownloadList";
 import type { DownloadEntry } from "./bindings/DownloadEntry";
-import type { ExportFormat } from "./bindings/ExportFormat";
 
 // IGDB credentials
 export const setIgdbCredentials = (clientId: string, secret: string): Promise<void> =>
@@ -211,10 +206,10 @@ export const getCompleteness = (console: string): Promise<Completeness> =>
 export const generateDownloadList = (console: string): Promise<DownloadList> =>
   isTauri()
     ? invoke("generate_download_list", { console })
-    : Promise.resolve({ console, to_download: [], total_in_dat: 0, preferred_count: 0, prerelease_only_count: 0, excluded_count: 0 });
+    : Promise.resolve({ console, to_download: [], total_in_dat: 0, preferred_count: 0, prerelease_only_count: 0, fallback_count: 0, excluded_count: 0 });
 
-export const exportDownloadList = (entries: DownloadEntry[], path: string, format: ExportFormat): Promise<void> =>
-  isTauri() ? invoke("export_download_list", { entries, path, format }) : Promise.resolve();
+export const exportDownloadList = (entries: DownloadEntry[], path: string): Promise<void> =>
+  isTauri() ? invoke("export_download_list", { entries, path }) : Promise.resolve();
 
 // Event listeners for Phase 4 background tasks
 export const onEnrichProgress = (cb: (s: EnrichmentStatus) => void): Promise<UnlistenFn> =>
@@ -242,6 +237,44 @@ export const completeOnboardingStep = (step: number): Promise<OnboardingState> =
   isTauri()
     ? invoke("complete_onboarding_step", { step })
     : Promise.resolve(DEFAULT_ONBOARDING);
+
+// ── qBittorrent ───────────────────────────────────────────────────────────────
+
+const DEFAULT_QBT_SETTINGS: QbtSettings = {
+  host: "localhost:8080",
+  user: "admin",
+  has_password: false,
+  no_auth: false,
+};
+
+export const saveQbtSettings = (
+  host: string,
+  user: string,
+  password: string | null,
+  no_auth: boolean,
+): Promise<void> =>
+  isTauri()
+    ? invoke("save_qbt_settings", { host, user, password, noAuth: no_auth })
+    : Promise.resolve();
+
+export const getQbtSettings = (): Promise<QbtSettings> =>
+  isTauri() ? invoke("get_qbt_settings") : Promise.resolve(DEFAULT_QBT_SETTINGS);
+
+export const testQbtConnection = (): Promise<boolean> =>
+  isTauri() ? invoke("test_qbt_connection") : Promise.resolve(false);
+
+export const listQbtTorrents = (): Promise<QbtTorrent[]> =>
+  isTauri() ? invoke("list_qbt_torrents") : Promise.resolve([]);
+
+export const previewQbtFilter = (hash: string): Promise<QbtFilterPreview> =>
+  isTauri()
+    ? invoke("preview_qbt_filter", { hash })
+    : Promise.resolve({ console_name: null, total: 0, to_download: 0, to_skip: 0, files: [], multi_variant_groups: [] });
+
+export const applyQbtFilter = (hash: string): Promise<QbtApplyResult> =>
+  isTauri()
+    ? invoke("apply_qbt_filter", { hash })
+    : Promise.resolve({ to_download: 0, to_skip: 0 });
 
 // ── Events ────────────────────────────────────────────────────────────────────
 

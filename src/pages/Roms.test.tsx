@@ -30,7 +30,7 @@ function makeRom(title: string, regions: string[], statusFlags: string[] = [], l
     path: `/roms/${title}.zip`, filename: `${title}.zip`,
     console: "Test", title, title_normalized: title.toLowerCase(),
     regions, languages: langs, status_flags: statusFlags, extra_tags: [],
-    bad_dump: false, revision: 0, disc_number: null, version: null,
+    bad_dump: false, revision: 0, build_date: null, disc_number: null, version: null,
     is_bios: false, file_format: "zip", file_category: "game",
     filesize: 1024, matches_preferred_language: true,
     matches_preferred_region: true,

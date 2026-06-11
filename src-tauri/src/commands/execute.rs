@@ -145,119 +145,6 @@ pub fn execute_prune(
     })
 }
 
-// ── execute_format_pairs ──────────────────────────────────────────────────────
-
-#[tauri::command]
-pub fn execute_format_pairs(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    to_delete: Vec<RomFile>,
-) -> Result<ExecutionResult, String> {
-    // Group files by parent directory.
-    let mut by_dir: HashMap<std::path::PathBuf, Vec<usize>> = HashMap::new();
-    for (i, rom) in to_delete.iter().enumerate() {
-        if let Some(parent) = Path::new(&rom.path).parent() {
-            by_dir.entry(parent.to_path_buf()).or_default().push(i);
-        }
-    }
-
-    if let Err(e) = write_backup_manifest(&app, "romulus-format-pair", &to_delete) {
-        eprintln!("[backup] Could not write manifest: {e}");
-    }
-
-    let session_id = Uuid::new_v4().to_string();
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-
-    // Pre-log all files as "pending".
-    for rom in &to_delete {
-        db::log_action(
-            &conn,
-            LogEntry {
-                action: "pending",
-                path: &rom.path,
-                console: &rom.console,
-                title: &rom.title,
-                reason: "format_pair_cleanup",
-                session_id: &session_id,
-            },
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    let mut success_count = 0u32;
-    let mut failed: Vec<FailedFile> = vec![];
-    let mut folders_removed: Vec<String> = vec![];
-
-    for (dir, indices) in &by_dir {
-        // Safety check: count visible (non-hidden) files in the directory.
-        let visible_count = std::fs::read_dir(dir)
-            .ok()
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                    .count()
-            })
-            .unwrap_or(0);
-
-        if visible_count > indices.len() {
-            let err_msg = format!(
-                "{} unexpected files present; folder skipped",
-                visible_count - indices.len()
-            );
-            for &i in indices {
-                let _ = db::update_pending_action(&conn, &to_delete[i].path, "failed");
-                failed.push(FailedFile {
-                    path: to_delete[i].path.clone(),
-                    error: err_msg.clone(),
-                });
-            }
-            continue;
-        }
-
-        match std::fs::remove_dir_all(dir) {
-            Ok(()) => {
-                for &i in indices {
-                    let _ = db::update_pending_action(&conn, &to_delete[i].path, "deleted");
-                    success_count += 1;
-                }
-                folders_removed.push(dir.to_string_lossy().to_string());
-            }
-            Err(e) => {
-                let err = e.to_string();
-                for &i in indices {
-                    let _ = db::update_pending_action(&conn, &to_delete[i].path, "failed");
-                    failed.push(FailedFile {
-                        path: to_delete[i].path.clone(),
-                        error: err.clone(),
-                    });
-                }
-            }
-        }
-    }
-
-    // Remove successfully deleted folders from rom_roots.
-    if !folders_removed.is_empty() {
-        let mut settings = get_settings_inner(&conn)?;
-        settings.rom_roots.retain(|r| !folders_removed.contains(r));
-        save_settings_inner(&conn, &settings)?;
-    }
-
-    let _ = app
-        .notification()
-        .builder()
-        .title("ROMulus")
-        .body(format!("Permanently deleted {success_count} files"))
-        .show();
-
-    Ok(ExecutionResult {
-        success_count,
-        failed,
-        skipped_count: 0,
-        folders_removed,
-    })
-}
-
 // ── resume_session ────────────────────────────────────────────────────────────
 
 /// Resume a session interrupted mid-deletion.
@@ -599,7 +486,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    // ── execute_format_pairs: safety check skips dir with unexpected files ────
+    // ── resume_session: safety check skips dir with unexpected files ─────────
 
     #[test]
     fn test_format_pairs_safety_check_skips_unexpected_files() {
@@ -674,6 +561,7 @@ mod tests {
             extra_tags: vec![],
             bad_dump: false,
             revision: 0,
+            build_date: None,
             disc_number: None,
             version: None,
             is_bios: false,
