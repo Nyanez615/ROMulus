@@ -341,12 +341,17 @@ export default function Roms() {
         }
         trailing={
           displayGroups.length > 0 ? (
-            <button
-              onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {allExpanded ? "Collapse all" : "Expand all"}
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="text-xs text-muted-foreground/60">
+                {displayGroups.length.toLocaleString()} titles
+              </span>
+              <button
+                onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {allExpanded ? "Collapse all" : "Expand all"}
+              </button>
+            </div>
           ) : undefined
         }
       />
