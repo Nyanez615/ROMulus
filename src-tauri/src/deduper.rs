@@ -2,21 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::models::{FormatPair, RomFile};
 
-/// Console format suffix pairs that are always merged regardless of title-overlap percentage.
-/// These are hardware-format variants of the same system where the game library is identical
-/// by definition, so the 80% heuristic is not needed and may fail for small/curated sets.
-const KNOWN_FORMAT_SUFFIX_PAIRS: &[(&str, &str)] = &[
-    ("(FDS)", "(QD)"),
-    ("(Headered)", "(Headerless)"),
-];
-
-/// True when `a` and `b` carry a known format-suffix pair, e.g. one contains "(FDS)" and the
-/// other contains "(QD)". Base-name match is still required via `likely_format_pair`.
-fn is_known_format_pair(a: &str, b: &str) -> bool {
-    KNOWN_FORMAT_SUFFIX_PAIRS
-        .iter()
-        .any(|(x, y)| (a.contains(x) && b.contains(y)) || (a.contains(y) && b.contains(x)))
-}
 
 /// Detect console folder pairs that contain the same games in different formats.
 /// Known format suffix pairs (FDS/QD, Headered/Headerless) are always merged.
@@ -57,20 +42,15 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
             }
 
             let overlap_percent = overlap as f32 / smaller as f32;
-            // `is_category_variant`: one folder is the other with a single trailing
-            // parenthetical added (e.g. "Nintendo - Game Boy" + "Nintendo - Game Boy
-            // (Aftermarket)").  In Myrient full sets the same file often appears in
-            // both the base folder and its category sub-folder; any title overlap is
-            // enough to confirm they share library content and should be user-configurable.
-            // Category variants (base + Aftermarket/Private/Multiboot/etc.) are always
-            // shown as a format pair when both folders are present in the library — even
-            // with zero title overlap.  The user still needs to be able to configure
-            // which folder is preferred, and a 0-overlap preference is harmless (nothing
-            // to merge in the prune step, but the setting is available for future use).
-            let qualifies = is_known_format_pair(a, b)
-                || is_category_variant(a, b)
-                || overlap_percent >= 0.8;
-            if qualifies {
+            // All pairs reaching this point have passed `likely_format_pair`, which
+            // requires strip_trailing_parens(a) == strip_trailing_parens(b) — i.e. the
+            // two folders are variants of the same console (same hardware, different
+            // format/encryption/distribution suffix).  They always qualify as a format
+            // pair regardless of title overlap.  Low or zero overlap just means the
+            // user's collection happens to have different titles in each folder; the
+            // preference setting is still useful (pre-download filter) and harmless when
+            // there is nothing to merge in the prune step.
+            {
                 // Assign folder_a as the subset (smaller or equal) folder so the frontend
                 // always knows which direction the containment goes.
                 let (folder_a, folder_b, folder_a_count, folder_b_count) =
@@ -94,27 +74,6 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
     pairs
 }
 
-/// True when one folder is the other with exactly one trailing parenthetical appended.
-/// "Nintendo - Game Boy" + "Nintendo - Game Boy (Aftermarket)" → true.
-/// "Nintendo - Game Boy (e-Reader)" + "Nintendo - Game Boy (e-Reader) (Aftermarket)" → true.
-/// "Nintendo - Game Boy" + "Nintendo - Game Boy (e-Reader) (Aftermarket)" → false
-///   (two parens added — that pair belongs to the e-Reader group, not the base).
-/// "Nintendo - Game Boy (FDS)" + "Nintendo - Game Boy (QD)" → false (neither is a
-/// strict prefix of the other; those are covered by `is_known_format_pair` instead).
-fn is_category_variant(a: &str, b: &str) -> bool {
-    strip_one_trailing_paren(a) == b || strip_one_trailing_paren(b) == a
-}
-
-/// Strip exactly one trailing `(…)` parenthetical, if present.
-fn strip_one_trailing_paren(s: &str) -> &str {
-    let s = s.trim();
-    if s.ends_with(')') {
-        if let Some(idx) = s.rfind('(') {
-            return s[..idx].trim_end();
-        }
-    }
-    s
-}
 
 /// Heuristic: two console folder names are likely format pairs if one is a
 /// suffix-variant of the other, e.g. "(Headered)" vs "(Headerless)".
@@ -296,18 +255,53 @@ mod tests {
     }
 
     #[test]
-    fn unknown_pair_below_threshold_not_detected() {
-        // Two consoles whose names share a base but whose games barely overlap.
-        // Neither is a known format suffix pair, so the 80% heuristic must reject them.
+    fn same_base_different_suffix_always_detected() {
+        // Any two folders that strip to the same canonical base are format variants
+        // by definition, regardless of title overlap.  The old 80% guard is gone —
+        // low overlap just means the user's collection has different titles in each
+        // folder, but the preference setting is still meaningful.
         let a = "Acme - Console (VariantA)";
         let b = "Acme - Console (VariantB)";
 
         let mut roms: Vec<RomFile> = (0..10).map(|i| rom(a, &format!("game{i}"))).collect();
-        // Only 1 title overlaps — 10% — well below 80%
-        roms.push(rom(b, "game0"));
+        roms.push(rom(b, "game0")); // 10% overlap — would have been rejected before
         roms.extend((10..20).map(|i| rom(b, &format!("unique{i}"))));
 
         let pairs = detect_format_pairs(&roms);
-        assert!(pairs.is_empty(), "low-overlap unknown pair should not be detected");
+        assert!(!pairs.is_empty(), "same canonical base must always be detected as a format pair");
+    }
+
+    #[test]
+    fn multi_suffix_variant_detected_with_zero_overlap() {
+        // "Nintendo - New Nintendo 3DS (Digital) (Deprecated)" has two trailing parens,
+        // so `is_category_variant` (one-paren check) misses it.  It must still appear
+        // alongside "(Decrypted)" and "(Encrypted)" as a format pair because all three
+        // strip to the same canonical base "Nintendo - New Nintendo 3DS".
+        let decrypted = "Nintendo - New Nintendo 3DS (Decrypted)";
+        let deprecated = "Nintendo - New Nintendo 3DS (Digital) (Deprecated)";
+
+        // Non-overlapping title sets simulate a real collection where the deprecated
+        // digital set happens to have entirely different titles from the decrypted set.
+        let mut roms: Vec<RomFile> = (0..4).map(|i| rom(decrypted, &format!("exclusive{i}"))).collect();
+        roms.extend((0..20).map(|i| rom(deprecated, &format!("digital{i}"))));
+
+        let pairs = detect_format_pairs(&roms);
+        assert!(
+            !pairs.is_empty(),
+            "multi-suffix variant with zero overlap must still be detected as a format pair"
+        );
+        let group = &pairs[0].console_group;
+        assert_eq!(group, "Nintendo - New Nintendo 3DS");
+    }
+
+    #[test]
+    fn unrelated_consoles_never_paired() {
+        // Two consoles with completely different names must never form a pair.
+        let roms = vec![
+            rom("Nintendo - Game Boy Advance", "mario"),
+            rom("Nintendo - Super Nintendo Entertainment System", "zelda"),
+        ];
+        let pairs = detect_format_pairs(&roms);
+        assert!(pairs.is_empty(), "unrelated consoles must never be detected as a format pair");
     }
 }
