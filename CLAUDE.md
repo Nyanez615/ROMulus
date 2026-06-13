@@ -20,6 +20,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.8** ✅ Scoring improvements (collection penalty −80, revision bonus, proto ordering, BIOS extra-tag), Prune integrated into Settings, Duplicates tab removed, Utilities moved to ROMs tab, Format Variant rename, faceted chip filtering, CSV export fixes, permanent-only deletion, cloud root blocking
 - **v0.2.9** ✅ DAT pre-download filter (generate_download_list + export_download_list, migration 010, parse_from_filename, Settings preview panel), right-click context menu on all file rows, comprehensive console catalog + recursive canonical stripping + ABBREV expansion, storage size on Dashboard console tiles
 - **v0.2.10** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
+- **v0.2.11** ✅ Scoring overhaul (World region fix, version bonus, dynamic collection penalty, Patreon exempt, numbered protos > dated protos), grouping key fixes (apostrophe, & vs +, vs., trailing article suffix, ISO date time strip), category detection order fix, format-pair detection for subfolders, compilation-subtitle grouping fix, catalog-number disambiguation, format prefs in qBt pre-download filter, UI polish (single-variant expandable, badge removal, prune reopen fix)
 
 ## Dev setup
 
@@ -176,6 +177,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 231 tests, in-memory SQLite only
+- Rust: `cargo test` in `src-tauri/` — 266 tests, in-memory SQLite only
 - Frontend: `npm run test:run` (Vitest + jsdom) — 134 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

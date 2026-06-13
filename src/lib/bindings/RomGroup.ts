@@ -9,4 +9,10 @@ preferred_idx: number | null, has_preferred_version: boolean, is_format_pair: bo
 /**
  * >1 means this group contains multi-disc files that are kept/deleted together.
  */
-disc_count: number, };
+disc_count: number, 
+/**
+ * Original-case catalog number (e.g. "4B-001, Sachen-Commin") when this group
+ * was split from others sharing the same title by a catalog-number extra_tag.
+ * None for the vast majority of groups that have no catalog number.
+ */
+catalog_number: string | null, };

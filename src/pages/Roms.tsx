@@ -34,19 +34,6 @@ function VerificationBadge({ status }: { status?: string }) {
   return <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" aria-label="Unverified" />;
 }
 
-// ── Unofficial category colours (mirrors former HacksUnofficial.tsx) ──────────
-const CATEGORY_FLAGS = ["Pirate", "Unl", "Aftermarket", "Hack"] as const;
-
-const CATEGORY_COLORS: Record<string, string> = {
-  Pirate:      "bg-red-600/20 text-red-300 border-red-600/40",
-  Unl:         "bg-orange-600/20 text-orange-300 border-orange-600/40",
-  Aftermarket: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
-  Hack:        "bg-purple-600/20 text-purple-300 border-purple-600/40",
-};
-function getCategoryFlag(statusFlags: string[]): string {
-  return statusFlags.find((f) => (CATEGORY_FLAGS as readonly string[]).includes(f)) ?? "Unl";
-}
-
 // Load all groups for client-side sort/filter. Must exceed the largest realistic
 // collection — 100k covers any local library; SQLite returns this quickly.
 const ALL_GROUPS = 100_000;
@@ -115,16 +102,32 @@ export default function Roms() {
   const [pruneScanState, setPruneScanState] = useState<"idle" | "scanning" | "done">("idle");
   const [pruneResult, setPruneResult] = useState<{ deleted: number; bytes: number } | null>(null);
 
+  // Tracks the cacheVersion at which the current prune plan was loaded.
+  // null = no plan loaded yet.
+  const [prunePlanVersion, setPrunePlanVersion] = useState<number | null>(null);
+
   async function handlePrune() {
     setPruneLoading(true);
     setPruneResult(null);
     try {
       const plan = await applyFilters(selectedConsoles ?? undefined);
       setPrunePlan(plan);
+      setPrunePlanVersion(cacheVersion);
     } finally {
       setPruneLoading(false);
     }
   }
+
+  // Auto-refresh when the scan cache is newer than the loaded plan
+  // (e.g. after changing Format Variant Preferences triggers a rescan).
+  useEffect(() => {
+    if (prunePlanVersion === null || prunePlanVersion === cacheVersion) return;
+    applyFilters(selectedConsoles ?? undefined)
+      .then((plan) => { setPrunePlan(plan); setPrunePlanVersion(cacheVersion); })
+      .catch(() => { /* silently keep stale plan on error */ });
+  // selectedConsoles intentionally excluded — the plan scope matches its load-time console filter
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheVersion, prunePlanVersion]);
 
   async function handleExecutePrune(toDelete: RomFile[], bytesFreed: number) {
     setPruneExecuting(true);
@@ -134,6 +137,7 @@ export default function Roms() {
       const res = await executePrune(toDelete);
       setPruneResult({ deleted: res.success_count, bytes: bytesFreed });
       setPrunePlan(null);
+      setPrunePlanVersion(null);
       settings = await getSettings().catch(() => null);
     } finally {
       setPruneExecuting(false);
@@ -385,12 +389,9 @@ function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; is
   const baseClass = `flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`;
 
   if (rom.file_category === "unofficial") {
-    const flag = getCategoryFlag(rom.status_flags);
-    const colorClass = CATEGORY_COLORS[flag] ?? CATEGORY_COLORS.Unl;
     return (
       <FileContextMenu path={rom.path}>
         <div className={baseClass}>
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${colorClass} shrink-0`}>{flag}</span>
           <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
           <TagList regions={rom.regions} languages={rom.languages} max={3} />
           <span className="text-muted-foreground/60 shrink-0">{formatBytes(rom.filesize)}</span>

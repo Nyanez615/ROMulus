@@ -2,7 +2,8 @@ use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER, SET_COOKIE};
 use serde::Deserialize;
 use tauri::State;
 
-use crate::commands::group::group_roms;
+use crate::commands::group::{group_roms, merge_format_pairs};
+use crate::deduper::detect_format_pairs;
 use crate::commands::settings::get_settings_inner;
 use crate::db::{get_setting, set_setting, AppState};
 use crate::models::{FileCategory, QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
@@ -158,17 +159,22 @@ struct FilterResult {
     console_name: Option<String>,
     /// (file_index, filename, is_preferred)
     decisions: Vec<(u32, String, bool)>,
+    /// Groups produced by group_roms — used to build QbtGroupInfo without
+    /// re-collapsing catalog-number-split groups back to the same key.
+    groups: Vec<crate::models::RomGroup>,
 }
 
 async fn run_filter(
     state: &AppState,
     hash: &str,
 ) -> Result<FilterResult, String> {
-    let (settings, prefs) = {
+    let (settings, prefs, format_prefs) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let s = load_qbt_settings(&conn)?;
         let app_settings = get_settings_inner(&conn)?;
-        (s, app_settings.preferences)
+        let fp = crate::commands::settings::load_format_preferences(&conn)
+            .map_err(|e| e.to_string())?;
+        (s, app_settings.preferences, fp)
     };
 
     let (client, cookie) = qbt_connect(&settings).await?;
@@ -205,9 +211,12 @@ async fn run_filter(
         })
         .collect();
 
-    // Group with identical logic used by post-download prune
+    // Group with identical logic used by post-download prune, then apply
+    // format variant preferences (e.g. "prefer GBA over GBA (Aftermarket)").
     let rom_vec: Vec<_> = roms.iter().map(|(_, r)| r.clone()).collect();
+    let format_pairs = detect_format_pairs(&rom_vec);
     let groups = group_roms(rom_vec, &prefs);
+    let groups = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
 
     // For each group, mark preferred index as priority 1, rest as 0
     let mut decisions: Vec<(u32, String, bool)> = Vec::new();
@@ -238,7 +247,7 @@ async fn run_filter(
         }
     }
 
-    Ok(FilterResult { console_name, decisions })
+    Ok(FilterResult { console_name, decisions, groups })
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -362,29 +371,42 @@ pub async fn preview_qbt_filter(
         .collect();
     files.sort_by(|a, b| a.filename.cmp(&b.filename));
 
-    // All title groups — single-variant (skipped=[]) and multi-variant alike.
-    let mut key_map: std::collections::HashMap<String, (String, Vec<String>)> = std::collections::HashMap::new();
-    for (_, filename, is_preferred) in &result.decisions {
-        let key = crate::picker::group_key(filename);
-        let entry = key_map.entry(key.clone()).or_insert_with(|| (String::new(), Vec::new()));
-        if *is_preferred {
-            entry.0 = filename.clone();
-        } else {
-            entry.1.push(filename.clone());
-        }
-    }
+    // Build title groups directly from the groups produced by group_roms.
+    // Re-grouping from decisions by picker::group_key would collapse catalog-number-split
+    // groups (e.g. 9 × "4 in 1 (4B-00N, Sachen)") back to a single key, making 8 of
+    // the 9 downloads invisible in the Titles view.
+    let mut multi_variant_groups: Vec<QbtGroupInfo> = result.groups
+        .iter()
+        .filter_map(|g| {
+            let preferred_idx = g.preferred_idx?; // skip no-preferred-version groups
+            let chosen_name = g.variants[preferred_idx].filename.clone();
 
-    let mut multi_variant_groups: Vec<QbtGroupInfo> = key_map
-        .into_iter()
-        .filter(|(_, (chosen, _))| !chosen.is_empty())
-        .map(|(key, (chosen, mut skipped))| {
+            let mut skipped: Vec<String> = g.variants.iter().enumerate()
+                .filter(|(i, r)| {
+                    *i != preferred_idx
+                        && !matches!(r.file_category,
+                            FileCategory::Bios | FileCategory::Video
+                            | FileCategory::EReader | FileCategory::Accessory)
+                })
+                .map(|(_, r)| r.filename.clone())
+                .collect();
             skipped.sort();
-            QbtGroupInfo {
-                display_title: crate::picker::display_title(&chosen),
-                key,
-                chosen,
-                skipped,
-            }
+
+            // Append catalog number to both key (for React stability) and display title
+            // (so the user can distinguish "4 in 1 · 4B-001" from "4 in 1 · 4B-002").
+            let base_key = crate::picker::group_key(&chosen_name);
+            let key = if let Some(ref cat) = g.catalog_number {
+                format!("{} ({})", base_key, cat.to_lowercase())
+            } else {
+                base_key
+            };
+            let display_title = if let Some(ref cat) = g.catalog_number {
+                format!("{} · {}", crate::picker::display_title(&chosen_name), cat)
+            } else {
+                crate::picker::display_title(&chosen_name)
+            };
+
+            Some(QbtGroupInfo { key, display_title, chosen: chosen_name, skipped })
         })
         .collect();
     multi_variant_groups.sort_by(|a, b| a.key.cmp(&b.key));

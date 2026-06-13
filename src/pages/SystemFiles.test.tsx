@@ -49,6 +49,7 @@ function pagedGroups(files: RomFile[]): PagedGroups {
       has_preferred_version: true,
       is_format_pair: false,
       disc_count: 1,
+      catalog_number: null,
     })),
   };
 }

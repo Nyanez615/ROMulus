@@ -42,6 +42,21 @@ pub fn group_key(filename: &str) -> String {
     normalize_key(first_pre_region(stem))
 }
 
+/// Strip No-Intro trailing article suffix from a lowercased title fragment.
+/// No-Intro moves leading articles to the end: "The Blues Brothers" → "Blues Brothers, The".
+/// Stripping the suffix lets "Blues Brothers, The" and "Blues Brothers" share the same key.
+fn strip_article_suffix(s: &str) -> &str {
+    if let Some(t) = s.strip_suffix(", the") {
+        t
+    } else if let Some(t) = s.strip_suffix(", an") {
+        t
+    } else if let Some(t) = s.strip_suffix(", a") {
+        t
+    } else {
+        s
+    }
+}
+
 /// Normalise a pre-region title fragment into a stable grouping key.
 ///
 /// 1. Lowercase.
@@ -51,30 +66,58 @@ pub fn group_key(filename: &str) -> String {
 ///    parentheticals) so that "Globlins!" and "Globlins" land in the same group.
 ///    Word-internal punctuation (e.g. "Pac-Man") and paren contents are untouched.
 fn normalize_key(s: &str) -> String {
-    // Step 1 + 2: lowercase and map Unicode dashes to ASCII hyphen.
+    // Step 1 + 2: lowercase, map Unicode dashes to ASCII hyphen, strip apostrophes.
+    // Apostrophes are stripped so possessive variants ("Hoodlum's" vs "Hoodlums'")
+    // and contractions group together — both collapse to "hoodlums".
     let lowered = s
         .to_lowercase()
-        .replace(['\u{2013}', '\u{2014}', '\u{2015}'], "-");
-    // Step 3: collapse space-hyphen-space (subtitle separator with spaces on
-    // both sides) to a single space. Word-internal hyphens like "Pac-Man" have
-    // no surrounding spaces and are untouched.
+        .replace(['\u{2013}', '\u{2014}', '\u{2015}'], "-")
+        .replace(['\'', '\u{2019}'], "");
+    // Step 3: collapse list/subtitle separators surrounded by spaces to a single
+    // space.  " - " handles subtitle separators ("Pac-Man - Adventures"); " & "
+    // and " + " are interchangeable list separators in No-Intro — Europe uses "&"
+    // while USA uses "+" for the same compilation title ("Uno & Skip-Bo" vs
+    // "Uno + Skip-Bo").  Word-internal hyphens ("Pac-Man") are untouched.
     let collapsed = lowered.split(" - ").collect::<Vec<_>>().join(" ");
-    // Step 4: strip trailing ! / ? from the title word (the part before the first
-    // " (" variant parenthetical, if any).  Paren contents are left intact.
+    let collapsed = collapsed.split(" & ").collect::<Vec<_>>().join(" ");
+    let collapsed = collapsed.split(" + ").collect::<Vec<_>>().join(" ");
+    // Normalize "vs." and "vs" to "v" so "Ecks vs. Sever" (No-Intro dot form) and
+    // "Ecks V Sever" (regional abbreviation) resolve to the same group key.
+    // Must run after the " - " collapse so only standalone word-separated tokens match.
+    let collapsed = collapsed.split(" vs. ").collect::<Vec<_>>().join(" v ");
+    let collapsed = collapsed.split(" vs ").collect::<Vec<_>>().join(" v ");
+    // Step 4: strip trailing ! / ? and No-Intro article suffix (, the / , a / , an)
+    // from the title word (the part before the first " (" variant parenthetical).
+    // Article suffix: No-Intro moves leading articles to the end after a comma
+    // ("Blues Brothers, The"), so stripping it lets that group with bare "Blues Brothers".
     let stripped = if let Some(paren_start) = collapsed.find(" (") {
         let title = collapsed[..paren_start].trim_end_matches(['!', '?']);
+        let title = strip_article_suffix(title);
         format!("{}{}", title, &collapsed[paren_start..])
     } else {
-        collapsed.trim_end_matches(['!', '?']).to_string()
+        strip_article_suffix(collapsed.trim_end_matches(['!', '?'])).to_string()
     };
     // Step 5: normalize Roman numeral tokens (II→2, VII→7, etc.) so that
     // "Genesis II" and "Genesis 2" land in the same group.
+    // Step 6: normalize Japanese long-vowel romanization: word tokens ending
+    // in "ou" are mapped to "o" so "Heiankyou Alien" and "Heiankyo Alien"
+    // (same game, inconsistent No-Intro spelling) share the same group key.
     stripped
         .split(' ')
         .map(|tok| {
-            crate::parser::roman_to_arabic(tok)
+            let tok = crate::parser::roman_to_arabic(tok)
                 .map(|n| n.to_string())
-                .unwrap_or_else(|| tok.to_string())
+                .unwrap_or_else(|| tok.to_string());
+            if tok.ends_with("ou") {
+                // Japanese long-vowel romanization: Heiankyou → Heiankyo
+                tok[..tok.len() - 1].to_string()
+            } else if tok.len() >= 5 && tok.ends_with("our") {
+                // British/American spelling: colour→color, honour→honor, behaviour→behavior.
+                // len>=5 guards short common words (four, tour, pour, your, hour).
+                format!("{}or", &tok[..tok.len() - 3])
+            } else {
+                tok
+            }
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -263,6 +306,62 @@ mod tests {
         assert_eq!(k("Isabelle (Sweater) (World)"), "isabelle (sweater)");
     }
 
+    // ── List separator normalisation ( & / + ) ───────────────────────────────
+
+    #[test]
+    fn ampersand_and_plus_are_equivalent_separators() {
+        // No-Intro uses " & " (Europe) and " + " (USA) interchangeably for the
+        // same compilation title — they must produce the same group key.
+        assert_eq!(
+            k("2 Game Pack! \u{2013} Uno & Skip-Bo (Europe) (En,Fr,De,Es,It).zip"),
+            k("2 Game Pack! \u{2013} Uno + Skip-Bo (USA).zip"),
+        );
+        assert_eq!(
+            k("2 Game Pack! \u{2013} Uno & Skip-Bo (Europe) (En,Fr,De,Es,It).zip"),
+            "2 game pack! uno skip-bo",
+        );
+    }
+
+    // ── Apostrophe / possessive normalisation ────────────────────────────────
+
+    #[test]
+    fn possessive_apostrophe_placement_is_ignored() {
+        // "Rayman - Hoodlum's Revenge" (singular possessive) and
+        // "Rayman - Hoodlums' Revenge" (plural possessive) are the same GBA game.
+        assert_eq!(
+            k("Rayman - Hoodlum's Revenge (USA).zip"),
+            k("Rayman - Hoodlums' Revenge (Europe) (En,Fr,De,Es,It,Nl).zip"),
+            "apostrophe placement must not split the group key"
+        );
+        // Unicode right-single-quote variant also normalises correctly.
+        assert_eq!(
+            k("Rayman - Hoodlum\u{2019}s Revenge (USA).zip"),
+            k("Rayman - Hoodlums' Revenge (Europe) (En,Fr,De,Es,It,Nl).zip"),
+        );
+    }
+
+    // ── Versus-separator normalisation ───────────────────────────────────────
+
+    #[test]
+    fn vs_dot_and_v_and_vs_are_equivalent_separators() {
+        // No-Intro uses "vs." (with period), "vs" (without), and "V" (uppercase
+        // abbreviation) for the same "versus" word in different regions/versions.
+        // "Ecks vs. Sever" and "Ecks V Sever" are the same GBA title.
+        assert_eq!(
+            k("Ecks vs. Sever (USA).zip"),
+            k("Ecks V Sever (USA).zip"),
+            "vs. and V must normalise to the same key"
+        );
+        assert_eq!(
+            k("Ecks vs Sever (USA).zip"),
+            k("Ecks V Sever (USA).zip"),
+            "vs (no dot) and V must normalise to the same key"
+        );
+        // "V" is a Roman numeral → 5, so the canonical key lands on "ecks 5 sever"
+        // for all three forms. What matters is that they all hash to the same value.
+        assert_eq!(k("Ecks V Sever (USA).zip"), "ecks 5 sever");
+    }
+
     // ── Dash / subtitle-separator normalisation ───────────────────────────────
 
     #[test]
@@ -330,12 +429,46 @@ mod tests {
     }
 
     #[test]
+    fn article_suffix_merges_with_bare_title() {
+        // No-Intro writes "Blues Brothers, The"; some releases drop the article.
+        // Both must land in the same group.
+        assert_eq!(k("Blues Brothers, The (USA).zip"), k("Blues Brothers (USA).zip"));
+        assert_eq!(k("Blues Brothers, The (USA).zip"), "blues brothers");
+        assert_eq!(k("Addams Family, The (USA).zip"), "addams family");
+        // Variant parens preserved; article stripped from title portion only
+        assert_eq!(
+            k("Blues Brothers, The (Special Edition) (USA).zip"),
+            "blues brothers (special edition)",
+        );
+        assert_ne!(
+            k("Blues Brothers, The (Special Edition) (USA).zip"),
+            k("Blues Brothers, The (USA).zip"),
+        );
+        // "An" and "A" suffixes
+        assert_eq!(k("Game, An (USA).zip"), "game");
+        assert_eq!(k("Game, A (USA).zip"), "game");
+    }
+
+    #[test]
     fn version_after_region_shares_group_key() {
         assert_eq!(k("NESert Golfing (World) (Aftermarket) (Unl).zip"), "nesert golfing");
         assert_eq!(k("NESert Golfing (World) (v1.1) (Aftermarket) (Unl).zip"), "nesert golfing");
         assert_eq!(
             k("NESert Golfing (World) (Aftermarket) (Unl).zip"),
             k("NESert Golfing (World) (v1.1) (Aftermarket) (Unl).zip"),
+        );
+    }
+
+    #[test]
+    fn japanese_long_vowel_ou_merges_romanization_variants() {
+        // No-Intro is inconsistent about whether to write the Japanese long vowel
+        // きょう as "kyo" or "kyou". "Heiankyo Alien" and "Heiankyou Alien" are the
+        // same game; the trailing "u" on "ou" endings must be stripped in the key.
+        assert_eq!(k("Heiankyou Alien (Japan) (En).zip"), "heiankyo alien");
+        assert_eq!(k("Heiankyo Alien (World).zip"), "heiankyo alien");
+        assert_eq!(
+            k("Heiankyou Alien (Japan) (En).zip"),
+            k("Heiankyo Alien (World).zip"),
         );
     }
 
@@ -352,5 +485,43 @@ mod tests {
         assert_eq!(k("Final Fantasy VII (USA).zip"), k("Final Fantasy 7 (USA).zip"));
         // Single-char tokens are also normalised: X = 10, V = 5
         assert_eq!(k("Mega Man X (USA).zip"), k("Mega Man 10 (USA).zip"));
+    }
+
+    #[test]
+    fn compilation_subtitle_before_region_creates_separate_keys() {
+        // "4 Games on One Game Pak (Racing)" vs "(Nickelodeon Movies)" vs "(Nicktoons)"
+        // are completely different compilation cartridges — the subtitle paren comes
+        // BEFORE the region and must be preserved in the group key so each stays
+        // in its own group and the wrong one is never marked for deletion.
+        assert_ne!(
+            k("4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip"),
+            k("4 Games on One Game Pak (Nickelodeon Movies) (USA).zip"),
+        );
+        assert_ne!(
+            k("4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip"),
+            k("4 Games on One Game Pak (Nicktoons) (USA).zip"),
+        );
+        assert_ne!(
+            k("4 Games on One Game Pak (Nickelodeon Movies) (USA).zip"),
+            k("4 Games on One Game Pak (Nicktoons) (USA).zip"),
+        );
+        assert_eq!(k("4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip"), "4 games on one game pak (racing)");
+        assert_eq!(k("4 Games on One Game Pak (Nickelodeon Movies) (USA).zip"), "4 games on one game pak (nickelodeon movies)");
+        assert_eq!(k("4 Games on One Game Pak (Nicktoons) (USA).zip"), "4 games on one game pak (nicktoons)");
+    }
+
+    // ── British/American spelling normalisation ───────────────────────────────
+
+    #[test]
+    fn british_american_colour_spelling_same_group() {
+        // "Special Color Edition" (USA) and "Special Colour Edition" (Europe)
+        // are the same game — colour→color must normalise to the same key.
+        assert_eq!(
+            k("Ms. Pac-Man - Special Color Edition (USA) (SGB Enhanced) (GB Compatible).zip"),
+            k("Ms. Pac-Man - Special Colour Edition (Europe) (SGB Enhanced) (GB Compatible).zip"),
+        );
+        // Short words (four, tour, pour, your, hour) must be left untouched.
+        assert_eq!(k("Four Swords Adventures (USA).zip"), "four swords adventures");
+        assert_eq!(k("Tour de France (Europe).zip"), "tour de france");
     }
 }

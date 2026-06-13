@@ -207,17 +207,15 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
             {viewTab === "groups" ? (
               <div className="flex gap-1 shrink-0">
                 <button
-                  onClick={expandAll}
+                  onClick={() => {
+                    const allExpanded = filteredGroups.length > 0 && filteredGroups.every((g) => expandedGroups.has(g.key));
+                    if (allExpanded) { collapseAll(); } else { expandAll(); }
+                  }}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  Expand all
-                </button>
-                <span className="text-muted-foreground/40">·</span>
-                <button
-                  onClick={collapseAll}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Collapse all
+                  {filteredGroups.length > 0 && filteredGroups.every((g) => expandedGroups.has(g.key))
+                    ? "Collapse all"
+                    : "Expand all"}
                 </button>
               </div>
             ) : (

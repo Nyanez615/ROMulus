@@ -4,6 +4,53 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] — 2026-06-13
+
+### Fixed
+
+**Scoring**
+- **World releases no longer penalised in region scoring** — a "World" release now scores at `max_preferred_regions × 20` even when "World" is not in the preferred-regions list, matching the user's top preferred region. Previously, "World (Rev 1)" could lose to a region-specific release because it wasn't an explicit match.
+- **Version bonus (+6) in all scoring paths** — ROMs with a version tag (`v1.1`) or revision receive +6 in both official and unofficial paths, overcoming the −5 unknown-tag penalty so a versioned publisher-label release always beats an older unversioned one.
+- **`version_ord(None)` repositioned** — bare/unversioned files sit just below v1.0 (not at 0). Bare files beat sub-1.0 builds (v0.x signals incompleteness) but still lose to v1.0+.
+- **Dynamic collection penalty** — penalty is now `−(region_score + 6)` instead of a flat −100, ensuring no collection re-release (Evercade, LodgeNet, etc.) can beat any unpenalised original even when the re-release is a "World" title with a large region score.
+- **`"Patreon"` exempt from extra-tag penalty** — added to `HARDWARE_FEATURE_TAGS`. Developer-direct Patreon builds are typically the latest release from the original author; exempting them from −5 lets the version tiebreaker choose the correct copy. (Regression: Anguna – Warriors of Virtue v1.1 (Patreon) was deleted in favour of v0.95.)
+- **`"Tech Demo"` treated as pre-release** — Tech Demo files now score in the pre-release tier (−100) alongside Demo, Proto, Alpha, Beta, etc.
+- **Numbered protos rank above date-stamped protos** — `build_ord = 99_000_000 + revision` ensures Proto 2 / Beta 3 (explicitly sequenced by archivists) always outrank any dated snapshot (YYYYMMDD ≤ 20_991_231).
+
+**Grouping / key normalisation**
+- **Apostrophe normalisation** — straight `'` and Unicode `'` stripped from group keys. Possessive variants ("Hoodlum's Revenge" / "Hoodlums' Revenge") now share a group.
+- **`&` / `+` separator equivalence** — `" & "` (No-Intro Europe) and `" + "` (No-Intro USA) are both normalised to a space. "Uno & Skip-Bo" and "Uno + Skip-Bo" now group together.
+- **`vs.` / `vs` normalisation** — collapsed to `" v "` so "Ecks vs. Sever" and "Ecks V Sever" share a key (both collapse to "ecks 5 sever" via the Roman-numeral pass).
+- **Trailing article suffix stripping** — `", The"`, `", An"`, `", A"` stripped in both `normalize_key` (grouping) and `normalize_title` (search). "Blues Brothers, The" now groups with "Blues Brothers".
+- **ISO date with time component parsed** — `parse_iso_date` strips the `T…` time suffix before parsing, so build dates like `"2000-09-14T121024"` are correctly read as 20000914.
+- **Category detection order** — Video / e-Reader / Accessory checks now run before Unofficial. An aftermarket e-Reader card is `FileCategory::EReader`, not `Unofficial`.
+
+**Format pair detection**
+- **Category subfolders always detected as pairs** — `is_category_variant` in `deduper.rs` ensures base + `(Aftermarket)` / `(Private)` / etc. always appear as a format pair regardless of title overlap. Previously, low overlap (<80%) could miss the pair and hide it from Format Variant Preferences.
+
+**Format pair merging**
+- **Compilation subtitles preserved through merge** — `merge_format_pairs` now uses `picker::group_key` (not `title_normalized`) as the bucket key. "4 Games on One Game Pak (Racing)" vs "(Nickelodeon Movies)" vs "(Nicktoons)" no longer collapse into one group with two phantom deletions.
+- **Catalog-number groups stay separated** — `RomGroup` gains `catalog_number: Option<String>`. Groups differing only by catalog number ("4 in 1 (4B-001)" / "4 in 1 (4B-002)") are keyed separately throughout `merge_format_pairs`.
+
+**qBittorrent pre-download**
+- **Format preferences wired into pre-download filter** — `run_filter` now calls `merge_format_pairs` with saved preferences, so pre-download decisions are consistent with the post-download prune.
+- **Catalog-number groups shown individually in Titles view** — preview now iterates `result.groups` instead of re-keying by `picker::group_key`; each "4 in 1 (4B-00N)" entry is shown separately.
+
+**UI**
+- **Single-variant titles expandable in pre-download preview** — all groups can be expanded to see the actual ROM filename, matching the prune preview behaviour. Expand/Collapse button applies to all groups (not just multi-variant).
+- **Expand/Collapse merged to a single toggle** in prune preview (was two separate buttons).
+- **Left-side category badges removed** from variant rows in ROMs tab.
+- **`getFormatVariantLabel`** strips all trailing parens for multi-suffix folders (e.g. "GBA (e-Reader) (Aftermarket)"), preventing label collisions.
+- **Format variant folders sorted alphabetically** in Settings.
+- **Prune dialog auto-reopen fixed** — `setPrunePlanVersion(null)` on execute prevents the auto-refresh effect from reopening an empty dialog after a successful prune (affected both ROMs tab and Downloads tab).
+
+### Technical
+- `RomGroup.catalog_number: Option<String>` — carries original-case catalog tag for disambiguation.
+- `is_category_variant` + `strip_one_trailing_paren` added to `deduper.rs`.
+- `extract_catalog_number` / `extract_catalog_tag` helpers in `group.rs`.
+- `version_ord` sentinel: `None → 27 × 27_000_000 − 1` (just below v1.0).
+- Rust tests: 231 → 266 (+35). Vitest: 134 (unchanged).
+
 ## [0.2.10] — 2026-06-11
 
 ### Added

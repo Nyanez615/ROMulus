@@ -244,6 +244,7 @@ mod tests {
             has_preferred_version: false,
             is_format_pair: false,
             disc_count: 0,
+            catalog_number: None,
         }
     }
 
