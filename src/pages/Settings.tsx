@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Search, Loader2, Wifi } from "lucide-react";
+import { FolderOpen, Plus, X, GripVertical, Languages, AlertTriangle, Database, Image, Sparkles, Monitor, ShieldCheck, Zap, Info, Layers, Search, Loader2, Wifi, Scissors } from "lucide-react";
 import { open, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -602,6 +602,29 @@ export default function Settings() {
           })
         )}
       </section>
+      <Separator />
+
+      {/* Pruning */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Scissors className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold text-foreground">Pruning</h2>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm text-foreground">Purge non-playable files</Label>
+            <p className="text-xs text-muted-foreground">
+              Delete all BIOS, Video, eReader, Accessory, and Utility (Program) files when pruning.
+              Disable to leave them untouched.
+            </p>
+          </div>
+          <Switch
+            checked={settings.prune_system_files}
+            onCheckedChange={(v) => save({ ...settings, prune_system_files: v })}
+          />
+        </div>
+      </section>
+
       <Separator />
 
       {/* Privacy */}

@@ -62,6 +62,11 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    let prune_system_files = db::get_setting(conn, "prune_system_files")
+        .map_err(|e| e.to_string())?
+        .map(|v| v != "false")  // default true; only "false" disables it
+        .unwrap_or(true);
+
     let format_preferences: std::collections::HashMap<String, String> = {
         let mut stmt = conn
             .prepare("SELECT console_group, preferred_folder FROM format_preferences")
@@ -87,6 +92,7 @@ pub(crate) fn get_settings_inner(conn: &Connection) -> Result<AppSettings, Strin
         terms_accepted: true,
         crash_reporting_enabled,
         theme,
+        prune_system_files,
     })
 }
 
@@ -111,6 +117,13 @@ pub(crate) fn save_settings_inner(conn: &Connection, settings: &AppSettings) -> 
         conn,
         "short_console_names",
         if settings.preferences.short_console_names { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())?;
+
+    db::set_setting(
+        conn,
+        "prune_system_files",
+        if settings.prune_system_files { "true" } else { "false" },
     )
     .map_err(|e| e.to_string())?;
 
@@ -293,6 +306,7 @@ mod tests {
             terms_accepted: true,
             crash_reporting_enabled: false,
             theme: "dark".into(),
+            prune_system_files: true,
         }
     }
 

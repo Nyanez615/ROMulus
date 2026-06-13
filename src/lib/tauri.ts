@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   terms_accepted: true,
   crash_reporting_enabled: false,
   theme: "dark",
+  prune_system_files: true,
 };
 
 // ── Scan ──────────────────────────────────────────────────────────────────────

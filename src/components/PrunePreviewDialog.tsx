@@ -13,11 +13,13 @@ import type { RomFile } from "@/lib/bindings/RomFile";
 export const PRUNE_REASON_LABELS: Record<string, string> = {
   non_preferred:        "Lower-scored",
   no_preferred_version: "No preferred ver.",
+  non_playable:         "Non-playable file",
 };
 
 export const PRUNE_REASON_COLORS: Record<string, string> = {
   non_preferred:        "bg-blue-500/15 text-blue-400 border-blue-500/30",
   no_preferred_version: "bg-red-500/15 text-red-400 border-red-500/30",
+  non_playable:         "bg-muted/30 text-muted-foreground border-border",
 };
 
 export function pruneReasonKey(r: DeletionPlan["to_delete"][number]["reason"]): string {
