@@ -6,7 +6,7 @@ use crate::commands::group::{group_roms, merge_format_pairs};
 use crate::deduper::detect_format_pairs;
 use crate::commands::settings::get_settings_inner;
 use crate::db::{get_setting, set_setting, AppState};
-use crate::models::{FileCategory, QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
+use crate::models::{QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
 use crate::parser::parse_from_filename;
 
 // ── Keyring ───────────────────────────────────────────────────────────────────
@@ -229,11 +229,8 @@ async fn run_filter(
                 .map(|(idx, _)| *idx)
                 .unwrap_or(0);
 
-            let is_system = matches!(
-                rom.file_category,
-                FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory
-            );
-            let is_preferred = is_system || group.preferred_idx == Some(variant_pos);
+            let is_preferred = !rom.file_category.is_non_playable()
+                && group.preferred_idx == Some(variant_pos);
             decisions.push((file_index, rom.filename.clone(), is_preferred));
         }
     }
@@ -379,15 +376,14 @@ pub async fn preview_qbt_filter(
         .iter()
         .filter_map(|g| {
             let preferred_idx = g.preferred_idx?; // skip no-preferred-version groups
+            // Skip groups where the preferred variant is non-playable (BIOS, Utility, etc.)
+            if g.variants[preferred_idx].file_category.is_non_playable() {
+                return None;
+            }
             let chosen_name = g.variants[preferred_idx].filename.clone();
 
             let mut skipped: Vec<String> = g.variants.iter().enumerate()
-                .filter(|(i, r)| {
-                    *i != preferred_idx
-                        && !matches!(r.file_category,
-                            FileCategory::Bios | FileCategory::Video
-                            | FileCategory::EReader | FileCategory::Accessory)
-                })
+                .filter(|(i, r)| *i != preferred_idx && !r.file_category.is_non_playable())
                 .map(|(_, r)| r.filename.clone())
                 .collect();
             skipped.sort();

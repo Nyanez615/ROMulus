@@ -13,30 +13,39 @@ use crate::models::{
 /// Apply language/region preferences to groups and return a deletion plan.
 /// All file categories (Game, Unofficial, Demo, etc.) are handled identically:
 /// keep the preferred variant, delete the rest.
-pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
+///
+/// When `prune_system_files` is true, every non-playable file (BIOS, Video,
+/// eReader, Accessory, Utility) is deleted regardless of duplicate count.
+/// When false, non-playable files are preserved unchanged.
+pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>, prune_system_files: bool) -> DeletionPlan {
     let mut to_delete: Vec<DeletionItem> = vec![];
     let mut to_keep: Vec<RomFile> = vec![];
     let mut no_preferred_count = 0u32;
 
     for group in &groups {
-        // System files (BIOS, Video, e-Reader, Accessory) are always preserved in full —
-        // language preference does not apply. If every variant in the group is a system
-        // file, keep them all and skip preference logic entirely.
-        let all_system = group.variants.iter().all(|r| {
-            matches!(r.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory)
-        });
-        if all_system {
-            to_keep.extend(group.variants.clone());
+        // All-non-playable group: delete every copy or keep every copy.
+        let all_non_playable = group.variants.iter().all(|r| r.file_category.is_non_playable());
+        if all_non_playable {
+            if prune_system_files {
+                for rom in &group.variants {
+                    to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NonPlayable });
+                }
+            } else {
+                to_keep.extend(group.variants.clone());
+            }
             continue;
         }
 
-        // No preferred version → delete all non-system variants.
+        // No preferred version → delete all playable variants; handle non-playable by setting.
         if !group.has_preferred_version {
             no_preferred_count += 1;
             for rom in &group.variants {
-                let is_system = matches!(rom.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory);
-                if is_system {
-                    to_keep.push(rom.clone());
+                if rom.file_category.is_non_playable() {
+                    if prune_system_files {
+                        to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NonPlayable });
+                    } else {
+                        to_keep.push(rom.clone());
+                    }
                 } else {
                     to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NoPreferredVersion });
                 }
@@ -44,16 +53,26 @@ pub(crate) fn apply_filters_inner(groups: Vec<RomGroup>) -> DeletionPlan {
             continue;
         }
 
-        // Single-variant or multi-disc groups are always kept as-is.
+        // Single-variant or multi-disc: keep playable; handle non-playable by setting.
         if group.variants.len() == 1 || group.disc_count > 1 {
-            to_keep.extend(group.variants.clone());
+            for rom in &group.variants {
+                if rom.file_category.is_non_playable() && prune_system_files {
+                    to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NonPlayable });
+                } else {
+                    to_keep.push(rom.clone());
+                }
+            }
             continue;
         }
 
+        // Multi-variant: score playable variants; handle non-playable by setting.
         for (i, rom) in group.variants.iter().enumerate() {
-            let is_system = matches!(rom.file_category, FileCategory::Bios | FileCategory::Video | FileCategory::EReader | FileCategory::Accessory);
-            if is_system {
-                to_keep.push(rom.clone());
+            if rom.file_category.is_non_playable() {
+                if prune_system_files {
+                    to_delete.push(DeletionItem { rom: rom.clone(), reason: DeletionReason::NonPlayable });
+                } else {
+                    to_keep.push(rom.clone());
+                }
             } else {
                 match group.preferred_idx {
                     Some(pi) if i == pi => to_keep.push(rom.clone()),
@@ -133,6 +152,13 @@ pub fn apply_filters(
     state: State<'_, AppState>,
     consoles: Option<Vec<String>>,
 ) -> Result<DeletionPlan, String> {
+    let prune_system_files = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        crate::commands::settings::get_settings_inner(&conn)
+            .map(|s| s.prune_system_files)
+            .unwrap_or(true)
+    };
+
     let groups = {
         let cache = state.scan_cache.lock().map_err(|e| e.to_string())?;
         let all = cache.groups.clone();
@@ -143,7 +169,7 @@ pub fn apply_filters(
         }
     };
 
-    Ok(apply_filters_inner(groups))
+    Ok(apply_filters_inner(groups, prune_system_files))
 }
 
 // ── CSV helper ────────────────────────────────────────────────────────────────
@@ -160,6 +186,7 @@ fn deletion_reason_str(r: &DeletionReason) -> &'static str {
     match r {
         DeletionReason::NonPreferred       => "non_preferred",
         DeletionReason::NoPreferredVersion => "no_preferred_version",
+        DeletionReason::NonPlayable        => "non_playable",
     }
 }
 
@@ -261,7 +288,7 @@ mod tests {
         group.preferred_idx = Some(0);
         group.has_preferred_version = true;
 
-        let plan = apply_filters_inner(vec![group]);
+        let plan = apply_filters_inner(vec![group], true);
         assert_eq!(plan.to_keep.len(), 1, "exactly one ROM should be kept");
         assert_eq!(plan.to_delete.len(), 2);
         assert!(plan.to_delete.iter().all(|d| matches!(d.reason, DeletionReason::NonPreferred)));
@@ -278,7 +305,7 @@ mod tests {
         group.preferred_idx = Some(0);
         group.has_preferred_version = true;
 
-        let plan = apply_filters_inner(vec![group]);
+        let plan = apply_filters_inner(vec![group], true);
         assert_eq!(plan.to_keep.len(), 1, "preferred unofficial must be kept");
         assert_eq!(plan.to_delete.len(), 1, "non-preferred unofficial must be deleted");
         assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPreferred));
@@ -288,7 +315,7 @@ mod tests {
     fn unofficial_group_no_preferred_version_deletes_all() {
         // Unofficial groups with no language match behave identically to Game groups.
         let group = make_group(vec![make_rom("Hack (Ja)", FileCategory::Unofficial)]);
-        let plan = apply_filters_inner(vec![group]);
+        let plan = apply_filters_inner(vec![group], true);
         assert_eq!(plan.to_delete.len(), 1, "unofficial with no preferred version should be deleted");
         assert!(matches!(plan.to_delete[0].reason, DeletionReason::NoPreferredVersion));
     }
@@ -305,7 +332,7 @@ mod tests {
         group.preferred_idx = Some(0);
         group.has_preferred_version = true;
 
-        let plan = apply_filters_inner(vec![group]);
+        let plan = apply_filters_inner(vec![group], true);
         assert_eq!(plan.to_keep.len(), 1, "pre-release kept when it is the only preferred variant");
         assert!(plan.to_delete.is_empty());
     }
@@ -324,11 +351,71 @@ mod tests {
         group.preferred_idx = Some(0); // release wins in scoring
         group.has_preferred_version = true;
 
-        let plan = apply_filters_inner(vec![group]);
+        let plan = apply_filters_inner(vec![group], true);
         assert_eq!(plan.to_keep.len(), 1);
         assert_eq!(plan.to_delete.len(), 1);
         assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPreferred));
     }
 
+    #[test]
+    fn bios_group_deleted_when_prune_system_true() {
+        let bios = make_rom("GBA BIOS", FileCategory::Bios);
+        let mut group = make_group(vec![bios]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
 
+        let plan = apply_filters_inner(vec![group], true);
+        assert_eq!(plan.to_delete.len(), 1, "single BIOS must be deleted when prune_system_files=true");
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPlayable));
+        assert!(plan.to_keep.is_empty());
+    }
+
+    #[test]
+    fn bios_group_preserved_when_prune_system_false() {
+        let bios = make_rom("GBA BIOS", FileCategory::Bios);
+        let mut group = make_group(vec![bios]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
+
+        let plan = apply_filters_inner(vec![group], false);
+        assert!(plan.to_delete.is_empty(), "BIOS must be preserved when prune_system_files=false");
+        assert_eq!(plan.to_keep.len(), 1);
+    }
+
+    #[test]
+    fn utility_program_always_deleted_when_prune_system_true() {
+        let util = make_rom("CTR Eva - Gyroscope (Program)", FileCategory::Utility);
+        let mut group = make_group(vec![util]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
+
+        let plan = apply_filters_inner(vec![group], true);
+        assert_eq!(plan.to_delete.len(), 1, "utility/program file must be deleted when prune_system_files=true");
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPlayable));
+    }
+
+    #[test]
+    fn mixed_group_game_kept_bios_deleted_or_preserved() {
+        let game = {
+            let mut r = make_rom("Some Game (USA)", FileCategory::Game);
+            r.matches_preferred_language = true;
+            r
+        };
+        let bios = make_rom("Console BIOS", FileCategory::Bios);
+        let mut group = make_group(vec![game, bios]);
+        group.preferred_idx = Some(0);
+        group.has_preferred_version = true;
+
+        // prune_system_files=true: game kept, bios deleted
+        let plan = apply_filters_inner(vec![group.clone()], true);
+        assert_eq!(plan.to_keep.len(), 1);
+        assert_eq!(plan.to_keep[0].file_category, FileCategory::Game);
+        assert_eq!(plan.to_delete.len(), 1);
+        assert!(matches!(plan.to_delete[0].reason, DeletionReason::NonPlayable));
+
+        // prune_system_files=false: game kept, bios also kept
+        let plan2 = apply_filters_inner(vec![group], false);
+        assert_eq!(plan2.to_keep.len(), 2);
+        assert!(plan2.to_delete.is_empty());
+    }
 }

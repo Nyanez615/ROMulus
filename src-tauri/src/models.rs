@@ -46,6 +46,16 @@ pub enum FileCategory {
     Accessory,
 }
 
+impl FileCategory {
+    pub fn is_non_playable(&self) -> bool {
+        matches!(
+            self,
+            FileCategory::Bios | FileCategory::Video | FileCategory::EReader
+                | FileCategory::Accessory | FileCategory::Utility
+        )
+    }
+}
+
 // ── Core ROM types ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -119,6 +129,9 @@ pub struct AppSettings {
     pub terms_accepted: bool,
     pub crash_reporting_enabled: bool,
     pub theme: String,
+    /// When true (default), the pruner deletes ALL non-playable files (BIOS, Video,
+    /// eReader, Accessory, Utility). Disable to leave them untouched.
+    pub prune_system_files: bool,
 }
 
 impl Default for AppSettings {
@@ -130,6 +143,7 @@ impl Default for AppSettings {
             terms_accepted: false,
             crash_reporting_enabled: false,
             theme: "dark".into(),
+            prune_system_files: true,
         }
     }
 }
@@ -142,6 +156,8 @@ impl Default for AppSettings {
 pub enum DeletionReason {
     NonPreferred,
     NoPreferredVersion,
+    /// BIOS, Video, eReader, Accessory, or Utility file — deleted regardless of duplicates.
+    NonPlayable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
