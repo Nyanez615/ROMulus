@@ -2933,7 +2933,7 @@ mod tests {
             overlap_percent: 100.0,
         };
         let format_prefs = std::collections::HashMap::new();
-        let merged = merge_format_pairs(groups, &[pair.clone()], &prefs, &format_prefs);
+        let merged = merge_format_pairs(groups, std::slice::from_ref(&pair), &prefs, &format_prefs);
         assert_eq!(
             merged.len(), 3,
             "merge_format_pairs must not collapse separate compilation groups; got {} group(s)",
