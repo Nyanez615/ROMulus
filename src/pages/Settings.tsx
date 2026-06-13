@@ -252,7 +252,7 @@ export default function Settings() {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([consoleGroup, folderCounts]) => ({
         consoleGroup,
-        folders: [...folderCounts.entries()].sort(([, a], [, b]) => b - a),
+        folders: [...folderCounts.entries()].sort(([a], [b]) => a.localeCompare(b)),
       }));
   }, [formatPairs]);
 

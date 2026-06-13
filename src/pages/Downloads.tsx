@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Wifi, WifiOff, RefreshCw, Play, CheckCircle2, Scissors,
-  Download, X, Search, ChevronDown, ChevronRight, ChevronsUpDown, Check,
+  Search, ChevronDown, ChevronRight, ChevronsUpDown, Check, ArrowDownToLine, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -187,7 +187,7 @@ function PreDownloadSection() {
 
   const sortedTorrents = useMemo(
     () => [...torrents].sort((a, b) => torrentLabel(a).localeCompare(torrentLabel(b))),
-    [torrents], // eslint-disable-line react-hooks/exhaustive-deps
+    [torrents],
   );
 
   const selectedTorrent = sortedTorrents.find((t) => t.hash === selectedHash) ?? null;
@@ -369,19 +369,18 @@ function PreDownloadSection() {
                   {label} <span className="tabular-nums ml-1 opacity-70">{count.toLocaleString()}</span>
                 </button>
               ))}
-              {fileTab === "groups" && filteredGroups.some((g) => g.skipped.length > 0) && (
+              {fileTab === "groups" && filteredGroups.length > 0 && (
                 <button
                   onClick={() => {
-                    const expandable = filteredGroups.filter((g) => g.skipped.length > 0).map((g) => g.key);
-                    if (expandedGroups.size >= expandable.length) {
+                    if (expandedGroups.size >= filteredGroups.length) {
                       setExpandedGroups(new Set());
                     } else {
-                      setExpandedGroups(new Set(expandable));
+                      setExpandedGroups(new Set(filteredGroups.map((g) => g.key)));
                     }
                   }}
                   className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {expandedGroups.size >= filteredGroups.filter((g) => g.skipped.length > 0).length ? "Collapse all" : "Expand all"}
+                  {expandedGroups.size >= filteredGroups.length ? "Collapse all" : "Expand all"}
                 </button>
               )}
             </div>
@@ -406,40 +405,32 @@ function PreDownloadSection() {
               ) : (
                 <div className="divide-y divide-border/50">
                   {filteredGroups.map((g) => {
-                    const isMulti = g.skipped.length > 0;
                     const isExpanded = expandedGroups.has(g.key);
                     return (
                       <div key={g.key}>
-                        {isMulti ? (
-                          /* Multi-variant: expandable accordion row */
-                          <button
-                            onClick={() => toggleGroup(g.key)}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-muted/30 transition-colors"
-                          >
-                            {isExpanded
-                              ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
-                              : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
-                            <span className="text-xs text-foreground font-medium flex-1 truncate">{g.display_title}</span>
+                        <button
+                          onClick={() => toggleGroup(g.key)}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-muted/30 transition-colors"
+                        >
+                          {isExpanded
+                            ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                            : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
+                          <span className="text-xs text-foreground font-medium flex-1 truncate">{g.display_title}</span>
+                          {g.skipped.length > 0 && (
                             <span className="text-xs text-muted-foreground shrink-0">
                               {(g.skipped.length + 1).toLocaleString()} variants
                             </span>
-                          </button>
-                        ) : (
-                          /* Single-variant: flat row, always download */
-                          <div className="flex items-center gap-2 px-4 py-2">
-                            <Download className="w-3 h-3 text-green-400 shrink-0" />
-                            <span className="text-xs text-foreground flex-1 truncate">{g.display_title}</span>
-                          </div>
-                        )}
-                        {isMulti && isExpanded && (
+                          )}
+                        </button>
+                        {isExpanded && (
                           <div className="px-8 pb-2 space-y-1">
                             <div className="flex items-start gap-2">
-                              <Download className="w-3 h-3 text-green-400 shrink-0 mt-0.5" />
+                              <ArrowDownToLine className="w-3 h-3 text-green-400 shrink-0 mt-0.5" />
                               <span className="text-xs text-foreground font-mono break-all">{g.chosen}</span>
                             </div>
                             {g.skipped.map((s) => (
                               <div key={s} className="flex items-start gap-2">
-                                <X className="w-3 h-3 text-muted-foreground/50 shrink-0 mt-0.5" />
+                                <X className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
                                 <span className="text-xs text-muted-foreground font-mono break-all">{s}</span>
                               </div>
                             ))}
@@ -459,8 +450,8 @@ function PreDownloadSection() {
                   {visibleFiles.map((f) => (
                     <div key={f.filename} className="flex items-start gap-2.5 px-4 py-1.5">
                       {f.download
-                        ? <Download className="w-3 h-3 text-green-400 shrink-0 mt-0.5" />
-                        : <X className="w-3 h-3 text-muted-foreground/50 shrink-0 mt-0.5" />}
+                        ? <ArrowDownToLine className="w-3 h-3 text-green-400 shrink-0 mt-0.5" />
+                        : <X className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />}
                       <span className={cn(
                         "text-xs font-mono break-all leading-relaxed",
                         f.download ? "text-foreground" : "text-muted-foreground",
@@ -524,7 +515,7 @@ function PreDownloadSection() {
 // ── Post-download section ─────────────────────────────────────────────────────
 
 function PostDownloadSection() {
-  const { setSelectedConsoles } = useScanStore();
+  const { setSelectedConsoles, cacheVersion } = useScanStore();
   const { setActiveTab } = useUIStore();
   const [plan, setPlan] = useState<DeletionPlan | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -532,6 +523,10 @@ function PostDownloadSection() {
   const [executing, setExecuting] = useState(false);
   const [executeError, setExecuteError] = useState<string | null>(null);
   const [result, setResult] = useState<{ deleted: number; bytes: number } | null>(null);
+
+  // Tracks the cacheVersion at which the current plan was loaded.
+  // null = no plan loaded yet.
+  const [planVersion, setPlanVersion] = useState<number | null>(null);
 
   async function handleAnalyze() {
     setAnalyzing(true);
@@ -541,12 +536,22 @@ function PostDownloadSection() {
     try {
       const p = await applyFilters();
       setPlan(p);
+      setPlanVersion(cacheVersion);
     } catch (e) {
       setAnalyzeError(String(e));
     } finally {
       setAnalyzing(false);
     }
   }
+
+  // Auto-refresh when the scan cache is newer than the loaded plan
+  // (e.g. after changing Format Variant Preferences triggers a rescan).
+  useEffect(() => {
+    if (planVersion === null || planVersion === cacheVersion) return;
+    applyFilters()
+      .then((p) => { setPlan(p); setPlanVersion(cacheVersion); })
+      .catch((e) => { setAnalyzeError(String(e)); });
+  }, [cacheVersion, planVersion]);
 
   async function handleExecute() {
     if (!plan) return;
@@ -558,6 +563,7 @@ function PostDownloadSection() {
       const res = await executePrune(toDelete);
       setResult({ deleted: res.success_count, bytes });
       setPlan(null);
+      setPlanVersion(null);
       const settings = await getSettings().catch(() => null);
       if (settings?.rom_roots.length) {
         await scanRoots(settings.rom_roots);

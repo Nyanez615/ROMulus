@@ -41,7 +41,7 @@ function makeGroup(title: string, variants: RomFile[]): RomGroup {
   return {
     title_normalized: title.toLowerCase(), console: "Test",
     variants, preferred_idx: 0, has_preferred_version: true,
-    is_format_pair: false, disc_count: 1,
+    is_format_pair: false, disc_count: 1, catalog_number: null,
   };
 }
 

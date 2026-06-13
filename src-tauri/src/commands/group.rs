@@ -76,17 +76,26 @@ pub const COLLECTION_TAGS: &[&str] = &[
     "Phantasy Star Online Episode I & II",  // Mini-game extracted from PSO disc
     "Pixel Heart",                           // French limited physical release label
 ];
-// Hardware capability / patch tags — not platform variants; exempt from the unknown penalty.
+// Tags that are exempt from the generic −5 unknown-extra-tag penalty.
+// These are either hardware capability flags (purely technical, not distribution
+// variants) or developer-direct distribution channels where the Patreon/crowdfunded
+// release IS the canonical latest version — penalising it would prefer an older
+// standard release over a newer developer-published one.
 const HARDWARE_FEATURE_TAGS: &[&str] = &[
     // Post-release patch already encoded as revision=1 in the parser; adding a score
     // penalty on top would invert the revision bonus that intentionally rewards it.
     "Bugfix",
     // Game Boy / GBC / GBA / DS hardware-feature descriptors: ROM capability flags.
-    "SGB Enhanced", "CGB Enhanced", "GBC Mode", "GBC Required",
+    // "GB Compatible" = GBC game that also runs on original Game Boy hardware.
+    "SGB Enhanced", "CGB Enhanced", "GBC Mode", "GBC Required", "GB Compatible",
     "GBA Mode", "DSi Enhanced", "DSi Exclusive",
     // Memory bank controller specs: purely technical metadata, not release variants.
     "MBC1", "MBC2", "MBC3", "MBC5", "MBC6", "MBC7",
     "HuC1", "HuC3", "MMM01",
+    // Developer-direct funding/distribution platform — the Patreon build is
+    // typically the latest version from the original author, not a lesser variant.
+    // Version tiebreaker then picks the higher version correctly.
+    "Patreon",
 ];
 
 // Official Nintendo digital re-releases (Virtual Console, Wii Virtual Console,
@@ -114,7 +123,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     if rom.status_flags.iter().any(|f| {
         matches!(
             f.as_str(),
-            "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Demo" | "Sample" | "Promo"
+            "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Demo" | "Tech Demo" | "Sample" | "Promo"
             | "Kiosk" | "Wi-Fi Kiosk"
             | "IS-NITRO-EMULATOR" | "IS-NITRO-PROGRAMMER"
             | "Preview" | "GameCube Preview"
@@ -124,9 +133,15 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         let lang_count = rom.languages.iter()
             .filter(|l| prefs.preferred_languages.contains(*l))
             .count();
-        // build_date (YYYYMMDD) orders dated protos chronologically; fall back to
-        // the explicit sequence number (e.g. "Proto 2") when no date is present.
-        let build_ord = rom.build_date.unwrap_or(rom.revision);
+        // Ordering: numbered protos (Proto N) > dated protos > bare proto.
+        // Numbered protos are explicitly sequenced by archivists and represent the
+        // most complete builds in the series, so they rank above any dated snapshot.
+        // Sentinel 99_000_000 + N safely exceeds any YYYYMMDD value (≤ 20_991_231).
+        let build_ord = match (rom.build_date, rom.revision) {
+            (Some(d), _) => d,
+            (None, r) if r > 0 => 99_000_000 + r,
+            _ => 0,
+        };
         return (-100 + alt_penalty, build_ord, lang_count * 1000 + r_score);
     }
 
@@ -168,7 +183,12 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         // +6 overcomes the -5 unknown-tag penalty, netting -29 vs bare physical -30.
         let completeness_bonus: i32 = if rom.extra_tags.iter().flat_map(|t| t.split(", "))
             .any(|part| part == "Digital" || part == "Unlocked") { 6 } else { 0 };
-        return (-30 + alt_penalty + format_penalty + completeness_bonus, rom.revision, lang_count * 1000 + r_score);
+        // Version tag or revision both signal a newer/improved release — +6 overcomes the
+        // -5 unknown-tag penalty so the most current release beats a plain unversioned one.
+        // When two tagged releases tie on this bonus (e.g. v1.2 vs Rev 2), the tuple's
+        // `revision` field breaks the tie: Rev 2 (revision=2) beats v1.2 (revision=0).
+        let version_bonus: i32 = if rom.version.is_some() || rom.revision > 0 { 6 } else { 0 };
+        return (-30 + alt_penalty + format_penalty + completeness_bonus + version_bonus, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
@@ -178,15 +198,21 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // "Namcot Collection, Namco Museum Archives Vol 1" hit the penalty correctly.
     let collection_penalty: i32 =
         if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| COLLECTION_TAGS.contains(&part)) {
-            // −100: large enough to ensure ANY original release (even Japan = 5) beats
-            // ANY collection re-release (even USA = 100): 100 − 100 = 0 < 5.
-            -100
+            // Dynamic penalty: always larger than the ROM's own region_score so the
+            // net region contribution is exactly −6.  This means no collection re-release
+            // can beat an unpenalised original regardless of how large the region score is —
+            // including "World" releases boosted by the World-universal-region rule.
+            // Any original (minimum region score = 5) always outscores any collection.
+            -(region_score + 6)
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
             -5
-        } else if !rom.extra_tags.is_empty() {
-            // Any unrecognised extra_tag (e.g. platform-specific variants like (GameCube)
-            // or mode variants like (GBC Mode)) gets a minor penalty so the plain release
-            // is always preferred when both exist and all other scoring is equal.
+        } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
+            .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part)) {
+            // Any unrecognised extra_tag that isn't a hardware capability flag
+            // (platform port, store label, studio label, etc.) indicates a
+            // platform/distribution variant — prefer the base ROM.
+            // Hardware feature tags like "SGB Enhanced" or "GBC Mode" are exempt
+            // so they don't suppress the revision_bonus for enhanced editions.
             -5
         } else {
             0
@@ -236,7 +262,12 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // The score tuple's `revision` field still provides within-tier tiebreaking.
     let revision_bonus = if collection_penalty == 0 { rom.revision as i32 * 100 } else { 0 };
 
-    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus, rom.revision, lang_matches)
+    // A version tag signals a newer release — +6 overcomes the -5 unknown-tag penalty
+    // so a versioned release beats a plain unversioned one even when it carries a
+    // publisher label (e.g. "(Incube8 Games)") in its extra_tags.
+    let version_bonus: i32 = if rom.version.is_some() { 6 } else { 0 };
+
+    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus + version_bonus, rom.revision, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
@@ -247,22 +278,40 @@ pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
     }
 
     let max_priority = prefs.preferred_regions.len() as i32;
-    regions
+    let explicit = regions
         .iter()
         .filter_map(|r| {
             prefs.preferred_regions.iter().position(|p| p == r)
                 .map(|idx| (max_priority - idx as i32) * 20)
         })
-        .max()
-        .unwrap_or(5)
+        .max();
+
+    explicit.unwrap_or_else(|| {
+        // "World" is a universal release compatible with every region — treat it as
+        // matching the user's top preferred region so a "World (Rev 1)" isn't
+        // arbitrarily penalised against a region-specific original.
+        if regions.iter().any(|r| r == "World") {
+            max_priority * 20
+        } else {
+            // Country-specific release that doesn't match any preference: use the
+            // default table so non-English regions still have sensible ordering.
+            regions.iter().map(|r| default_region_score(r.as_str())).max().unwrap_or(5)
+        }
+    })
 }
 
 /// Converts a version string like "v2.1" or "v1.0.3" into a comparable u64.
-/// None / unparseable → 0.  Used as a sort tiebreaker so newer versions rank first.
+/// None (bare/unversioned) → just below v1.0 so that bare outranks any sub-1.0
+/// version string (v0.x signals an incomplete build) but loses to v1.0+.
 fn version_ord(v: &Option<String>) -> u64 {
+    // 27_000_000 is the encoding for v1.0 (major=1, minor=0, patch=0).
+    // Bare files are placed at 27_000_000 - 1, one slot below v1.0.
+    // This means: bare > v0.x (sub-1.0 indicates incomplete), v1.0+ > bare.
     let s = match v.as_deref().and_then(|s| s.strip_prefix('v')) {
         Some(s) => s,
-        None => return 0,
+        // v1.0 encodes as enc("1")*27_000_000 = 27*27_000_000 = 729_000_000.
+        // Bare files sit at 729_000_000 - 1: above every sub-1.0 build, below v1.0.
+        None => return 27_u64 * 27_000_000 - 1,
     };
     // Base-27 encoding per component: "N" → N*27, "Na" → N*27+1, "Nb" → N*27+2 …
     // This preserves ordering across alpha variants ("v0.1a" < "v0.1b") and handles
@@ -394,6 +443,61 @@ fn console_group_key(console: &str) -> &str {
     s
 }
 
+// ── Catalog-number detection ──────────────────────────────────────────────────
+
+/// Extract the first catalog-number fragment from a ROM's extra_tags.
+///
+/// Returns the lowercase catalog number string (e.g. `"4b-001"`) if any
+/// extra_tag fragment matches the pattern: alphanumeric prefix containing at
+/// least one letter, hyphen, all-digit suffix (e.g. `"4B-001"`, `"NWB-01"`).
+///
+/// This is used to differentiate physical cartridge compilations that share a
+/// generic title like "4 in 1" but carry distinct catalog numbers and contain
+/// completely different games. Publisher-only extra_tags like "Incube8 Games"
+/// or "ModRetro Chromatic" do not match (no all-digit suffix) and return `""`.
+fn extract_catalog_number(extra_tags: &[String]) -> String {
+    extract_catalog_tag(extra_tags)
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default()
+}
+
+/// Same as `extract_catalog_number` but returns the original-case tag string
+/// (e.g. `"4B-001, Sachen-Commin"`) for display in the UI.
+fn extract_catalog_tag(extra_tags: &[String]) -> Option<&str> {
+    for tag in extra_tags {
+        for part in tag.split(", ") {
+            let part = part.trim();
+            if let Some(hyphen) = part.find('-') {
+                let prefix = &part[..hyphen];
+                let suffix = &part[hyphen + 1..];
+                if !prefix.is_empty()
+                    && prefix.chars().all(|c| c.is_alphanumeric())
+                    && prefix.chars().any(|c| c.is_alphabetic())
+                    && !suffix.is_empty()
+                    && suffix.chars().all(|c| c.is_ascii_digit())
+                {
+                    return Some(tag.as_str());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Pre-release development stage ordering for sort tiebreaking.
+/// Alpha < Beta < everything else (Demo/Proto/Sample/etc.) so an explicit
+/// stage label beats an earlier one even when version numbers are sub-1.0.
+fn prerelease_stage(flags: &[String]) -> u8 {
+    for f in flags {
+        match f.as_str() {
+            "Alpha" => return 0,
+            "Beta"  => return 1,
+            _       => {}
+        }
+    }
+    2
+}
+
 // ── Grouping ──────────────────────────────────────────────────────────────────
 
 pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> {
@@ -407,7 +511,7 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
         })
         .collect();
 
-    // Group by (console_group_key, title_key, category_bucket).
+    // Group by (console_group_key, title_key, catalog_number, category_bucket).
     //
     // console_group_key strips content-category suffixes like "(Aftermarket)" and
     // "(Private)" and dev-stage suffixes like "(Demo)" and "(Beta)" before grouping,
@@ -421,7 +525,12 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
     // same title_normalized but are completely different content — grouping them
     // causes the Video ROM to score below the game and be flagged for deletion.
     // Video ROMs still group with other Video ROMs of the same title across regions.
-    let mut groups: HashMap<(String, String, &'static str), Vec<RomFile>> = HashMap::new();
+    //
+    // catalog_number separates physically distinct compilations that share a generic
+    // title (e.g. "4 in 1") but carry different catalog numbers in their extra_tags
+    // (e.g. "4B-001, Sachen" vs "4B-002, Sachen"). Publisher-only extra_tags like
+    // "(Incube8 Games)" produce an empty catalog_number and remain in the same group.
+    let mut groups: HashMap<(String, String, String, &'static str), Vec<RomFile>> = HashMap::new();
 
     for rom in roms.drain(..) {
         let bucket: &'static str = match rom.file_category {
@@ -432,6 +541,7 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
         let key = (
             console_group_key(&rom.console).to_string(),
             crate::picker::group_key(&rom.filename),
+            extract_catalog_number(&rom.extra_tags),
             bucket,
         );
         groups.entry(key).or_default().push(rom);
@@ -446,18 +556,25 @@ pub fn group_roms(roms: Vec<RomFile>, prefs: &UserPreferences) -> Vec<RomGroup> 
 fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup {
     let console = variants[0].console.clone();
     let title_normalized = variants[0].title_normalized.clone();
+    // All variants in a catalog-number group share the same catalog tag; grab it
+    // from the first variant for display in the Titles view.
+    let catalog_number = extract_catalog_tag(&variants[0].extra_tags).map(str::to_string);
 
     // Detect multi-disc
     let max_disc = variants.iter().filter_map(|r| r.disc_number).max().unwrap_or(0);
     let disc_count = if max_disc > 0 { max_disc } else { 1 };
 
     // Sort variants: (score, revision, lang_matches) descending; then version descending
-    // so "v2.1" beats "v1.0" when everything else ties; filename ascending as the final
-    // deterministic tiebreaker so groups are stable across runs.
+    // so "v2.1" beats "v1.0" when everything else ties; build_date descending so the
+    // newest build wins when no explicit version tag is present (common for aftermarket
+    // releases that tag only a date); filename ascending as the final deterministic
+    // tiebreaker so groups are stable across runs.
     variants.sort_by(|a, b| {
         score_rom(b, prefs)
             .cmp(&score_rom(a, prefs))
+            .then_with(|| prerelease_stage(&b.status_flags).cmp(&prerelease_stage(&a.status_flags)))
             .then_with(|| version_ord(&b.version).cmp(&version_ord(&a.version)))
+            .then_with(|| b.build_date.cmp(&a.build_date))
             .then_with(|| a.filename.cmp(&b.filename))
     });
 
@@ -468,13 +585,23 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     // non-Utility variant exists). In a Utility-only group, the best Utility is preferred.
     let has_non_utility = variants.iter().any(|r| !matches!(r.file_category, FileCategory::Utility));
 
-    // Unofficial files are excluded from preferred_idx only when an official variant
-    // (non-Unofficial, non-Utility) already matches the preferred language. This ensures:
+    // Unofficial files are excluded from preferred_idx only when a fully-released official
+    // variant already matches the preferred language. This ensures:
     //   • Official (USA) + Unofficial hack (USA) → official wins.
     //   • Official (Japan) + fan-translation (En) → fan-translation wins (only En match).
+    // Pre-release files (Proto/Demo/Sample/etc.) are excluded from this check even when
+    // their file_category is Game — a prototype does not block an Aftermarket full release
+    // from being preferred.
     let has_official_preferred_lang = variants.iter().any(|r| {
         r.matches_preferred_language
-            && !matches!(r.file_category, FileCategory::Unofficial | FileCategory::Utility)
+            && !matches!(r.file_category, FileCategory::Unofficial | FileCategory::Utility | FileCategory::Demo)
+            && !r.status_flags.iter().any(|f| matches!(
+                f.as_str(),
+                "Alpha" | "Beta" | "Proto" | "Possible Proto" | "Sample" | "Promo"
+                | "Kiosk" | "Wi-Fi Kiosk"
+                | "IS-NITRO-EMULATOR" | "IS-NITRO-PROGRAMMER"
+                | "Preview" | "GameCube Preview"
+            ))
     });
 
     let preferred_idx = if has_preferred {
@@ -495,6 +622,7 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
         has_preferred_version: has_preferred,
         is_format_pair: false,
         disc_count,
+        catalog_number,
     }
 }
 
@@ -513,11 +641,11 @@ pub(crate) fn group_matches_consoles(g: &RomGroup, filter: &Option<Vec<String>>)
 // ── Format-pair merging ───────────────────────────────────────────────────────
 
 /// Override `preferred_idx` on a group when the user has saved a format folder
-/// preference. Format preference is a tiebreaker: it only overrides scoring when
-/// the preferred-folder's best variant is not version-inferior to the current
-/// winner. If the current winner has a higher revision or version string the
-/// scoring result stands — we never downgrade a newer release for a format.
-fn apply_format_pref(g: &mut RomGroup, format_prefs: &HashMap<String, String>) {
+/// preference. Format preference is a tiebreaker applied only within the same
+/// scoring tier: it will not replace a non-Demo winner with a Demo copy, or a
+/// non-Unofficial winner with an Unofficial copy.  Within equal tiers it also
+/// will not downgrade to a lower revision or version string.
+fn apply_format_pref(g: &mut RomGroup, format_prefs: &HashMap<String, String>, prefs: &UserPreferences) {
     let cg = console_group_key(&g.console);
     let Some(preferred_folder) = format_prefs.get(cg) else { return };
 
@@ -534,22 +662,25 @@ fn apply_format_pref(g: &mut RomGroup, format_prefs: &HashMap<String, String>) {
     // highest version string as secondary key).
     let best_in_pref = g.variants.iter().enumerate()
         .filter(|(_, v)| v.console.as_str() == preferred_folder.as_str())
-        .max_by_key(|(_, v)| (v.revision, v.version.as_deref().unwrap_or("")));
+        .max_by_key(|(_, v)| (v.revision, version_ord(&v.version)));
 
     let Some((pref_idx, pref_var)) = best_in_pref else { return };
 
-    // Don't override if the current winner has a strictly higher revision.
-    if curr.revision > pref_var.revision {
+    // Don't apply format preference if it would downgrade the release tier
+    // (e.g. switching from a full game to a demo, or from an official to a
+    // bad dump).  Compare only score_rom.0 (tier score) so that intra-tier
+    // ordering differences — particularly build_ord in the pre-release path,
+    // where the tuple is (-100, build_date, …) — don't block the override.
+    // Example that must still work: "v4.1.0 (Aftermarket)" vs "v3.4.5 (GBA,
+    // preferred)" — version_ord check below catches this correctly.
+    let curr_score = score_rom(curr, prefs);
+    let pref_score = score_rom(pref_var, prefs);
+    if curr_score.0 > pref_score.0 {
         return;
     }
-    // Don't override if revisions are equal but the current winner carries a
-    // version tag the preferred variant lacks, or a lexicographically higher one.
-    if curr.revision == pref_var.revision {
-        match (&curr.version, &pref_var.version) {
-            (Some(cv), Some(pv)) if cv.as_str() > pv.as_str() => return,
-            (Some(_), None) => return,
-            _ => {}
-        }
+    // Don't downgrade to a lower version regardless of tier equality.
+    if version_ord(&curr.version) > version_ord(&pref_var.version) {
+        return;
     }
 
     g.preferred_idx = Some(pref_idx);
@@ -585,27 +716,63 @@ pub fn merge_format_pairs(
             .or_insert(p.folder_a.as_str());
     }
 
+    // Build effective format prefs: start with user's explicit prefs, then fill in
+    // defaults for pairs with no explicit preference. The default is folder_b (the
+    // superset/larger folder) so that overlapping titles resolve to the "complete"
+    // collection rather than the specialized subset. Without this, the winner is
+    // determined by HashMap iteration order, which can flip between runs and cause
+    // the Aftermarket copy to be preferred over the base GB copy unpredictably.
+    let effective_prefs: HashMap<String, String> = {
+        let mut ep = format_prefs.clone();
+        for p in pairs {
+            let cg = console_group_key(&p.folder_a).to_string();
+            ep.entry(cg).or_insert_with(|| p.folder_b.clone());
+        }
+        ep
+    };
+
+
     let (paired, mut result): (Vec<RomGroup>, Vec<RomGroup>) = groups
         .into_iter()
         .partition(|g| console_to_key.contains_key(g.console.as_str()));
 
-    // Bucket: (pair_key, title_normalized) → groups sharing that title across formats
-    let mut by_title: HashMap<(String, String), Vec<RomGroup>> = HashMap::new();
+    // Bucket: (pair_key, group_key, catalog_number) → groups sharing that game across formats.
+    //
+    // Must use the SAME composite key that group_roms uses: picker::group_key +
+    // catalog_number.  Two reasons:
+    //
+    // 1. group_key (not title_normalized) preserves subtitle parens that come BEFORE
+    //    the first region tag.  "4 Games on One Game Pak (Racing) (USA)" and
+    //    "(Nickelodeon Movies) (USA)" have the same title_normalized but different
+    //    group_keys — collapsing by title_normalized would merge them and wrongly
+    //    delete two of the three.
+    //
+    // 2. catalog_number (not group_key alone) preserves distinct compilations that
+    //    share a generic title AND a pre-region group_key.  "4 in 1 (Europe) (4B-001)"
+    //    and "4 in 1 (Europe) (4B-002)" both have group_key "4 in 1" — collapsing by
+    //    group_key alone would merge them and wrongly delete all but one.
+    let mut by_title: HashMap<(String, String, String), Vec<RomGroup>> = HashMap::new();
     for g in paired {
         let key = console_to_key[g.console.as_str()].to_string();
+        let gk = g.variants.first()
+            .map(|v| crate::picker::group_key(&v.filename))
+            .unwrap_or_default();
+        let cat = g.variants.first()
+            .map(|v| extract_catalog_number(&v.extra_tags))
+            .unwrap_or_default();
         by_title
-            .entry((key, g.title_normalized.clone()))
+            .entry((key, gk, cat))
             .or_default()
             .push(g);
     }
 
-    for ((_, _), mut title_groups) in by_title {
+    for ((_, _, _), mut title_groups) in by_title {
         if title_groups.len() == 1 {
             let mut g = title_groups.remove(0);
             g.is_format_pair = true;
             // group_roms already merged variants from all format folders via console_group_key,
             // so this is always the single-group path. Apply format preference here.
-            apply_format_pref(&mut g, format_prefs);
+            apply_format_pref(&mut g, &effective_prefs, prefs);
             result.push(g);
         } else {
             // Fallback for the rare case where group_roms produced separate groups
@@ -621,7 +788,7 @@ pub fn merge_format_pairs(
             merged.title_normalized = title_normalized;
             merged.console = primary_console;
             merged.is_format_pair = true;
-            apply_format_pref(&mut merged, format_prefs);
+            apply_format_pref(&mut merged, &effective_prefs, prefs);
             result.push(merged);
         }
     }
@@ -798,6 +965,65 @@ mod tests {
     }
 
     #[test]
+    fn catalog_number_in_extra_tags_creates_separate_groups() {
+        // Sachen "4 in 1" compilations: each catalog number (4B-001, 4B-002, …) is a
+        // physically distinct cartridge containing different games — they must NOT be
+        // collapsed into one group and forced to compete for a single preferred slot.
+        let make = |filename: &str, extra: &[&str]| -> RomFile {
+            let mut r = rom("4 in 1", &["Europe"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.status_flags = vec!["Unl".into()];
+            r.extra_tags = extra.iter().map(|s| s.to_string()).collect();
+            r
+        };
+        let f1 = make("4 in 1 (Europe) (4B-001, Sachen-Commin) (Unl).zip", &["4B-001, Sachen-Commin"]);
+        let f2 = make("4 in 1 (Europe) (4B-002, Sachen) (Unl).zip",        &["4B-002, Sachen"]);
+        let f3 = make("4 in 1 (Europe) (4B-003, Sachen-Commin) (Unl).zip", &["4B-003, Sachen-Commin"]);
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let groups = group_roms(vec![f1, f2, f3], &prefs);
+        assert_eq!(
+            groups.len(), 3,
+            "each catalog number must be its own group; got {} group(s)",
+            groups.len(),
+        );
+    }
+
+    #[test]
+    fn publisher_tag_without_catalog_number_stays_in_same_group() {
+        // Publisher-only extra_tags ("Incube8 Games", "ModRetro Chromatic") must NOT
+        // split the group — different publishers of the same game are still variants.
+        let make = |filename: &str, version: Option<&str>, extra: &[&str]| -> RomFile {
+            let mut r = rom("Lunar Journey", &["World"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+            r.version = version.map(|s| s.to_string());
+            r.extra_tags = extra.iter().map(|s| s.to_string()).collect();
+            r
+        };
+        let bare   = make("Lunar Journey (World) (Aftermarket) (Unl).zip", None, &[]);
+        let tagged = make(
+            "Lunar Journey (World) (v2.0.0) (Incube8 Games) (Aftermarket) (Unl).zip",
+            Some("v2.0.0"), &["Incube8 Games"],
+        );
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let groups = group_roms(vec![bare, tagged], &prefs);
+        assert_eq!(
+            groups.len(), 1,
+            "publisher-tagged variant must stay in the same group as the plain release",
+        );
+    }
+
+    #[test]
     fn usa_rom_scores_higher_than_europe() {
         let usa = rom("Game", &["USA"], &[], &[]);
         let eu = rom("Game", &["Europe"], &[], &[]);
@@ -837,20 +1063,81 @@ mod tests {
     }
 
     #[test]
+    fn versioned_preferred_over_unversioned_when_publisher_tagged() {
+        // Regression: "Lunar Journey (World) (v2.0.0) (Incube8 Games) (Aftermarket) (Unl)"
+        // was losing to "Lunar Journey (World) (Aftermarket) (Unl)" because (Incube8 Games)
+        // applied a -5 extra_tag penalty while version was only a sort tiebreaker.
+        // version_bonus (+6) now ensures the versioned release wins.
+        let make = |filename: &str, version: Option<&str>, revision: u32, extra: &[&str]| -> RomFile {
+            let mut r = rom("Lunar Journey", &["World"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+            r.version = version.map(|s| s.to_string());
+            r.revision = revision;
+            r.extra_tags = extra.iter().map(|s| s.to_string()).collect();
+            r
+        };
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+
+        // Case 1: versioned+publisher tag beats plain unversioned (Lunar Journey).
+        let bare = make("Lunar Journey (World) (Aftermarket) (Unl).zip", None, 0, &[]);
+        let tagged = make(
+            "Lunar Journey (World) (v2.0.0) (Incube8 Games) (Aftermarket) (Unl).zip",
+            Some("v2.0.0"), 0, &["Incube8 Games"],
+        );
+        let groups = group_roms(vec![bare, tagged], &prefs);
+        assert_eq!(groups.len(), 1);
+        let preferred = groups[0].preferred_idx.map(|i| &groups[0].variants[i]).expect("preferred");
+        assert!(
+            preferred.filename.contains("v2.0.0"),
+            "v2.0.0 must be preferred over unversioned, got: {}",
+            preferred.filename,
+        );
+
+        // Case 2: Rev 2+publisher tag beats v1.2+publisher tag (Traumatarium Penitent).
+        // Both tie on version_bonus; revision tiebreaker (2 > 0) picks Rev 2.
+        let v12 = make(
+            "Traumatarium Penitent (World) (v1.2) (ModRetro Chromatic) (Aftermarket) (Unl).zip",
+            Some("v1.2"), 0, &["ModRetro Chromatic"],
+        );
+        let rev2 = make(
+            "Traumatarium Penitent (World) (Rev 2) (ModRetro Chromatic) (Aftermarket) (Unl).zip",
+            None, 2, &["ModRetro Chromatic"],
+        );
+        let groups2 = group_roms(vec![v12, rev2], &prefs);
+        assert_eq!(groups2.len(), 1);
+        let preferred2 = groups2[0].preferred_idx.map(|i| &groups2[0].variants[i]).expect("preferred");
+        assert!(
+            preferred2.filename.contains("Rev 2"),
+            "Rev 2 must be preferred over v1.2, got: {}",
+            preferred2.filename,
+        );
+    }
+
+    #[test]
     fn version_ord_multipart_and_alpha_suffix() {
-        // 4-part version must outrank unversioned (Graveblood regression).
-        assert!(version_ord(&Some("v0.0.1.1.5.2".into())) > version_ord(&None));
-        // Alpha suffix ordering: v0.1 < v0.1a < v0.1b.
+        // Bare (no version) ranks as "just below v1.0": beats sub-1.0 builds, loses to v1.0+.
+        assert!(version_ord(&None) > version_ord(&Some("v0.0.1.1.5.2".into())));
+        assert!(version_ord(&None) > version_ord(&Some("v0.95".into())));
+        assert!(version_ord(&Some("v1.0".into())) > version_ord(&None));
+        assert!(version_ord(&Some("v2.1".into())) > version_ord(&None));
+        // Alpha suffix ordering within sub-1.0: v0.1 < v0.1a < v0.1b.
         assert!(version_ord(&Some("v0.1a".into())) > version_ord(&Some("v0.1".into())));
         assert!(version_ord(&Some("v0.1b".into())) > version_ord(&Some("v0.1a".into())));
-        // Standard ordering still holds.
+        // Standard ordering: higher major/minor wins.
         assert!(version_ord(&Some("v2.1".into())) > version_ord(&Some("v2.0".into())));
         assert!(version_ord(&Some("v1.0".into())) > version_ord(&Some("v0.95".into())));
     }
 
     #[test]
-    fn versioned_prerelease_preferred_over_unversioned() {
-        // v0.0.1.1.5.2 (Demo) must be preferred over plain (Demo) — version tiebreaker.
+    fn bare_prerelease_preferred_over_sub_one_version() {
+        // Sub-1.0 versions signal an incomplete/early build; bare (no version tag)
+        // should be preferred over v0.x within the same pre-release tier.
         let make_demo = |filename: &str, version: Option<&str>| -> RomFile {
             let mut r = rom("Graveblood", &["World"], &[], &[]);
             r.filename = filename.to_string();
@@ -860,18 +1147,31 @@ mod tests {
             r
         };
         let plain = make_demo("Graveblood (World) (Demo) (Aftermarket) (Unl).zip", None);
-        let versioned = make_demo(
+        let sub_one = make_demo(
             "Graveblood (World) (v0.0.1.1.5.2) (Demo) (Aftermarket) (Unl).zip",
             Some("v0.0.1.1.5.2"),
         );
         let prefs = en_prefs();
-        let groups = group_roms(vec![plain, versioned], &prefs);
-        let g = &groups[0];
-        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+
+        // Bare beats sub-1.0
+        let groups = group_roms(vec![plain.clone(), sub_one], &prefs);
+        let preferred = groups[0].preferred_idx.map(|i| &groups[0].variants[i]).expect("must have preferred");
         assert!(
-            preferred.version.as_deref() == Some("v0.0.1.1.5.2"),
-            "versioned Demo must be preferred, got: {}",
+            preferred.version.is_none(),
+            "bare Demo must beat v0.0.1.1.5.2 Demo, got: {}",
             preferred.filename,
+        );
+
+        // v1.0+ beats bare
+        let mut v1 = plain.clone();
+        v1.filename = "Graveblood (World) (v1.0) (Demo) (Aftermarket) (Unl).zip".into();
+        v1.version = Some("v1.0".into());
+        let groups2 = group_roms(vec![plain, v1], &prefs);
+        let preferred2 = groups2[0].preferred_idx.map(|i| &groups2[0].variants[i]).expect("must have preferred");
+        assert!(
+            preferred2.version.as_deref() == Some("v1.0"),
+            "v1.0 Demo must beat bare Demo, got: {}",
+            preferred2.filename,
         );
     }
 
@@ -1125,6 +1425,38 @@ mod tests {
     }
 
     #[test]
+    fn aftermarket_preferred_over_proto_in_same_group() {
+        // Regression: "Broken Circle (Europe) (En,It) (Proto)" was being selected over
+        // "Broken Circle (World) (En,It) (Aftermarket) (Unl)" because detect_category
+        // returns Game for Proto files (no "Unl"/"Aftermarket" flag), causing them to be
+        // treated as "official preferred lang" and blocking the Aftermarket from preferred_idx.
+        let mut proto = rom("Broken Circle", &["Europe"], &["En", "It"], &["Proto"]);
+        proto.console = "Nintendo - Game Boy Advance".into();
+        proto.filename = "Broken Circle (Europe) (En,It) (Proto).zip".into();
+        proto.file_category = FileCategory::Game;
+        proto.status_flags = vec!["Proto".into()];
+
+        let mut aftermarket = rom("Broken Circle", &["World"], &["En", "It"], &[]);
+        aftermarket.console = "Nintendo - Game Boy Advance (Aftermarket)".into();
+        aftermarket.filename = "Broken Circle (World) (En,It) (Aftermarket) (Unl).zip".into();
+        aftermarket.file_category = FileCategory::Unofficial;
+        aftermarket.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![proto, aftermarket], &prefs);
+
+        assert_eq!(groups.len(), 1, "proto and aftermarket must be in same group");
+        let g = &groups[0];
+        let preferred = g.preferred_idx.expect("must have a preferred variant");
+        assert_eq!(
+            g.variants[preferred].filename,
+            "Broken Circle (World) (En,It) (Aftermarket) (Unl).zip",
+            "Aftermarket full release must beat prototype; got preferred={:?}",
+            g.variants[preferred].filename,
+        );
+    }
+
+    #[test]
     fn non_english_gets_min_score() {
         let jp = rom("Game", &["Japan"], &[], &[]);
         let prefs = en_prefs();
@@ -1171,6 +1503,7 @@ mod tests {
             has_preferred_version: false,
             is_format_pair: false,
             disc_count: 1,
+            catalog_number: None,
         }
     }
 
@@ -1473,6 +1806,35 @@ mod tests {
     }
 
     #[test]
+    fn newer_build_date_preferred_over_older() {
+        // Real-world case: "Song of Morus – Ghostly Night (World) (2023-05-20) (Aftermarket) (Unl)"
+        // vs "(2023-06-08)". Both score identically; without a build_date tiebreaker the sort
+        // falls through to filename ascending, which puts the older date first.
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let mut older = rom("Song of Morus", &["World"], &[], &["Aftermarket"]);
+        older.file_category = FileCategory::Unofficial;
+        older.build_date = Some(20230520);
+        older.filename = "Song of Morus (World) (2023-05-20) (Aftermarket) (Unl).zip".into();
+        let mut newer = rom("Song of Morus", &["World"], &[], &["Aftermarket"]);
+        newer.file_category = FileCategory::Unofficial;
+        newer.build_date = Some(20230608);
+        newer.filename = "Song of Morus (World) (2023-06-08) (Aftermarket) (Unl).zip".into();
+        let groups = group_roms(vec![older, newer], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.filename.contains("2023-06-08"),
+            "newer build date must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
     fn batteryless_scores_below_standard_release() {
         let mut batteryless = rom("Little Tales of Alexandria", &["World"], &[], &[]);
         batteryless.extra_tags = vec!["MBC3".into(), "SGB Enhanced".into(), "Batteryless".into()];
@@ -1488,6 +1850,44 @@ mod tests {
         assert!(
             score_rom(&standard, &prefs) > score_rom(&batteryless, &prefs),
             "standard must score above Batteryless variant"
+        );
+    }
+
+    #[test]
+    fn hardware_feature_tag_does_not_suppress_revision_bonus() {
+        // Real-world case: "Tetris 2 (USA, Europe) (Rev 1) (SGB Enhanced)" must beat
+        // "Tetris 2 (USA)" even though the SGB Enhanced edition carries an extra_tag.
+        // The official-branch collection_penalty check must exempt HARDWARE_FEATURE_TAGS
+        // so "SGB Enhanced" doesn't trigger the -5 penalty and silence revision_bonus.
+        let bare_usa = rom("Tetris 2", &["USA"], &[], &[]);
+        let mut rev1_sgb = rom("Tetris 2", &["USA", "Europe"], &[], &[]);
+        rev1_sgb.revision = 1;
+        rev1_sgb.extra_tags = vec!["SGB Enhanced".into()];
+        assert!(
+            score_rom(&rev1_sgb, &en_prefs()) > score_rom(&bare_usa, &en_prefs()),
+            "Rev 1 (SGB Enhanced) {:?} must beat bare USA {:?}",
+            score_rom(&rev1_sgb, &en_prefs()),
+            score_rom(&bare_usa, &en_prefs()),
+        );
+    }
+
+    #[test]
+    fn gb_compatible_tag_does_not_suppress_revision_bonus() {
+        // Real-world case: "Shanghai Pocket (Europe) (Rev 1) (SGB Enhanced) (GB Compatible)"
+        // must beat "Shanghai Pocket (USA) (SGB Enhanced) (GB Compatible)".
+        // "GB Compatible" describes backward compatibility with original GB hardware —
+        // it is a hardware capability flag, not a distribution variant, so it must NOT
+        // trigger the -5 penalty that would zero out revision_bonus.
+        let mut usa = rom("Shanghai Pocket", &["USA"], &[], &[]);
+        usa.extra_tags = vec!["SGB Enhanced".into(), "GB Compatible".into()];
+        let mut europe_rev1 = rom("Shanghai Pocket", &["Europe"], &[], &[]);
+        europe_rev1.revision = 1;
+        europe_rev1.extra_tags = vec!["SGB Enhanced".into(), "GB Compatible".into()];
+        assert!(
+            score_rom(&europe_rev1, &en_prefs()) > score_rom(&usa, &en_prefs()),
+            "Europe Rev 1 (GB Compatible) {:?} must beat USA original {:?}",
+            score_rom(&europe_rev1, &en_prefs()),
+            score_rom(&usa, &en_prefs()),
         );
     }
 
@@ -1532,6 +1932,30 @@ mod tests {
     }
 
     #[test]
+    fn numbered_proto_beats_dated_proto() {
+        // Numbered protos (Proto N) are explicitly sequenced by archivists and represent
+        // the most complete builds. They must rank above any dated snapshot.
+        let mut proto7 = rom("Army Men", &["USA", "Europe"], &[], &["Proto"]);
+        proto7.revision = 7;
+        let mut dated = rom("Army Men", &["USA", "Europe"], &[], &["Proto"]);
+        dated.build_date = Some(20000914); // 2000-09-14 — a late dated build
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&proto7, &prefs) > score_rom(&dated, &prefs),
+            "Proto 7 {:?} must beat dated proto 2000-09-14 {:?}",
+            score_rom(&proto7, &prefs),
+            score_rom(&dated, &prefs),
+        );
+        // Proto 1 also beats any dated proto (whole numbered series ranks above dated)
+        let mut proto1 = rom("Army Men", &["USA", "Europe"], &[], &["Proto"]);
+        proto1.revision = 1;
+        assert!(
+            score_rom(&proto1, &prefs) > score_rom(&dated, &prefs),
+            "Proto 1 must also beat dated proto",
+        );
+    }
+
+    #[test]
     fn rev1_beats_unrevised_original_regardless_of_region() {
         // Real-world case: Donkey Kong (World) (Rev 1) must beat Donkey Kong (Japan, USA) (En).
         // Revision bonus (100 per rev) must overcome the USA region advantage (100 pts)
@@ -1552,6 +1976,34 @@ mod tests {
         assert!(
             score_rom(&japan_rev1, &en_prefs()) > score_rom(&usa_orig, &en_prefs()),
             "Japan (En) (Rev 1) must beat USA (En) original",
+        );
+    }
+
+    #[test]
+    fn world_rev_beats_specific_region_when_world_not_in_prefs() {
+        // Real-world case: user has a long preferred_regions list that does NOT include
+        // "World". Without the World-fallback fix, "USA" at position 0 with 10 preferred
+        // regions gives score 200, while "World" falls through to the generic fallback of 5
+        // — making revision_bonus of 100 insufficient to overcome the 195-point gap.
+        // With the fix, "World" is treated as equivalent to the user's top preference
+        // (max_priority * 20 = 200), so revision_bonus tips "World (Rev 1)" over the top.
+        let long_prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![
+                "USA".into(), "Europe".into(), "Japan".into(), "Australia".into(),
+                "Brazil".into(), "Korea".into(), "France".into(), "Germany".into(),
+                "Spain".into(), "China".into(),
+            ],
+            short_console_names: false,
+        };
+        let mut world_rev1 = rom("Donkey Kong", &["World"], &[], &[]);
+        world_rev1.revision = 1;
+        let japan_usa_en = rom("Donkey Kong", &["Japan", "USA"], &["En"], &[]);
+        assert!(
+            score_rom(&world_rev1, &long_prefs) > score_rom(&japan_usa_en, &long_prefs),
+            "World (Rev 1) {:?} must beat Japan/USA (En) {:?} even when World absent from preferred_regions",
+            score_rom(&world_rev1, &long_prefs),
+            score_rom(&japan_usa_en, &long_prefs),
         );
     }
 
@@ -1811,6 +2263,7 @@ mod tests {
             has_preferred_version: true,
             is_format_pair: true,
             disc_count: 1,
+            catalog_number: None,
         }
     }
 
@@ -1826,7 +2279,7 @@ mod tests {
             "Nintendo - FDS".to_string(),
             "Nintendo - FDS (FDS)".to_string(),
         );
-        apply_format_pref(&mut g, &prefs);
+        apply_format_pref(&mut g, &prefs, &en_prefs());
         assert_eq!(g.preferred_idx, Some(0), "FDS should be preferred when versions are equal");
     }
 
@@ -1842,7 +2295,7 @@ mod tests {
             "Nintendo - FDS".to_string(),
             "Nintendo - FDS (FDS)".to_string(),
         );
-        apply_format_pref(&mut g, &prefs);
+        apply_format_pref(&mut g, &prefs, &en_prefs());
         assert_eq!(
             g.preferred_idx, Some(1),
             "Aftermarket v1.1 should remain preferred over FDS base version",
@@ -1860,7 +2313,7 @@ mod tests {
             "Nintendo - FDS".to_string(),
             "Nintendo - FDS (FDS)".to_string(),
         );
-        apply_format_pref(&mut g, &prefs);
+        apply_format_pref(&mut g, &prefs, &en_prefs());
         assert_eq!(
             g.preferred_idx, Some(1),
             "QD Rev 1 should remain preferred over FDS base revision",
@@ -1878,8 +2331,646 @@ mod tests {
             "Nintendo - FDS".to_string(),
             "Nintendo - FDS (FDS)".to_string(),
         );
-        apply_format_pref(&mut g, &prefs);
+        apply_format_pref(&mut g, &prefs, &en_prefs());
         assert_eq!(g.preferred_idx, Some(0));
         assert_eq!(g.console, "Nintendo - FDS (FDS)");
+    }
+
+    /// Format preference must NOT override a language-quality advantage.
+    /// Real case: "Nintendo - Game Boy (Aftermarket)" folder has "(World) (En)" (explicit
+    /// English tag), while "Nintendo - Game Boy" has only "(World)" (English inferred from
+    /// region). The explicit "(En)" scores higher on lang_count, but since both folders
+    /// have the same version (None) and the same tier score, the user's format preference
+    /// (GB) must win — the World copy is still fully playable in English.
+    #[test]
+    fn format_pref_wins_over_explicit_language_when_same_version() {
+        use crate::models::FileCategory;
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_aftermkt = "Nintendo - Game Boy (Aftermarket)";
+
+        // GB folder: "(World)" only — language inferred from region.
+        let mut world_only = rom("Neko Can Dream (World) (Aftermarket) (Unl)", &["World"], &[], &["Aftermarket", "Unl"]);
+        world_only.console = gb.into();
+        world_only.file_category = FileCategory::Unofficial;
+
+        // GB(Aftermarket) folder: "(World) (En)" — explicit language.
+        let mut world_en = rom("Neko Can Dream (World) (En) (Aftermarket) (Unl)", &["World"], &["En"], &["Aftermarket", "Unl"]);
+        world_en.console = gb_aftermkt.into();
+        world_en.file_category = FileCategory::Unofficial;
+
+        // Scoring puts (World)(En) first on lang_count. preferred_idx = Some(0).
+        let mut g = group_with_variants(vec![world_en, world_only], Some(0));
+        g.console = gb_aftermkt.into();
+
+        // Format preference points to GB — same version (None) → preference wins.
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert("Nintendo - Game Boy".to_string(), gb.to_string());
+
+        apply_format_pref(&mut g, &format_prefs, &en_prefs());
+
+        assert_eq!(
+            g.preferred_idx,
+            Some(1),
+            "GB format preference must win when both variants have the same version"
+        );
+    }
+
+    /// Real case: GBC (preferred) has a versioned demo "(v2)" while GBC (Aftermarket) has
+    /// a build-dated demo "(2024-08-15)". The build date gives Aftermarket a higher
+    /// build_ord in the pre-release score tuple, but since the tier score is identical
+    /// (both -100) and version_ord(None) < version_ord("v2"), the format preference must
+    /// apply and the GBC (v2) variant must be preferred.
+    #[test]
+    fn format_pref_wins_over_build_date_when_preferred_folder_has_higher_version() {
+        use crate::models::FileCategory;
+
+        let gbc          = "Nintendo - Game Boy Color";
+        let gbc_aftermkt = "Nintendo - Game Boy Color (Aftermarket)";
+
+        // GBC (Aftermarket): dated demo, no version tag → build_ord = 20240815 in score tuple.
+        let mut dated = rom("Witches and Butchers (World) (2024-08-15) (Demo)", &["World"], &["En", "Es"], &[]);
+        dated.console = gbc_aftermkt.into();
+        dated.build_date = Some(20240815);
+        dated.file_category = FileCategory::Game; // scored as demo via status_flags
+        dated.status_flags = vec!["Demo".into()];
+
+        // GBC: versioned demo "(v2)" → build_ord = 0 but version = Some("v2").
+        let mut v2 = rom("Witches and Butchers (World) (v2) (Demo)", &["World"], &[], &[]);
+        v2.console = gbc.into();
+        v2.version = Some("v2".into());
+        v2.file_category = FileCategory::Game;
+        v2.status_flags = vec!["Demo".into()];
+
+        // Scorer picks dated (higher build_ord) → preferred_idx = Some(0).
+        let mut g = group_with_variants(vec![dated, v2], Some(0));
+        g.console = gbc_aftermkt.into();
+
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert(gbc.to_string(), gbc.to_string());
+
+        apply_format_pref(&mut g, &format_prefs, &en_prefs());
+
+        assert_eq!(
+            g.preferred_idx,
+            Some(1),
+            "GBC (v2) must win over GBC Aftermarket (2024-08-15) when GBC is the preferred folder and v2 > bare"
+        );
+    }
+
+    /// Format preference must NOT override a scoring-tier advantage.
+    /// Real case: "Nintendo - Game Boy" folder has only a Demo copy of "Athletic World",
+    /// but "Nintendo - Game Boy (Private)" has the full release. The full release scores
+    /// −30 (Unofficial) vs −100 (Demo/Pre-release) for the Demo — format preference for
+    /// GB must not cause the Demo to be kept.
+    #[test]
+    fn format_pref_does_not_downgrade_demo_over_full_release() {
+        use crate::models::FileCategory;
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_private  = "Nintendo - Game Boy (Private)";
+
+        // Demo copy in the GB folder — scores −100 (Pre-release).
+        let mut demo = rom("Athletic World (World) (Demo) (Aftermarket) (Unl)", &["World"], &[], &["Demo", "Aftermarket", "Unl"]);
+        demo.console = gb.into();
+        demo.filename = "Athletic World (World) (Demo) (SGB Enhanced) (Aftermarket) (Unl).zip".into();
+        demo.file_category = FileCategory::Game; // still Game; score_rom checks status_flags
+
+        // Full release in the Private folder — scores −30 (Unofficial).
+        let mut full = rom("Athletic World (World) (Aftermarket) (Unl)", &["World"], &[], &["Aftermarket", "Unl"]);
+        full.console = gb_private.into();
+        full.filename = "Athletic World (World) (SGB Enhanced) (Aftermarket) (Unl).zip".into();
+        full.file_category = FileCategory::Unofficial;
+
+        // Scoring puts the full release first (score −30 > −100 for Demo).
+        // preferred_idx = Some(0) → full release wins by score.
+        let mut g = group_with_variants(vec![full, demo], Some(0));
+        g.console = gb_private.into();
+
+        // User preference (or effective default) points to the GB folder.
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert("Nintendo - Game Boy".to_string(), gb.to_string());
+
+        apply_format_pref(&mut g, &format_prefs, &en_prefs());
+
+        assert_eq!(
+            g.preferred_idx,
+            Some(0),
+            "full release (Non-preferred GB Private) must remain preferred over Demo (GB folder)"
+        );
+    }
+
+    // ── End-to-end: GB + GB(Aftermarket) with user format preference ─────────
+
+    /// Real-world Myrient scenario: the Aftermarket ROM appears in BOTH the base
+    /// "Nintendo - Game Boy" folder AND the "Nintendo - Game Boy (Aftermarket)"
+    /// folder with the SAME filename ("Adulting! (World) (Aftermarket).zip").
+    /// Both copies are FileCategory::Unofficial (parser sees "(Aftermarket)").
+    /// They have equal scores and equal filenames, so stable sort preserves
+    /// insertion order — which is non-deterministic in production.
+    ///
+    /// This test forces the Aftermarket console copy to be inserted FIRST so that
+    /// after grouping and sorting it ends up at index 0 (preferred_idx = Some(0)).
+    /// apply_format_pref must then switch preferred_idx to the GB copy (index 1).
+    #[test]
+    fn format_pref_gb_over_aftermarket_real_filenames_aftermarket_first() {
+        use crate::deduper::detect_format_pairs;
+        use crate::models::{FileCategory, FileFormat};
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_aftermkt = "Nintendo - Game Boy (Aftermarket)";
+        // Real Myrient filename: "(Aftermarket)" is present in the filename itself.
+        let filename    = "Adulting! (World) (Aftermarket).zip";
+
+        let make = |console: &'static str| RomFile {
+            path:              format!("/roms/{console}/{filename}"),
+            filename:          filename.into(),
+            console:           console.into(),
+            title:             "Adulting!".into(),
+            title_normalized:  crate::parser::normalize_title("Adulting!"),
+            regions:           vec!["World".into()],
+            languages:         vec![],
+            status_flags:      vec!["Aftermarket".into()],
+            extra_tags:        vec![],
+            bad_dump:          false,
+            revision:          0,
+            build_date:        None,
+            disc_number:       None,
+            version:           None,
+            is_bios:           false,
+            file_format:       FileFormat::Zip,
+            // "(Aftermarket)" in filename → Unofficial, just like the real parser would do.
+            file_category:     FileCategory::Unofficial,
+            filesize:          1024,
+            matches_preferred_language: false,
+            matches_preferred_region:   false,
+        };
+
+        // CRITICAL: put Aftermarket FIRST so it gets inserted first into group_roms's
+        // HashMap and ends up at variants[0] after the stable sort on equal elements.
+        let roms = vec![make(gb_aftermkt), make(gb)];
+        let prefs = en_prefs();
+
+        let groups       = group_roms(roms.clone(), &prefs);
+        let format_pairs = detect_format_pairs(&roms);
+
+        let mut format_prefs: HashMap<String, String> = HashMap::new();
+        format_prefs.insert("Nintendo - Game Boy".into(), "Nintendo - Game Boy".into());
+
+        let merged = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
+
+        assert_eq!(merged.len(), 1, "both copies must merge into one group");
+        let g = &merged[0];
+        assert!(g.is_format_pair, "group must be flagged as a format pair");
+        assert_eq!(g.variants.len(), 2, "group must contain both console variants");
+
+        let preferred_idx = g.preferred_idx.expect("group must have a preferred variant");
+        assert_eq!(
+            g.variants[preferred_idx].console, gb,
+            "GB copy must be preferred when Aftermarket was inserted first; got '{}'",
+            g.variants[preferred_idx].console
+        );
+    }
+
+    #[test]
+    fn format_pref_gb_over_aftermarket_full_pipeline() {
+        // Simulates the scan pipeline for the "Adulting!" case:
+        // the same ROM file exists in BOTH "Nintendo - Game Boy" and
+        // "Nintendo - Game Boy (Aftermarket)".  After the user selects "GB" as
+        // the preferred format folder, the prune pipeline should mark the GB
+        // copy as preferred (to_keep) and the Aftermarket copy as NonPreferred
+        // (to_delete).
+        use crate::deduper::detect_format_pairs;
+        use crate::models::{FileCategory, FileFormat};
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_aftermkt = "Nintendo - Game Boy (Aftermarket)";
+
+        let make = |console: &str| RomFile {
+            path:              format!("/roms/{console}/Adulting! (World).zip"),
+            filename:          "Adulting! (World).zip".into(),
+            console:           console.into(),
+            title:             "Adulting!".into(),
+            title_normalized:  crate::parser::normalize_title("Adulting!"),
+            regions:           vec!["World".into()],
+            languages:         vec![],
+            status_flags:      vec![],
+            extra_tags:        vec![],
+            bad_dump:          false,
+            revision:          0,
+            build_date:        None,
+            disc_number:       None,
+            version:           None,
+            is_bios:           false,
+            file_format:       FileFormat::Zip,
+            file_category:     FileCategory::Game,
+            filesize:          1024,
+            matches_preferred_language: false,
+            matches_preferred_region:   false,
+        };
+
+        let roms  = vec![make(gb), make(gb_aftermkt)];
+        let prefs = en_prefs();
+
+        // Replicate the exact scan pipeline order used by scan_roots.
+        let groups       = group_roms(roms.clone(), &prefs);
+        let format_pairs = detect_format_pairs(&roms);
+
+        // User selected "Nintendo - Game Boy" as the preferred folder.
+        let mut format_prefs: HashMap<String, String> = HashMap::new();
+        format_prefs.insert(
+            "Nintendo - Game Boy".into(),
+            "Nintendo - Game Boy".into(),
+        );
+
+        let merged = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
+
+        // Should be a single group with both variants.
+        assert_eq!(merged.len(), 1, "both copies should merge into one group");
+        let g = &merged[0];
+        assert!(g.is_format_pair, "group must be flagged as a format pair");
+        assert_eq!(g.variants.len(), 2, "group must contain both console variants");
+
+        let preferred_idx = g
+            .preferred_idx
+            .expect("group must have a preferred variant");
+        assert_eq!(
+            g.variants[preferred_idx].console, gb,
+            "GB copy must be preferred, not GB (Aftermarket)"
+        );
+    }
+
+    #[test]
+    fn format_pref_gb_over_aftermarket_three_console_folders() {
+        // Real-world topology: three parallel console folders (GB, GB(Aftermarket),
+        // GB(Private)) producing three format pairs.  After the user selects "GB"
+        // as the preferred format folder, the GB copy must be preferred for every
+        // game that has a counterpart in the Aftermarket folder.
+        use crate::deduper::detect_format_pairs;
+        use crate::models::{FileCategory, FileFormat};
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_aftermkt = "Nintendo - Game Boy (Aftermarket)";
+        let gb_private  = "Nintendo - Game Boy (Private)";
+
+        let make = |console: &str, title: &str| RomFile {
+            path:              format!("/roms/{console}/{title}.zip"),
+            filename:          format!("{title}.zip"),
+            console:           console.into(),
+            title:             title.into(),
+            title_normalized:  crate::parser::normalize_title(title),
+            regions:           vec!["World".into()],
+            languages:         vec![],
+            status_flags:      vec![],
+            extra_tags:        vec![],
+            bad_dump:          false,
+            revision:          0,
+            build_date:        None,
+            disc_number:       None,
+            version:           None,
+            is_bios:           false,
+            file_format:       FileFormat::Zip,
+            file_category:     FileCategory::Game,
+            filesize:          1024,
+            matches_preferred_language: false,
+            matches_preferred_region:   false,
+        };
+
+        // Simulate the real Myrient layout: Private games also appear in the main GB
+        // folder (same file in both), so GB×Private has overlap and qualifies as a
+        // format pair via `is_category_variant`.
+        let roms = vec![
+            make(gb,          "Adulting! (World)"),
+            make(gb_aftermkt, "Adulting! (World)"),
+            make(gb,          "Alphamax (World)"),
+            make(gb_aftermkt, "Alphamax (World)"),
+            make(gb,          "Art School Pocket (World)"),
+            make(gb_aftermkt, "Art School Pocket (World)"),
+            make(gb,          "Super Mario Land (World)"),   // GB-only title
+            make(gb,          "Tetris (World)"),              // GB-only title
+            // Private games ALSO appear in GB — is_category_variant + overlap > 0 → pair qualifies
+            make(gb,          "Proto Game A (World)"),
+            make(gb_private,  "Proto Game A (World)"),
+            make(gb,          "Proto Game B (World)"),
+            make(gb_private,  "Proto Game B (World)"),
+        ];
+        let prefs = en_prefs();
+
+        let groups       = group_roms(roms.clone(), &prefs);
+        let format_pairs = detect_format_pairs(&roms);
+
+        // Two pairs detected: GB×Aftermarket and GB×Private (Private×Aftermarket has no overlap).
+        assert!(format_pairs.len() >= 2, "should detect at least GB×Aftermarket and GB×Private pairs; got {}", format_pairs.len());
+
+        let mut format_prefs: HashMap<String, String> = HashMap::new();
+        format_prefs.insert(
+            "Nintendo - Game Boy".into(),
+            "Nintendo - Game Boy".into(),
+        );
+
+        let merged = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
+
+        // Every group that has both GB and GB(Aftermarket) copies must prefer GB.
+        for g in &merged {
+            if !g.is_format_pair { continue; }
+            let has_gb          = g.variants.iter().any(|v| v.console == gb);
+            let has_aftermarket = g.variants.iter().any(|v| v.console == gb_aftermkt);
+            if !has_gb || !has_aftermarket { continue; }
+
+            let preferred_idx = g.preferred_idx.expect("format-pair group must have a preferred idx");
+            assert_eq!(
+                g.variants[preferred_idx].console, gb,
+                "for title '{}': GB copy must be preferred, not '{}'",
+                g.title_normalized,
+                g.variants[preferred_idx].console,
+            );
+        }
+    }
+
+    /// When no format preference has been saved to the DB for a console group, the
+    /// superset folder (folder_b = the larger folder) must still win over the subset.
+    /// This was the root-cause bug: the user saw GB selected as the default in the UI
+    /// (folders sorted by count descending), but never explicitly clicked it, so
+    /// format_preferences had no entry for "Nintendo - Game Boy". Without the
+    /// effective_prefs defaulting, HashMap insertion order determined the winner,
+    /// causing GB(Aftermarket) to appear as preferred.
+    #[test]
+    fn format_pref_defaults_to_superset_when_no_explicit_preference() {
+        use crate::deduper::detect_format_pairs;
+        use crate::models::{FileCategory, FileFormat};
+
+        let gb          = "Nintendo - Game Boy";
+        let gb_aftermkt = "Nintendo - Game Boy (Aftermarket)";
+        let filename    = "Adulting! (World) (Aftermarket).zip";
+
+        let make = |console: &'static str| RomFile {
+            path:              format!("/roms/{console}/{filename}"),
+            filename:          filename.into(),
+            console:           console.into(),
+            title:             "Adulting!".into(),
+            title_normalized:  crate::parser::normalize_title("Adulting!"),
+            regions:           vec!["World".into()],
+            languages:         vec![],
+            status_flags:      vec!["Aftermarket".into()],
+            extra_tags:        vec![],
+            bad_dump:          false,
+            revision:          0,
+            build_date:        None,
+            disc_number:       None,
+            version:           None,
+            is_bios:           false,
+            file_format:       FileFormat::Zip,
+            file_category:     FileCategory::Unofficial,
+            filesize:          1024,
+            matches_preferred_language: false,
+            matches_preferred_region:   false,
+        };
+
+        // Aftermarket first → it ends up at variants[0] after the stable sort on equal elements.
+        // Add extra GB-only titles so GB (3 titles) is unambiguously the superset over
+        // GB(Aftermarket) (1 title), making detect_format_pairs consistently assign
+        // folder_b = "Nintendo - Game Boy" regardless of HashMap iteration order.
+        let gb_only_a = {
+            let mut r = make(gb);
+            r.filename = "Bubsy II (World) (Aftermarket) (Unl).zip".into();
+            r.title_normalized = crate::parser::normalize_title("Bubsy II");
+            r
+        };
+        let gb_only_b = {
+            let mut r = make(gb);
+            r.filename = "Catrap (World) (Aftermarket) (Unl).zip".into();
+            r.title_normalized = crate::parser::normalize_title("Catrap");
+            r
+        };
+        let roms = vec![make(gb_aftermkt), make(gb), gb_only_a, gb_only_b];
+        let prefs = en_prefs();
+
+        let groups       = group_roms(roms.clone(), &prefs);
+        let format_pairs = detect_format_pairs(&roms);
+
+        // No explicit preference saved (empty map — simulates a fresh install).
+        let merged = merge_format_pairs(groups, &format_pairs, &prefs, &HashMap::new());
+
+        // The "Adulting" group has 2 variants (GB + GB-Aftermarket); the other two have 1.
+        let g = merged.iter()
+            .find(|g| g.variants.len() == 2)
+            .expect("must find the Adulting group with both console variants");
+        assert!(g.is_format_pair, "group must be flagged as a format pair");
+
+        let preferred_idx = g.preferred_idx.expect("group must have a preferred variant");
+        assert_eq!(
+            g.variants[preferred_idx].console, gb,
+            "superset (GB) must be preferred by default when no explicit preference is saved; \
+             got '{}' instead",
+            g.variants[preferred_idx].console
+        );
+    }
+
+    #[test]
+    fn format_pref_does_not_downgrade_to_lower_version() {
+        // Regression: Apotris (World) (v3.4.5) in GBA was being preferred over
+        // (v4.1.0) in GBA (Aftermarket) because apply_format_pref only compared
+        // score_rom (which ignores version strings) when deciding whether to override.
+        // Format preference is a tiebreaker — it must yield to a higher version.
+        use crate::models::{FileCategory, FileFormat, FormatPair};
+
+        let gba           = "Nintendo - Game Boy Advance";
+        let gba_aftermkt  = "Nintendo - Game Boy Advance (Aftermarket)";
+
+        let make = |console: &str, version: &str| -> RomFile {
+            RomFile {
+                path:             format!("/roms/{console}/Apotris (World) ({version}) (Aftermarket) (Unl).zip"),
+                filename:         format!("Apotris (World) ({version}) (Aftermarket) (Unl).zip"),
+                console:          console.into(),
+                title:            "Apotris".into(),
+                title_normalized: crate::parser::normalize_title("Apotris"),
+                regions:          vec!["World".into()],
+                languages:        vec![],
+                status_flags:     vec!["Aftermarket".into(), "Unl".into()],
+                extra_tags:       vec![],
+                bad_dump:         false,
+                revision:         0,
+                build_date:       None,
+                disc_number:      None,
+                version:          Some(version.to_string()),
+                is_bios:          false,
+                file_format:      FileFormat::Zip,
+                file_category:    FileCategory::Unofficial,
+                filesize:         1024,
+                matches_preferred_language: false,
+                matches_preferred_region:   false,
+            }
+        };
+
+        let old = make(gba, "v3.4.5");
+        let new = make(gba_aftermkt, "v4.1.0");
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![old, new], &prefs);
+        assert_eq!(groups.len(), 1);
+
+        let format_pairs = vec![FormatPair {
+            console_group: "Nintendo - Game Boy Advance".into(),
+            folder_a:      gba_aftermkt.into(),
+            folder_b:      gba.into(),
+            overlap_percent: 1.0,
+            folder_a_count:  1,
+            folder_b_count:  1,
+        }];
+
+        // User has explicitly set "prefer GBA over GBA (Aftermarket)".
+        let mut format_prefs = HashMap::new();
+        format_prefs.insert("Nintendo - Game Boy Advance".to_string(), gba.to_string());
+
+        let merged = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
+        assert_eq!(merged.len(), 1);
+        let g = &merged[0];
+        let preferred_idx = g.preferred_idx.expect("must have preferred");
+        assert_eq!(
+            g.variants[preferred_idx].version.as_deref(), Some("v4.1.0"),
+            "v4.1.0 must be preferred over v3.4.5 even when GBA folder is the preferred format; \
+             format preference must not override a higher version"
+        );
+    }
+
+    #[test]
+    fn patreon_tag_exempt_from_penalty_so_higher_version_wins() {
+        // "Patreon" is a developer-direct distribution channel — the Patreon build is
+        // typically the latest version from the original author.  It must be exempt from
+        // the generic −5 extra-tag penalty so that a higher version (v1.1) is not passed
+        // over in favour of an older untagged release (v0.95).
+        //
+        // Regression: Anguna – Warriors of Virtue (World) (v1.1) (Patreon) (Aftermarket) (Unl)
+        // was being deleted because (Patreon) incurred −5, giving it score 81 vs v0.95's 86.
+        let make = |filename: &str, version: Option<&str>, extra: &[&str]| -> RomFile {
+            let mut r = rom("Anguna - Warriors of Virtue", &["World"], &[], &[]);
+            r.filename = filename.to_string();
+            r.file_category = FileCategory::Unofficial;
+            r.status_flags = vec!["Aftermarket".into(), "Unl".into()];
+            r.version = version.map(|s| s.to_string());
+            r.extra_tags = extra.iter().map(|s| s.to_string()).collect();
+            r.matches_preferred_language = true;
+            r
+        };
+        let v095 = make(
+            "Anguna - Warriors of Virtue (World) (v0.95) (Aftermarket) (Unl).zip",
+            Some("v0.95"), &[],
+        );
+        let v11_patreon = make(
+            "Anguna - Warriors of Virtue (World) (v1.1) (Patreon) (Aftermarket) (Unl).zip",
+            Some("v1.1"), &["Patreon"],
+        );
+        let prefs = en_prefs();
+        let groups = group_roms(vec![v095, v11_patreon], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert_eq!(
+            preferred.version.as_deref(), Some("v1.1"),
+            "v1.1 (Patreon) must beat v0.95 (no Patreon) via version tiebreaker once \
+             the Patreon tag is exempt from the −5 penalty; got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn four_games_on_one_pak_compilations_are_separate_groups() {
+        // "4 Games on One Game Pak (Racing)", "(Nickelodeon Movies)", "(Nicktoons)" are three
+        // distinct compilation cartridges — their subtitle parentheticals come BEFORE the
+        // region tag in the No-Intro filename, so picker::group_key preserves them and each
+        // should end up in its own RomGroup.  Regression: if parse_from_filename + group_roms
+        // collapses them into one group, two would be wrongly flagged for deletion.
+        let console = "Nintendo - Game Boy Advance";
+        let f1 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip", console,
+        ).expect("parse Racing");
+        let f2 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Nickelodeon Movies) (USA).zip", console,
+        ).expect("parse Nickelodeon Movies");
+        let f3 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Nicktoons) (USA).zip", console,
+        ).expect("parse Nicktoons");
+
+        // Print the group keys so a failing test shows us what went wrong.
+        let k1 = crate::picker::group_key(&f1.filename);
+        let k2 = crate::picker::group_key(&f2.filename);
+        let k3 = crate::picker::group_key(&f3.filename);
+        assert_ne!(k1, k2, "Racing vs Nickelodeon Movies must have different group keys; got '{k1}' == '{k2}'");
+        assert_ne!(k1, k3, "Racing vs Nicktoons must have different group keys; got '{k1}' == '{k3}'");
+        assert_ne!(k2, k3, "Nickelodeon Movies vs Nicktoons must have different group keys; got '{k2}' == '{k3}'");
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![f1, f2, f3], &prefs);
+        assert_eq!(
+            groups.len(), 3,
+            "each compilation must be its own group; got {} group(s) with keys: '{k1}', '{k2}', '{k3}'",
+            groups.len(),
+        );
+
+        // Regression: merge_format_pairs used title_normalized as its bucket key,
+        // which is "4 games on one game pak" for all three — causing the separate
+        // groups to collapse into one and two compilations to be wrongly deleted.
+        // The bucket key must be picker::group_key so subtitle parens are preserved.
+        let f1 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip", console,
+        ).expect("parse Racing");
+        let f2 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Nickelodeon Movies) (USA).zip", console,
+        ).expect("parse Nickelodeon Movies");
+        let f3 = crate::parser::parse_from_filename(
+            "4 Games on One Game Pak (Nicktoons) (USA).zip", console,
+        ).expect("parse Nicktoons");
+        let groups = group_roms(vec![f1, f2, f3], &prefs);
+        // Simulate a format pair where GBA and GBA Aftermarket are paired.
+        // None of these three files are in GBA Aftermarket, but GBA IS a paired console,
+        // so all three groups go into the "paired" bucket in merge_format_pairs.
+        let pair = crate::models::FormatPair {
+            console_group: console.to_string(),
+            folder_a: console.to_string(),
+            folder_b: format!("{console} (Aftermarket)"),
+            folder_a_count: 5000,
+            folder_b_count: 100,
+            overlap_percent: 100.0,
+        };
+        let format_prefs = std::collections::HashMap::new();
+        let merged = merge_format_pairs(groups, &[pair.clone()], &prefs, &format_prefs);
+        assert_eq!(
+            merged.len(), 3,
+            "merge_format_pairs must not collapse separate compilation groups; got {} group(s)",
+            merged.len(),
+        );
+        // None should be deleted — all three are single-variant groups
+        for g in &merged {
+            assert_eq!(g.variants.len(), 1,
+                "each merged group must have exactly 1 variant; '{}' has {}",
+                g.title_normalized, g.variants.len()
+            );
+        }
+
+        // Second regression: catalog-number groups ("4 in 1 (4B-001)" vs "4 in 1 (4B-002)")
+        // share group_key = "4 in 1" but must stay separate through merge_format_pairs.
+        let gb = "Nintendo - Game Boy";
+        let g1 = crate::parser::parse_from_filename(
+            "4 in 1 (Europe) (4B-001, Sachen-Commin) (Unl).zip", gb,
+        ).expect("parse 4B-001");
+        let g2 = crate::parser::parse_from_filename(
+            "4 in 1 (Europe) (4B-002, Sachen) (Unl).zip", gb,
+        ).expect("parse 4B-002");
+        let gb_groups = group_roms(vec![g1, g2], &prefs);
+        assert_eq!(gb_groups.len(), 2, "each catalog number must be its own group before merge");
+        let gb_pair = crate::models::FormatPair {
+            console_group: gb.to_string(),
+            folder_a: gb.to_string(),
+            folder_b: format!("{gb} (Aftermarket)"),
+            folder_a_count: 500,
+            folder_b_count: 50,
+            overlap_percent: 100.0,
+        };
+        let gb_merged = merge_format_pairs(gb_groups, &[gb_pair], &prefs, &format_prefs);
+        assert_eq!(
+            gb_merged.len(), 2,
+            "merge_format_pairs must not collapse catalog-number groups; got {} group(s)",
+            gb_merged.len(),
+        );
     }
 }

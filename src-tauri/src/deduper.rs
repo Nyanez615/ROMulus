@@ -57,7 +57,19 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
             }
 
             let overlap_percent = overlap as f32 / smaller as f32;
-            let qualifies = is_known_format_pair(a, b) || overlap_percent >= 0.8;
+            // `is_category_variant`: one folder is the other with a single trailing
+            // parenthetical added (e.g. "Nintendo - Game Boy" + "Nintendo - Game Boy
+            // (Aftermarket)").  In Myrient full sets the same file often appears in
+            // both the base folder and its category sub-folder; any title overlap is
+            // enough to confirm they share library content and should be user-configurable.
+            // Category variants (base + Aftermarket/Private/Multiboot/etc.) are always
+            // shown as a format pair when both folders are present in the library — even
+            // with zero title overlap.  The user still needs to be able to configure
+            // which folder is preferred, and a 0-overlap preference is harmless (nothing
+            // to merge in the prune step, but the setting is available for future use).
+            let qualifies = is_known_format_pair(a, b)
+                || is_category_variant(a, b)
+                || overlap_percent >= 0.8;
             if qualifies {
                 // Assign folder_a as the subset (smaller or equal) folder so the frontend
                 // always knows which direction the containment goes.
@@ -80,6 +92,28 @@ pub fn detect_format_pairs(roms: &[RomFile]) -> Vec<FormatPair> {
     }
 
     pairs
+}
+
+/// True when one folder is the other with exactly one trailing parenthetical appended.
+/// "Nintendo - Game Boy" + "Nintendo - Game Boy (Aftermarket)" → true.
+/// "Nintendo - Game Boy (e-Reader)" + "Nintendo - Game Boy (e-Reader) (Aftermarket)" → true.
+/// "Nintendo - Game Boy" + "Nintendo - Game Boy (e-Reader) (Aftermarket)" → false
+///   (two parens added — that pair belongs to the e-Reader group, not the base).
+/// "Nintendo - Game Boy (FDS)" + "Nintendo - Game Boy (QD)" → false (neither is a
+/// strict prefix of the other; those are covered by `is_known_format_pair` instead).
+fn is_category_variant(a: &str, b: &str) -> bool {
+    strip_one_trailing_paren(a) == b || strip_one_trailing_paren(b) == a
+}
+
+/// Strip exactly one trailing `(…)` parenthetical, if present.
+fn strip_one_trailing_paren(s: &str) -> &str {
+    let s = s.trim();
+    if s.ends_with(')') {
+        if let Some(idx) = s.rfind('(') {
+            return s[..idx].trim_end();
+        }
+    }
+    s
 }
 
 /// Heuristic: two console folder names are likely format pairs if one is a
@@ -223,6 +257,42 @@ mod tests {
         let pairs = detect_format_pairs(&roms);
         assert!(!pairs.is_empty(), "known FDS/QD pair should be detected even below 80% overlap");
         assert_eq!(pairs[0].console_group, "Nintendo - Family Computer Disk System");
+    }
+
+    #[test]
+    fn category_subfolder_detected_with_any_overlap() {
+        // Myrient full sets place aftermarket games in BOTH the base folder and a
+        // dedicated "(Aftermarket)" subfolder.  The user should be able to configure
+        // which copy to keep — this requires the pair to appear in Format Variant
+        // Preferences.  The 80% heuristic may fail if only some titles overlap, so
+        // `is_category_variant` qualifies the pair as soon as any title is shared.
+        let base = "Nintendo - Game Boy";
+        let aftermarket = "Nintendo - Game Boy (Aftermarket)";
+
+        // Simulate 5 games in the base folder; 3 of those also appear in Aftermarket.
+        let mut roms: Vec<RomFile> = (0..5).map(|i| rom(base, &format!("game{i}"))).collect();
+        roms.extend((0..3).map(|i| rom(aftermarket, &format!("game{i}"))));
+
+        let pairs = detect_format_pairs(&roms);
+        assert!(!pairs.is_empty(), "base + Aftermarket subfolder should be detected with 60% overlap");
+        assert_eq!(pairs[0].console_group, "Nintendo - Game Boy");
+    }
+
+    #[test]
+    fn category_subfolder_detected_even_with_zero_overlap() {
+        // An Aftermarket folder containing only unique titles (no base-folder overlap)
+        // must still appear as a format pair so the user can configure a preference.
+        // The preference is harmless when overlap is 0 (nothing to merge in the prune
+        // step), but hiding the pair prevents the user from setting it proactively.
+        let base = "Nintendo - Game Boy";
+        let aftermarket = "Nintendo - Game Boy (Aftermarket)";
+
+        let mut roms: Vec<RomFile> = (0..5).map(|i| rom(base, &format!("official{i}"))).collect();
+        roms.extend((0..5).map(|i| rom(aftermarket, &format!("homebrew{i}"))));
+
+        let pairs = detect_format_pairs(&roms);
+        assert!(!pairs.is_empty(), "zero-overlap Aftermarket subfolder must still be detected as a format pair");
+        assert_eq!(pairs[0].console_group, "Nintendo - Game Boy");
     }
 
     #[test]

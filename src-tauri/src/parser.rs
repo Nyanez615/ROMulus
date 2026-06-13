@@ -17,7 +17,7 @@ pub(crate) const KNOWN_REGIONS: &[&str] = &[
 ];
 
 const STATUS_FLAGS: &[&str] = &[
-    "Alpha", "Beta", "Proto", "Demo", "Promo", "Kiosk", "Sample",
+    "Alpha", "Beta", "Proto", "Demo", "Tech Demo", "Promo", "Kiosk", "Sample",
     "Preview", "GameCube Preview", "Possible Proto",
     // Developer-hardware variants: never the consumer release.
     "IS-NITRO-EMULATOR", "IS-NITRO-PROGRAMMER",
@@ -102,12 +102,18 @@ pub fn roman_to_arabic(s: &str) -> Option<u32> {
 
 pub fn normalize_title(title: &str) -> String {
     let t = title.to_lowercase();
+    // Strip No-Intro trailing article suffix ("Blues Brothers, The" → "blues brothers")
+    // before the alphanumeric filter so the comma doesn't turn into a stray space.
+    let t = t.strip_suffix(", the")
+        .or_else(|| t.strip_suffix(", an"))
+        .or_else(|| t.strip_suffix(", a"))
+        .unwrap_or(&t);
     // Strip leading articles
     let t = t
         .strip_prefix("the ")
         .or_else(|| t.strip_prefix("a "))
         .or_else(|| t.strip_prefix("an "))
-        .unwrap_or(&t);
+        .unwrap_or(t);
     // Keep only alphanumeric + spaces
     let t: String = t.chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect();
     // Normalize Roman numeral tokens so "Genesis II" and "Genesis 2" group together
@@ -283,6 +289,8 @@ fn parse_disc(s: &str) -> Option<u32> {
 
 /// Parses "YYYY-MM-DD" → YYYYMMDD as a u32 so date-stamped protos sort chronologically.
 fn parse_iso_date(s: &str) -> Option<u32> {
+    // Strip optional time component ("2000-09-14T121024" → "2000-09-14")
+    let s = s.split('T').next().unwrap_or(s);
     if s.len() != 10 { return None; }
     let (y_str, rest) = s.split_once('-')?;
     let (m_str, d_str) = rest.split_once('-')?;
@@ -307,24 +315,25 @@ fn detect_category(
     if is_bios {
         return FileCategory::Bios;
     }
-    if status_flags.iter().any(|f| matches!(f.as_str(), "Pirate" | "Unl" | "Aftermarket" | "Hack")) {
-        return FileCategory::Unofficial;
-    }
-    if extra_tags.iter().any(|t| UTILITY_TAGS.contains(&t.as_str())) {
-        return FileCategory::Utility;
-    }
-    if status_flags.iter().any(|f| matches!(f.as_str(), "Demo")) {
-        return FileCategory::Demo;
-    }
+    // Console-type checks come before status-flag checks: an aftermarket e-Reader
+    // card is still an e-Reader, not Unofficial. Same for Video and Accessory.
     if console.contains("(Video)") || extra_tags.iter().any(|t| t == "Video") {
         return FileCategory::Video;
     }
     if console.contains("e-Reader") {
         return FileCategory::EReader;
     }
-    // NFC peripheral data (amiibo figurine/card dumps) — not playable ROMs.
     if console.to_ascii_lowercase().contains("amiibo") {
         return FileCategory::Accessory;
+    }
+    if status_flags.iter().any(|f| matches!(f.as_str(), "Pirate" | "Unl" | "Aftermarket" | "Hack")) {
+        return FileCategory::Unofficial;
+    }
+    if extra_tags.iter().any(|t| UTILITY_TAGS.contains(&t.as_str())) {
+        return FileCategory::Utility;
+    }
+    if status_flags.iter().any(|f| matches!(f.as_str(), "Demo" | "Tech Demo")) {
+        return FileCategory::Demo;
     }
     FileCategory::Game
 }
@@ -628,6 +637,22 @@ mod tests {
     #[test]
     fn normalize_title_removes_punctuation() {
         assert_eq!(normalize_title("Castlevania: Symphony of the Night"), "castlevania symphony of the night");
+    }
+
+    #[test]
+    fn normalize_title_article_suffix() {
+        // No-Intro trailing article suffix stripped and unified with bare title
+        assert_eq!(normalize_title("Blues Brothers, The"), "blues brothers");
+        assert_eq!(normalize_title("Blues Brothers"), "blues brothers");
+        assert_eq!(normalize_title("Addams Family, The"), "addams family");
+        assert_eq!(normalize_title("The Addams Family"), "addams family");
+        // Leading + trailing are both stripped — all three forms unify
+        assert_eq!(normalize_title("Blues Brothers, The"), normalize_title("Blues Brothers"));
+        // "An" and "A" suffixes
+        assert_eq!(normalize_title("Game, An"), "game");
+        assert_eq!(normalize_title("Game, A"), "game");
+        // Mid-title comma is unaffected (not an article suffix)
+        assert_eq!(normalize_title("Donkey Kong Country, Winky's Walkway"), "donkey kong country winkys walkway");
     }
 
     #[test]

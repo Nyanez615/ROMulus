@@ -637,11 +637,25 @@ export function getAbbrev(consoleName: string): string {
  */
 export function getFormatVariantLabel(folder: string): string {
   const short = getShortConsoleName(folder);
-  const base = stripFormatSuffix(short);
-  const suffix = short.slice(base.length).trim(); // e.g. "(QD)" or ""
+  // Strip ALL trailing parentheticals to reach the pure console base name so that
+  // multi-suffix folders like "Game Boy Advance (e-Reader) (Aftermarket)" look up
+  // ABBREV["Game Boy Advance"] → "GBA" and re-attach "(e-Reader) (Aftermarket)" as
+  // the full suffix — not just "(Aftermarket)" — preventing label collisions.
+  const base = stripAllTrailingParens(short);
+  const suffix = short.slice(base.length).trim(); // e.g. "(e-Reader) (Aftermarket)"
   const canonical = getCanonicalConsoleName(base);
   const abbrev = ABBREV[base] ?? ABBREV[canonical] ?? base.slice(0, 4).toUpperCase();
   return suffix ? `${abbrev} ${suffix}` : abbrev;
+}
+
+function stripAllTrailingParens(name: string): string {
+  let result = name.trim();
+  while (result.endsWith(")")) {
+    const idx = result.lastIndexOf("(");
+    if (idx < 0) break;
+    result = result.slice(0, idx).trim();
+  }
+  return result;
 }
 
 export function getShortLabel(folder: string): string {

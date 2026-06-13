@@ -90,6 +90,10 @@ pub struct RomGroup {
     pub is_format_pair: bool,
     /// >1 means this group contains multi-disc files that are kept/deleted together.
     pub disc_count: u32,
+    /// Original-case catalog number (e.g. "4B-001, Sachen-Commin") when this group
+    /// was split from others sharing the same title by a catalog-number extra_tag.
+    /// None for the vast majority of groups that have no catalog number.
+    pub catalog_number: Option<String>,
 }
 
 // ── User settings ────────────────────────────────────────────────────────────
