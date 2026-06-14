@@ -4,6 +4,33 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] — 2026-06-14
+
+### Added
+
+**Play Journal**
+- **Journal tab** — new seventh tab (between History and Settings) to log, rate, and track play status for games in your collection
+- **Play status lifecycle**: `Backlog → Testing → Playing → Completed / Dropped`; no entry = never considered; Backlog = consciously queued from existing library
+- **5-star personal rating** per game title, independent of platform or emulator
+- **Inline journal indicator in ROMs tab** — hover any game row to reveal a ✦ button; journaled games show their status badge + star rating; clicking opens an inline popover with full editing controls
+- **Journal popover** — status picker, 5-star rating, general notes, technical compatibility notes, and IGDB community + critic scores displayed when enriched
+- **IGDB critic score** — `aggregated_rating` now fetched during IGDB enrichment; stored as `game_metadata.critic_rating`; shown alongside community score in Journal tab and ROMs popover
+- **Now Playing strip on Dashboard** — entries with status `playing` listed below the Journal stats card
+- **Journal stats card on Dashboard** — per-status counts + average personal rating
+- **Export / Import JSON** — native file dialog for backup and cross-machine transfer; Rust handles file I/O, frontend picks path via `@tauri-apps/plugin-dialog`
+- **Status filter chips + text search + sort** in Journal tab toolbar (sort: recently updated / title A–Z / rating ↓)
+- **Auto-save on blur** — status, rating, notes, and technical notes all save immediately on change or focus-out; no explicit Save button
+- **Persistence across catalogue wipes** — `play_journal` is keyed on `(title_normalized, console)` and is fully independent of `rom_cache`; wiping and rescanning the catalogue does not affect journal entries; the key re-associates automatically when a game reappears after re-download
+- **Cloud-sync-ready schema** — UUID primary key, `updated_at` for last-write-wins conflict resolution, `synced_at` for dirty-tracking, `deleted_at` for soft deletes; no schema migration required when cloud accounts arrive in v0.3.0
+
+### Technical
+- Migrations 011–013: `play_journal` table (UUID PK, soft-delete, sync fields), `game_metadata.critic_rating REAL`, `play_journal.display_title TEXT`
+- `display_title` stored in `play_journal` at creation time; COALESCE priority at query time: IGDB name → stored display title → `rom_cache` title
+- `PlayStatus` / `PlayEntry` / `PlayStats` Rust structs with TS bindings auto-generated via `ts-rs`
+- `commands/journal.rs` — 8 new Tauri commands: `set_play_entry`, `delete_play_entry`, `get_play_entries`, `get_play_stats`, `export_play_journal`, `import_play_journal`, `export_journal_to_file`, `import_journal_from_file`
+- `StarRating` and `PlayStatusBadge` new shared components
+- Rust tests: 277 → 285 (+8). Vitest: 134 (unchanged).
+
 ## [0.2.11] — 2026-06-13
 
 ### Fixed

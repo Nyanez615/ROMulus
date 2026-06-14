@@ -31,6 +31,10 @@ import type { QbtFilterPreview } from "./bindings/QbtFilterPreview";
 import type { QbtApplyResult } from "./bindings/QbtApplyResult";
 // QbtFileDecision imported for component use
 export type { QbtFileDecision } from "./bindings/QbtFileDecision";
+import type { PlayEntry } from "./bindings/PlayEntry";
+import type { PlayStats } from "./bindings/PlayStats";
+import type { PlayStatus } from "./bindings/PlayStatus";
+export type { PlayEntry, PlayStats, PlayStatus };
 
 // ── Defaults for browser-preview mode ────────────────────────────────────────
 
@@ -238,6 +242,63 @@ export const completeOnboardingStep = (step: number): Promise<OnboardingState> =
   isTauri()
     ? invoke("complete_onboarding_step", { step })
     : Promise.resolve(DEFAULT_ONBOARDING);
+
+// ── Play Journal ──────────────────────────────────────────────────────────────
+
+export const setPlayEntry = (
+  title_normalized: string,
+  console: string,
+  status: PlayStatus,
+  rating: number | null,
+  notes: string | null,
+  compat_notes: string | null,
+  display_title?: string | null,
+): Promise<PlayEntry> =>
+  isTauri()
+    ? invoke("set_play_entry", { titleNormalized: title_normalized, console, status, rating, notes, compatNotes: compat_notes, displayTitle: display_title ?? null })
+    : Promise.resolve({
+        id: "preview-id",
+        title_normalized,
+        console,
+        status,
+        rating,
+        notes,
+        compat_notes,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        synced_at: null,
+        display_title: display_title ?? null,
+        community_score: null,
+        critic_score: null,
+      });
+
+export const deletePlayEntry = (title_normalized: string, console: string): Promise<void> =>
+  isTauri() ? invoke("delete_play_entry", { titleNormalized: title_normalized, console }) : Promise.resolve();
+
+export const getPlayEntries = (
+  consoles?: string[] | null,
+  status_filter?: string[] | null,
+): Promise<PlayEntry[]> =>
+  isTauri()
+    ? invoke("get_play_entries", { consoles: consoles ?? null, statusFilter: status_filter ?? null })
+    : Promise.resolve([]);
+
+export const getPlayStats = (): Promise<PlayStats> =>
+  isTauri()
+    ? invoke("get_play_stats")
+    : Promise.resolve({ backlog: 0, testing: 0, playing: 0, completed: 0, dropped: 0, total_rated: 0, avg_rating: null });
+
+export const exportPlayJournal = (): Promise<string> =>
+  isTauri() ? invoke("export_play_journal") : Promise.resolve("[]");
+
+export const importPlayJournal = (json: string): Promise<number> =>
+  isTauri() ? invoke("import_play_journal", { json }) : Promise.resolve(0);
+
+export const exportJournalToFile = (path: string): Promise<void> =>
+  isTauri() ? invoke("export_journal_to_file", { path }) : Promise.resolve();
+
+export const importJournalFromFile = (path: string): Promise<number> =>
+  isTauri() ? invoke("import_journal_from_file", { path }) : Promise.resolve(0);
 
 // ── qBittorrent ───────────────────────────────────────────────────────────────
 

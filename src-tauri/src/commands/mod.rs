@@ -2,6 +2,7 @@ pub mod dat;
 pub mod execute;
 pub mod group;
 pub mod history;
+pub mod journal;
 pub mod metadata;
 pub mod prune;
 pub mod qbt;

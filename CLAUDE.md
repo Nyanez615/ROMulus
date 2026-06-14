@@ -21,6 +21,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.9** ✅ DAT pre-download filter (generate_download_list + export_download_list, migration 010, parse_from_filename, Settings preview panel), right-click context menu on all file rows, comprehensive console catalog + recursive canonical stripping + ABBREV expansion, storage size on Dashboard console tiles
 - **v0.2.10** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
 - **v0.2.11** ✅ Scoring overhaul (World region fix, version bonus, dynamic collection penalty, Patreon exempt, numbered protos > dated protos), grouping key fixes (apostrophe, & vs +, vs., trailing article suffix, ISO date time strip), category detection order fix, format-pair detection for subfolders, compilation-subtitle grouping fix, catalog-number disambiguation, format prefs in qBt pre-download filter, UI polish (single-variant expandable, badge removal, prune reopen fix)
+- **v0.2.12** ✅ Play Journal — 7th tab; per-game status (Backlog/Testing/Playing/Completed/Dropped), 5-star rating, notes, technical notes; inline indicator + popover in ROMs tab; IGDB critic score; Now Playing strip + stats card on Dashboard; Export/Import JSON; persists across catalogue wipes; cloud-sync-ready schema (UUID PK, soft-delete, synced_at)
 
 ## Dev setup
 
@@ -32,7 +33,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 197 unit tests + regenerates src/lib/bindings/
+cargo test                    # 285 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -40,7 +41,7 @@ From project root:
 ```bash
 npx tsc --noEmit       # TypeScript type-check
 npm run lint           # ESLint
-npm run test:run       # 101 Vitest tests
+npm run test:run       # 134 Vitest tests
 ```
 
 ## Architecture
@@ -95,10 +96,13 @@ src-tauri/
       dat.rs           import_dat, get_dat_files, remove_dat, verify_roms,
                        get_verification_status, get_completeness,
                        generate_download_list, export_download_list
+      journal.rs       set_play_entry, delete_play_entry, get_play_entries, get_play_stats,
+                       export_play_journal, import_play_journal, export_journal_to_file, import_journal_from_file
   migrations/          001_initial.sql · 002_metadata.sql · 003_onboarding.sql
                        004_permanent_delete.sql · 005_known_tags.sql · 006_short_console_names.sql
                        007_clean_language_tags.sql · 008_fix_known_tags.sql
                        009_clean_filter_settings.sql · 010_dat_rom_name.sql
+                       011_play_journal.sql · 012_metadata_critic_rating.sql · 013_journal_display_title.sql
   capabilities/        Tauri v2 permissions (fs, shell, dialog, notification, shortcuts)
   tauri.conf.json      Bundle ID: com.romulus.app · assetProtocol enabled
   Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip
@@ -177,6 +181,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 272 tests, in-memory SQLite only
+- Rust: `cargo test` in `src-tauri/` — 285 tests, in-memory SQLite only
 - Frontend: `npm run test:run` (Vitest + jsdom) — 134 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

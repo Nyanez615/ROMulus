@@ -42,6 +42,8 @@ const UTILITY_TAGS: &[&str] = &[
     "Cart Present", "No Cart Present", "Action Replay", "Game Shark",
     "Test Program", "Debug", "Competition Cart", "PC10", "VS",
     "Program", "Music Program",
+    "DS Cheat Cartridge",  // cheat device peripheral (Action Replay-style for DS)
+    "Encrypted CIA",       // unplayable encrypted 3DS install archive
 ];
 
 // ── Region → default language inference ──────────────────────────────────────
@@ -326,11 +328,13 @@ fn detect_category(
     if console.to_ascii_lowercase().contains("amiibo") {
         return FileCategory::Accessory;
     }
-    if status_flags.iter().any(|f| matches!(f.as_str(), "Pirate" | "Unl" | "Aftermarket" | "Hack")) {
-        return FileCategory::Unofficial;
-    }
+    // UTILITY_TAGS checked before Unofficial so that cheat devices and test carts
+    // tagged (Unl) are still caught as Utility — not hidden by the Unofficial check.
     if extra_tags.iter().any(|t| UTILITY_TAGS.contains(&t.as_str())) {
         return FileCategory::Utility;
+    }
+    if status_flags.iter().any(|f| matches!(f.as_str(), "Pirate" | "Unl" | "Aftermarket" | "Hack")) {
+        return FileCategory::Unofficial;
     }
     if status_flags.iter().any(|f| matches!(f.as_str(), "Demo" | "Tech Demo")) {
         return FileCategory::Demo;
@@ -822,6 +826,24 @@ mod tests {
     fn music_program_tag_is_utility() {
         let r = parse("Famicom Music Disk (Japan) (Music Program).zip");
         assert_eq!(r.file_category, FileCategory::Utility, "(Music Program) must be Utility");
+    }
+
+    #[test]
+    fn ds_cheat_cartridge_is_utility() {
+        let r = parse("Dog Trainer (Europe) (DS Cheat Cartridge) (Unl).zip");
+        assert_eq!(r.file_category, FileCategory::Utility, "(DS Cheat Cartridge) must be Utility even with (Unl)");
+    }
+
+    #[test]
+    fn encrypted_cia_is_utility() {
+        let r = parse("Dragon Ball Z - Super Butoden 2 (USA) (SNES) (Virtual Console) (Encrypted CIA).zip");
+        assert_eq!(r.file_category, FileCategory::Utility, "(Encrypted CIA) must be Utility");
+    }
+
+    #[test]
+    fn test_program_unl_is_utility_not_unofficial() {
+        let r = parse("SN Systems (Europe) (Test Program) (Unl).zip");
+        assert_eq!(r.file_category, FileCategory::Utility, "(Test Program)(Unl) must be Utility — UTILITY_TAGS wins over Unofficial");
     }
 
     // ── Possible Proto tests ──────────────────────────────────────────────────

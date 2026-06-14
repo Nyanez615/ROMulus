@@ -364,8 +364,55 @@ pub struct GameMetadata {
     pub release_year: Option<i32>,
     pub genres: Vec<String>,
     pub summary: Option<String>,
+    /// IGDB community crowd score (0–100).
     pub rating: Option<f64>,
+    /// IGDB aggregated critic/press score (0–100). Null when IGDB has no critic data.
+    pub critic_rating: Option<f64>,
     pub cover_url: Option<String>,
+}
+
+// ── Play Journal ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PlayStatus {
+    Backlog,
+    Testing,
+    Playing,
+    Completed,
+    Dropped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PlayEntry {
+    pub id: String,
+    pub title_normalized: String,
+    pub console: String,
+    pub status: PlayStatus,
+    pub rating: Option<u8>,
+    pub notes: Option<String>,
+    pub compat_notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub synced_at: Option<String>,
+    // Populated via LEFT JOIN on game_metadata at query time; null when not enriched.
+    pub display_title: Option<String>,
+    pub community_score: Option<f64>,
+    pub critic_score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PlayStats {
+    pub backlog: u32,
+    pub testing: u32,
+    pub playing: u32,
+    pub completed: u32,
+    pub dropped: u32,
+    pub total_rated: u32,
+    pub avg_rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
@@ -568,5 +615,8 @@ mod tests {
         QbtGroupInfo::export_all_to(out).unwrap();
         QbtFilterPreview::export_all_to(out).unwrap();
         QbtApplyResult::export_all_to(out).unwrap();
+        PlayStatus::export_all_to(out).unwrap();
+        PlayEntry::export_all_to(out).unwrap();
+        PlayStats::export_all_to(out).unwrap();
     }
 }

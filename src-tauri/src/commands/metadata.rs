@@ -93,6 +93,7 @@ struct IgdbGame {
     #[serde(default)] genres: Vec<IgdbGenre>,
     summary: Option<String>,
     rating: Option<f64>,
+    aggregated_rating: Option<f64>,
     cover: Option<IgdbCover>,
 }
 #[derive(Deserialize, Debug)] struct IgdbGenre { name: String }
@@ -102,7 +103,7 @@ async fn fetch_igdb_metadata(title: &str, console: &str, client_id: &str, token:
     let platform_filter = console_to_igdb_platform(console)
         .map(|p| format!(" & platforms = ({p})")).unwrap_or_default();
     let safe_title = title.replace('"', "\\\"");
-    let query = format!("fields name,first_release_date,genres.name,summary,rating,cover.url; where name ~ \"{safe_title}\"{platform_filter}; limit 3;");
+    let query = format!("fields name,first_release_date,genres.name,summary,rating,aggregated_rating,cover.url; where name ~ \"{safe_title}\"{platform_filter}; limit 3;");
 
     let resp = reqwest::Client::new()
         .post("https://api.igdb.com/v4/games")
@@ -127,6 +128,7 @@ async fn fetch_igdb_metadata(title: &str, console: &str, client_id: &str, token:
         genres: game.genres.into_iter().map(|g| g.name).collect(),
         summary: game.summary,
         rating: game.rating,
+        critic_rating: game.aggregated_rating,
         cover_url,
     }))
 }
@@ -135,13 +137,13 @@ async fn fetch_igdb_metadata(title: &str, console: &str, client_id: &str, token:
 
 pub fn load_cached_metadata(conn: &rusqlite::Connection, title_normalized: &str, console: &str) -> Result<Option<GameMetadata>, String> {
     let r = conn.query_row(
-        "SELECT igdb_id,name,release_year,genres,summary,rating,cover_url FROM game_metadata WHERE title_normalized=?1 AND console=?2",
+        "SELECT igdb_id,name,release_year,genres,summary,rating,critic_rating,cover_url FROM game_metadata WHERE title_normalized=?1 AND console=?2",
         rusqlite::params![title_normalized, console],
         |row| Ok(GameMetadata {
             title_normalized: title_normalized.to_string(), console: console.to_string(),
             igdb_id: row.get(0)?, name: row.get(1)?, release_year: row.get(2)?,
             genres: row.get::<_,Option<String>>(3)?.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
-            summary: row.get(4)?, rating: row.get(5)?, cover_url: row.get(6)?,
+            summary: row.get(4)?, rating: row.get(5)?, critic_rating: row.get(6)?, cover_url: row.get(7)?,
         }),
     );
     match r {
@@ -154,13 +156,13 @@ pub fn load_cached_metadata(conn: &rusqlite::Connection, title_normalized: &str,
 pub fn save_metadata(conn: &rusqlite::Connection, meta: &GameMetadata) -> Result<(), String> {
     let genres = serde_json::to_string(&meta.genres).unwrap_or_default();
     conn.execute(
-        "INSERT INTO game_metadata (title_normalized,console,igdb_id,name,release_year,genres,summary,rating,cover_url)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+        "INSERT INTO game_metadata (title_normalized,console,igdb_id,name,release_year,genres,summary,rating,critic_rating,cover_url)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
          ON CONFLICT(title_normalized,console) DO UPDATE SET
            igdb_id=excluded.igdb_id,name=excluded.name,release_year=excluded.release_year,
            genres=excluded.genres,summary=excluded.summary,rating=excluded.rating,
-           cover_url=excluded.cover_url,fetched_at=datetime('now')",
-        rusqlite::params![meta.title_normalized,meta.console,meta.igdb_id,meta.name,meta.release_year,genres,meta.summary,meta.rating,meta.cover_url],
+           critic_rating=excluded.critic_rating,cover_url=excluded.cover_url,fetched_at=datetime('now')",
+        rusqlite::params![meta.title_normalized,meta.console,meta.igdb_id,meta.name,meta.release_year,genres,meta.summary,meta.rating,meta.critic_rating,meta.cover_url],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -16,6 +16,9 @@ vi.mock("@/lib/tauri", () => ({
   getRoms: (p: unknown) => mockGetRoms(p),
   getThumbnail: () => mockGetThumbnail(),
   formatBytes: (b: number) => `${b} B`,
+  getPlayEntries: () => Promise.resolve([]),
+  setPlayEntry: () => Promise.resolve(null),
+  deletePlayEntry: () => Promise.resolve(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => p }));
 // Virtualizer renders nothing in jsdom; stub it out so tests see the count label

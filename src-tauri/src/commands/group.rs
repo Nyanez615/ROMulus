@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tauri::State;
 
 use crate::db::AppState;
-use crate::models::{FileCategory, FormatPair, PagedGroups, RomFile, RomGroup, UserPreferences};
+use crate::models::{FileCategory, FileFormat, FormatPair, PagedGroups, RomFile, RomGroup, UserPreferences};
 use crate::parser::region_default_languages;
 
 // ── Preference matching ───────────────────────────────────────────────────────
@@ -117,6 +117,13 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     let is_alt = rom.status_flags.iter().any(|f| f == "Alt");
     let alt_penalty: i32 = if is_alt { -5 } else { 0 };
 
+    // Compressed-format bonus: when the same game exists as both a zip archive and a
+    // raw ROM file, always prefer the archive for storage efficiency.
+    let compressed_bonus: i32 = match rom.file_format {
+        FileFormat::Zip | FileFormat::SevenZip => 1,
+        _ => 0,
+    };
+
     // Pre-release → never keep unless sole copy.
     // Still use lang+region as a tiebreaker so USA Proto beats Europe Proto for English users;
     // apply alt_penalty so non-Alt beats Alt within the same pre-release tier.
@@ -142,7 +149,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             (None, r) if r > 0 => 99_000_000 + r,
             _ => 0,
         };
-        return (-100 + alt_penalty, build_ord, lang_count * 1000 + r_score);
+        return (-100 + alt_penalty + compressed_bonus, build_ord, lang_count * 1000 + r_score);
     }
 
     // Bad dump → very low; same lang+region+alt tiebreaker for consistency.
@@ -151,7 +158,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         let lang_count = rom.languages.iter()
             .filter(|l| prefs.preferred_languages.contains(*l))
             .count();
-        return (-80 + alt_penalty, rom.revision, lang_count * 1000 + r_score);
+        return (-80 + alt_penalty + compressed_bonus, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease.
@@ -188,7 +195,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         // When two tagged releases tie on this bonus (e.g. v1.2 vs Rev 2), the tuple's
         // `revision` field breaks the tie: Rev 2 (revision=2) beats v1.2 (revision=0).
         let version_bonus: i32 = if rom.version.is_some() || rom.revision > 0 { 6 } else { 0 };
-        return (-30 + alt_penalty + format_penalty + completeness_bonus + version_bonus, rom.revision, lang_count * 1000 + r_score);
+        return (-30 + alt_penalty + format_penalty + completeness_bonus + version_bonus + compressed_bonus, rom.revision, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
@@ -267,7 +274,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // publisher label (e.g. "(Incube8 Games)") in its extra_tags.
     let version_bonus: i32 = if rom.version.is_some() { 6 } else { 0 };
 
-    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus + version_bonus, rom.revision, lang_matches)
+    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus + version_bonus + compressed_bonus, rom.revision, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {
@@ -1543,7 +1550,7 @@ mod tests {
             "release must score higher than GameCube Preview"
         );
         let (score, _, _) = score_rom(&preview, &prefs);
-        assert_eq!(score, -100, "GameCube Preview must score -100 (pre-release)");
+        assert_eq!(score, -99, "GameCube Preview (zip) must score -99 (pre-release -100 + zip +1)");
     }
 
     #[test]
@@ -1551,7 +1558,7 @@ mod tests {
         let preview = rom("Game (USA) (Preview)", &["USA"], &[], &["Preview"]);
         let prefs = en_prefs();
         let (score, _, _) = score_rom(&preview, &prefs);
-        assert_eq!(score, -100);
+        assert_eq!(score, -99);
     }
 
     #[test]
@@ -1760,7 +1767,7 @@ mod tests {
         pp.status_flags = vec!["Possible Proto".into()];
         let release = rom("Game", &["USA"], &[], &[]);
         let (score, _, _) = score_rom(&pp, &en_prefs());
-        assert_eq!(score, -100, "Possible Proto must score −100");
+        assert_eq!(score, -99, "Possible Proto (zip) must score −99 (pre-release -100 + zip +1)");
         assert!(score_rom(&release, &en_prefs()) > score_rom(&pp, &en_prefs()));
     }
 
@@ -2159,7 +2166,7 @@ mod tests {
         let dev = rom("Nintendo DS Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &["IS-NITRO-EMULATOR"]);
         let prefs = en_prefs();
         let (score, _, _) = score_rom(&dev, &prefs);
-        assert_eq!(score, -100, "IS-NITRO-EMULATOR firmware must score −100 (developer hardware)");
+        assert_eq!(score, -99, "IS-NITRO-EMULATOR firmware (zip) must score −99 (pre-release -100 + zip +1)");
     }
 
     #[test]
@@ -2186,7 +2193,7 @@ mod tests {
         let kiosk = rom("Nintendo DS Lite Firmware", &["World"], &["En", "Ja", "Fr", "De", "Es", "It"], &["Wi-Fi Kiosk"]);
         let prefs = en_prefs();
         let (score, _, _) = score_rom(&kiosk, &prefs);
-        assert_eq!(score, -100, "Wi-Fi Kiosk firmware must score −100");
+        assert_eq!(score, -99, "Wi-Fi Kiosk firmware (zip) must score −99 (pre-release -100 + zip +1)");
     }
 
     #[test]
@@ -2971,6 +2978,44 @@ mod tests {
             gb_merged.len(), 2,
             "merge_format_pairs must not collapse catalog-number groups; got {} group(s)",
             gb_merged.len(),
+        );
+    }
+
+    #[test]
+    fn zip_scores_higher_than_raw_same_game() {
+        // When both a .zip archive and the raw ROM file exist in the same console folder,
+        // the pruner must always keep the zip and delete the raw file.
+        let zip_rom = rom("Pokemon - FireRed Version (USA)", &["USA"], &[], &[]);
+        let mut raw_rom = rom("Pokemon - FireRed Version (USA)", &["USA"], &[], &[]);
+        raw_rom.file_format = FileFormat::Raw;
+
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&zip_rom, &prefs) > score_rom(&raw_rom, &prefs),
+            "zip {:?} must score higher than raw {:?}",
+            score_rom(&zip_rom, &prefs),
+            score_rom(&raw_rom, &prefs),
+        );
+    }
+
+    #[test]
+    fn zip_preferred_idx_set_when_raw_also_present() {
+        // Grouping must select the .zip as preferred_idx when a raw copy co-exists.
+        let zip_rom = rom("Pokemon - FireRed Version (USA)", &["USA"], &[], &[]);
+        let mut raw_rom = rom("Pokemon - FireRed Version (USA)", &["USA"], &[], &[]);
+        raw_rom.file_format = FileFormat::Raw;
+        raw_rom.filename = "Pokemon - FireRed Version (USA).gba".into();
+        raw_rom.path = "/roms/Pokemon - FireRed Version (USA).gba".into();
+
+        let prefs = en_prefs();
+        let groups = group_roms(vec![zip_rom.clone(), raw_rom], &prefs);
+        assert_eq!(groups.len(), 1, "zip and raw of the same title must form one group");
+        let g = &groups[0];
+        let preferred_idx = g.preferred_idx.expect("must have preferred_idx");
+        assert_eq!(
+            g.variants[preferred_idx].file_format,
+            FileFormat::Zip,
+            "preferred variant must be the zip, not the raw file",
         );
     }
 }

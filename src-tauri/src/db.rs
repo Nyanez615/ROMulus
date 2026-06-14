@@ -42,6 +42,9 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/008_fix_known_tags.sql")),
         M::up(include_str!("../migrations/009_clean_filter_settings.sql")),
         M::up(include_str!("../migrations/010_dat_rom_name.sql")),
+        M::up(include_str!("../migrations/011_play_journal.sql")),
+        M::up(include_str!("../migrations/012_metadata_critic_rating.sql")),
+        M::up(include_str!("../migrations/013_journal_display_title.sql")),
     ])
 }
 
@@ -157,6 +160,7 @@ mod tests {
         assert!(tables.contains(&"onboarding".to_string()));
         assert!(tables.contains(&"game_metadata".to_string()));
         assert!(tables.contains(&"dat_files".to_string()));
+        assert!(tables.contains(&"play_journal".to_string()));
     }
 
     #[test]

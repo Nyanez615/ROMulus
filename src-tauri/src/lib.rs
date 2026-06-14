@@ -17,7 +17,7 @@ pub use commands::group::{group_roms, score_rom, COLLECTION_TAGS};
 pub use models::{FileCategory, RomFile, RomGroup, UserPreferences};
 pub use parser::{parse_file, parse_from_filename};
 
-use commands::{dat, execute, group, history, metadata, prune, qbt, scan, settings, thumbnail};
+use commands::{dat, execute, group, history, journal, metadata, prune, qbt, scan, settings, thumbnail};
 use db::AppState;
 
 fn build_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
@@ -149,6 +149,15 @@ pub fn run() {
             dat::get_completeness,
             dat::generate_download_list,
             dat::export_download_list,
+            // Play journal
+            journal::set_play_entry,
+            journal::delete_play_entry,
+            journal::get_play_entries,
+            journal::get_play_stats,
+            journal::export_play_journal,
+            journal::import_play_journal,
+            journal::export_journal_to_file,
+            journal::import_journal_from_file,
             // qBittorrent pre-download filter
             qbt::save_qbt_settings,
             qbt::get_qbt_settings,

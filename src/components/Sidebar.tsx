@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   LayoutDashboard, Gamepad2, Cpu,
-  Download, History, Settings, PanelLeftClose, PanelLeft, ChevronRight,
+  Download, History, BookOpen, Settings, PanelLeftClose, PanelLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon } from "./ConsoleIcon";
@@ -29,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "system",     label: "System Files", icon: Cpu             },
   { id: "downloads",  label: "Downloads",    icon: Download        },
   { id: "history",    label: "History",      icon: History         },
+  { id: "journal",    label: "Journal",      icon: BookOpen        },
   { id: "settings",   label: "Settings",     icon: Settings        },
 ];
 

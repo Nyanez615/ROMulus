@@ -6,6 +6,7 @@ export type TabId =
   | "system"
   | "downloads"
   | "history"
+  | "journal"
   | "settings";
 
 interface UIStore {

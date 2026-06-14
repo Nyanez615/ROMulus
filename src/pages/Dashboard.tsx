@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2, LibraryBig, Files, Shield } from "lucide-react";
+import { Gamepad2, Server, HardDrive, Zap, AlertTriangle, History, Sparkles, Database, Info, Globe, ChevronRight, Loader2, LibraryBig, Files, Shield, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SortControl } from "@/components/SortControl";
 import type { SortDir } from "@/lib/romUtils";
@@ -14,8 +14,11 @@ import {
   getEmptyRoots, cleanupEmptyRoots,
   getHistory, scanRoots, getSettings, formatBytes, getDatFiles, getCompleteness,
   onEnrichProgress, onEnrichComplete, getEnrichmentStatus,
-
+  getPlayStats, getPlayEntries,
 } from "@/lib/tauri";
+import type { PlayStats, PlayEntry } from "@/lib/tauri";
+import { PlayStatusBadge } from "@/components/PlayStatusBadge";
+import { StarRating } from "@/components/StarRating";
 import type { InterruptedSession } from "@/lib/bindings/InterruptedSession";
 import type { ConsoleStats } from "@/lib/bindings/ConsoleStats";
 import type { EnrichmentStatus } from "@/lib/bindings/EnrichmentStatus";
@@ -47,6 +50,8 @@ export default function Dashboard() {
   const [resumeResult, setResumeResult] = useState<string | null>(null);
   const [emptyRoots, setEmptyRoots] = useState<string[]>([]);
   const [recentActions, setRecentActions] = useState<ActionLogEntry[]>([]);
+  const [playStats, setPlayStats] = useState<PlayStats | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<PlayEntry[]>([]);
   const [scanning, setScanning] = useState(false);
   const [enrichment, setEnrichment] = useState<EnrichmentStatus | null>(null);
   const [completeness, setCompleteness] = useState<Completeness[]>([]);
@@ -60,6 +65,8 @@ export default function Dashboard() {
     getInterruptedSession().then(setInterrupted).catch(console.error);
     getEmptyRoots().then(setEmptyRoots).catch(console.error);
     getHistory(null, null, 1, 5).then((h) => setRecentActions(h.entries)).catch(console.error);
+    getPlayStats().then(setPlayStats).catch(console.error);
+    getPlayEntries(null, ["playing"]).then((e) => setNowPlaying(e.slice(0, 5))).catch(console.error);
     getEnrichmentStatus().then((s) => { if (s.total > 0) setEnrichment(s); }).catch(console.error);
     let unlistenProgress: (() => void) | null = null;
     let unlistenComplete: (() => void) | null = null;
@@ -532,6 +539,62 @@ export default function Dashboard() {
                 <span className="text-xs text-muted-foreground capitalize shrink-0">{String(a.action).replace(/_/g, " ")}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Now Playing */}
+      {nowPlaying.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <BookOpen className="w-3.5 h-3.5" />
+              Now Playing
+            </h2>
+            <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveTab("journal")}>View journal →</button>
+          </div>
+          <div className="space-y-1">
+            {nowPlaying.map((entry) => (
+              <div key={entry.id} className="flex items-center gap-3 px-3 py-2 rounded-md bg-card border border-border text-sm">
+                <PlayStatusBadge status={entry.status} />
+                <span className="flex-1 truncate text-foreground">{entry.display_title ?? entry.title_normalized}</span>
+                <span className="text-xs text-muted-foreground/60 shrink-0">{entry.console.replace(/^.*?-\s*/, "").trim()}</span>
+                {entry.rating && <StarRating value={entry.rating} size="sm" readOnly />}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Play Journal summary */}
+      {playStats && (playStats.backlog + playStats.testing + playStats.playing + playStats.completed + playStats.dropped) > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <BookOpen className="w-3.5 h-3.5" />
+              Journal
+            </h2>
+            <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveTab("journal")}>Open journal →</button>
+          </div>
+          <div className="flex flex-wrap gap-4 px-3 py-3 rounded-md bg-card border border-border text-sm">
+            {([
+              ["Backlog",   playStats.backlog],
+              ["Testing",   playStats.testing],
+              ["Playing",   playStats.playing],
+              ["Completed", playStats.completed],
+              ["Dropped",   playStats.dropped],
+            ] as [string, number][]).filter(([, n]) => n > 0).map(([label, count]) => (
+              <div key={label} className="text-center">
+                <div className="text-base font-bold text-foreground">{count}</div>
+                <div className="text-xs text-muted-foreground">{label}</div>
+              </div>
+            ))}
+            {playStats.avg_rating != null && (
+              <div className="text-center ml-auto">
+                <div className="text-base font-bold text-amber-400">{playStats.avg_rating.toFixed(1)}</div>
+                <div className="text-xs text-muted-foreground">Avg ★</div>
+              </div>
+            )}
           </div>
         </div>
       )}

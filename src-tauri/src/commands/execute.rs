@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -130,6 +130,43 @@ pub fn execute_prune(
     let (success_count, failed, skipped_count) =
         delete_files_inner(&to_delete, &session_id, "prune_execution", &state.db)?;
 
+    // Remove console subdirectories that became empty after pruning.
+    let folders_removed = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let settings = get_settings_inner(&conn)?;
+        let rom_root_set: HashSet<&str> = settings.rom_roots.iter().map(String::as_str).collect();
+
+        let mut removed: Vec<String> = vec![];
+        let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
+        for rom in &to_delete {
+            if let Some(parent) = Path::new(&rom.path).parent() {
+                let parent_str = parent.to_string_lossy();
+                if rom_root_set.contains(parent_str.as_ref()) {
+                    continue;
+                }
+                if !seen.insert(parent.to_path_buf()) {
+                    continue;
+                }
+                if !parent.exists() {
+                    continue;
+                }
+                let visible = std::fs::read_dir(parent)
+                    .ok()
+                    .map(|entries| {
+                        entries
+                            .filter_map(|e| e.ok())
+                            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                            .count()
+                    })
+                    .unwrap_or(1);
+                if visible == 0 && std::fs::remove_dir_all(parent).is_ok() {
+                    removed.push(parent_str.into_owned());
+                }
+            }
+        }
+        removed
+    };
+
     let _ = app
         .notification()
         .builder()
@@ -141,7 +178,7 @@ pub fn execute_prune(
         success_count,
         failed,
         skipped_count,
-        folders_removed: vec![],
+        folders_removed,
     })
 }
 

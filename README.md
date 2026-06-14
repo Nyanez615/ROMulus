@@ -37,6 +37,15 @@
 - **No-Intro DAT verification** — import DAT files for CRC32 integrity checking and collection completeness tracking
 - **DAT pre-download filter** — generate a scored download list from any imported DAT using your real language/region preferences; export as `.txt` (torrent include-filter) or `.csv`
 
+### Play Journal
+- **Journal tab** — log, rate, and track play status for every game in your collection
+- **Play status tracking** — Backlog · Testing · Playing · Completed · Dropped lifecycle; no entry = not yet considered
+- **5-star personal rating** per title, independent of platform or emulator
+- **Inline indicator in ROMs tab** — hover any game row to see its journal status badge and stars; click ✦ to add a new entry or open the editor
+- **IGDB scores surfaced** — community and critic scores shown alongside your personal rating in the Journal and ROMs popover
+- **Persists across catalogue wipes** — journal is keyed on title + console, completely independent of the file index; wipe and rescan without losing a single entry
+- **Export / Import JSON** — portable backup format; round-trips across machines before cloud sync exists
+
 ### Safety & logging
 - **Permanent deletion with manifest** — every prune session writes a plain-text backup manifest to `app_data_dir/manifests/` before any files are removed
 - **Atomic crash recovery** — SQLite `pending → deleted/failed` transaction; interrupted sessions detected on next launch with a resume banner in Dashboard
@@ -44,8 +53,8 @@
 - **Cloud path blocking** — OneDrive, iCloud, Dropbox, Google Drive, and Box roots are blocked at add-time to prevent sync conflicts
 - **Right-click context menu** — "Show in Folder" and "Copy Path" on every file row in all tabs
 
-### 6 tabs
-Dashboard · ROMs · System Files · Downloads · History · Settings
+### 7 tabs
+Dashboard · ROMs · System Files · Downloads · History · Journal · Settings
 
 ## Tech Stack
 
@@ -70,7 +79,7 @@ npm run tauri dev      # opens native window with Vite HMR
 
 From `src-tauri/`:
 ```bash
-cargo test             # 231 unit tests + regenerates TypeScript bindings
+cargo test             # 285 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 

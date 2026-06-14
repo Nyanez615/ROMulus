@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle, Trash2, Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getRoms, applyFilters, executePrune, scanRoots, getSettings, getConsoles, formatBytes } from "@/lib/tauri";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { getRoms, applyFilters, executePrune, scanRoots, getSettings, getConsoles, formatBytes, getPlayEntries, setPlayEntry, deletePlayEntry } from "@/lib/tauri";
+import type { PlayEntry, PlayStatus } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
 import { ROM_SORT_FIELDS, type RomSortField, type SortDir } from "@/lib/romUtils";
 import { SortControl } from "@/components/SortControl";
@@ -25,6 +28,116 @@ import { RomThumbnail } from "@/components/RomThumbnail";
 import { AlphabetScrubber } from "@/components/AlphabetScrubber";
 import { VariantCountScrubber } from "@/components/VariantCountScrubber";
 import { refreshTagStore } from "@/components/Layout";
+import { PlayStatusBadge } from "@/components/PlayStatusBadge";
+import { StarRating } from "@/components/StarRating";
+
+// ── Journal popover (inline edit inside ROMs tab) ────────────────────────────
+
+const ALL_PLAY_STATUSES: PlayStatus[] = ["backlog", "testing", "playing", "completed", "dropped"];
+const PLAY_STATUS_LABEL: Record<PlayStatus, string> = {
+  backlog: "Backlog", testing: "Testing", playing: "Playing", completed: "Completed", dropped: "Dropped",
+};
+
+interface JournalPopoverProps {
+  titleNormalized: string;
+  console_: string;
+  entry: PlayEntry | null;
+  onSave: (patch: Partial<PlayEntry>) => void;
+  onDelete: () => void;
+}
+
+function JournalPopover({ entry, onSave, onDelete }: JournalPopoverProps) {
+  const [notes, setNotes] = useState(entry?.notes ?? "");
+  const [compatNotes, setCompatNotes] = useState(entry?.compat_notes ?? "");
+
+  useEffect(() => {
+    setNotes(entry?.notes ?? "");
+    setCompatNotes(entry?.compat_notes ?? "");
+  }, [entry?.id, entry?.notes, entry?.compat_notes]);
+
+  const currentStatus = entry?.status ?? "backlog";
+
+  const communityDisplay = entry?.community_score != null ? (entry.community_score / 10).toFixed(1) : null;
+  const criticDisplay    = entry?.critic_score    != null ? (entry.critic_score    / 10).toFixed(1)    : null;
+
+  return (
+    <div className="space-y-3">
+      {/* Status */}
+      <div className="flex flex-wrap gap-1.5">
+        {ALL_PLAY_STATUSES.map((s) => (
+          <button
+            key={s}
+            onClick={() => onSave({ status: s })}
+            className={cn(
+              "px-2 py-0.5 rounded-full text-xs font-medium border transition-colors",
+              currentStatus === s
+                ? {
+                    backlog:   "bg-purple-500/20 text-purple-400 border-purple-500/40",
+                    testing:   "bg-amber-500/20  text-amber-400  border-amber-500/40",
+                    playing:   "bg-blue-500/20   text-blue-400   border-blue-500/40",
+                    completed: "bg-green-500/20  text-green-400  border-green-500/40",
+                    dropped:   "bg-muted/60      text-muted-foreground border-border",
+                  }[s]
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+            )}
+          >
+            {PLAY_STATUS_LABEL[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* Rating */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground w-14 shrink-0">Rating</span>
+        <StarRating
+          value={entry?.rating ?? null}
+          onChange={(v) => onSave({ rating: v })}
+          size="md"
+        />
+      </div>
+
+      {/* External scores */}
+      {(communityDisplay || criticDisplay) && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {communityDisplay && <span>Crowd <span className="text-foreground font-medium">{communityDisplay}/10</span></span>}
+          {criticDisplay    && <span>Critics <span className="text-foreground font-medium">{criticDisplay}/10</span></span>}
+        </div>
+      )}
+
+      {/* Notes */}
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        onBlur={() => { if (notes !== (entry?.notes ?? "")) onSave({ notes: notes || null }); }}
+        rows={2}
+        placeholder="Notes…"
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+      />
+
+      {/* Technical notes */}
+      <textarea
+        value={compatNotes}
+        onChange={(e) => setCompatNotes(e.target.value)}
+        onBlur={() => { if (compatNotes !== (entry?.compat_notes ?? "")) onSave({ compat_notes: compatNotes || null }); }}
+        rows={1}
+        placeholder="Technical notes…"
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+      />
+
+      {entry && (
+        <div className="flex justify-end pt-1">
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />
+            Remove
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Verification badge ────────────────────────────────────────────────────────
 function VerificationBadge({ status }: { status?: string }) {
@@ -94,6 +207,50 @@ export default function Roms() {
   const [activePreferred, setActivePreferred] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // ── Journal state ─────────────────────────────────────────────────────────────
+  const [journalMap, setJournalMap] = useState<Map<string, PlayEntry>>(new Map());
+
+  const refreshJournal = useCallback(() => {
+    getPlayEntries().then((entries) => {
+      const map = new Map(entries.map((e) => [`${e.title_normalized}::${e.console}`, e]));
+      setJournalMap(map);
+    }).catch(console.error);
+  }, []);
+
+  useEffect(() => { refreshJournal(); }, [refreshJournal]);
+
+  async function handleJournalSave(
+    title_normalized: string,
+    console_: string,
+    patch: Partial<PlayEntry>,
+    displayTitle: string,
+  ) {
+    const existing = journalMap.get(`${title_normalized}::${console_}`);
+    const merged = {
+      status: "backlog" as PlayStatus,
+      rating: null,
+      notes: null,
+      compat_notes: null,
+      ...existing,
+      ...patch,
+    };
+    const saved = await setPlayEntry(
+      title_normalized, console_, merged.status, merged.rating,
+      merged.notes, merged.compat_notes, displayTitle,
+    ).catch(console.error);
+    if (!saved) return;
+    setJournalMap((prev) => new Map(prev).set(`${title_normalized}::${console_}`, saved));
+  }
+
+  async function handleJournalDelete(title_normalized: string, console_: string) {
+    await deletePlayEntry(title_normalized, console_).catch(console.error);
+    setJournalMap((prev) => {
+      const next = new Map(prev);
+      next.delete(`${title_normalized}::${console_}`);
+      return next;
+    });
+  }
 
   // ── Prune state ──────────────────────────────────────────────────────────────
   const [pruneLoading, setPruneLoading] = useState(false);
@@ -365,7 +522,7 @@ export default function Roms() {
           <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
         </ConsoleEmptyState>
       )}
-      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} />
+      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} journalMap={journalMap} onJournalSave={handleJournalSave} onJournalDelete={handleJournalDelete} />
 
       {/* Prune confirmation dialog */}
       {prunePlan && (
@@ -424,9 +581,12 @@ interface VirtualRomListProps {
   reverseStrip: boolean;
   showCountScrubber: boolean;
   sortDir: "asc" | "desc";
+  journalMap: Map<string, PlayEntry>;
+  onJournalSave: (titleNormalized: string, console_: string, patch: Partial<PlayEntry>, displayTitle: string) => void;
+  onJournalDelete: (titleNormalized: string, console_: string) => void;
 }
 
-function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir }: VirtualRomListProps) {
+function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir, journalMap, onJournalSave, onJournalDelete }: VirtualRomListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
   // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns non-memoizable functions; known React Compiler v7 limitation, isolated here
@@ -481,7 +641,7 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
               style={{ position: "absolute", top: vItem.start, left: 0, right: 0 }}
             >
               <div
-                className="flex items-center gap-2 px-6 py-3 hover:bg-muted/30 cursor-pointer border-b border-border/40 text-sm"
+                className="group/row flex items-center gap-2 px-6 py-3 hover:bg-muted/30 cursor-pointer border-b border-border/40 text-sm"
                 onClick={() => onToggle(key)}
               >
                 {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
@@ -504,6 +664,42 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
                 {g.variants.length > 1 && (
                   <span className="text-xs text-muted-foreground shrink-0">{g.variants.length} variants</span>
                 )}
+                {/* Journal indicator */}
+                {(() => {
+                  const jKey = `${g.title_normalized}::${g.console}`;
+                  const jEntry = journalMap.get(jKey);
+                  return (
+                    <Popover>
+                      <PopoverTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        {jEntry ? (
+                          <button
+                            className="flex items-center gap-1.5 shrink-0"
+                            aria-label="Edit journal entry"
+                          >
+                            <PlayStatusBadge status={jEntry.status} />
+                            {jEntry.rating && <StarRating value={jEntry.rating} size="sm" readOnly />}
+                          </button>
+                        ) : (
+                          <button
+                            className="shrink-0 text-muted-foreground/30 opacity-0 group-hover/row:opacity-100 transition-opacity text-sm leading-none"
+                            aria-label="Add to journal"
+                          >
+                            ✦
+                          </button>
+                        )}
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
+                        <JournalPopover
+                          titleNormalized={g.title_normalized}
+                          console_={g.console}
+                          entry={jEntry ?? null}
+                          onSave={(patch) => onJournalSave(g.title_normalized, g.console, patch, displayTitle)}
+                          onDelete={() => onJournalDelete(g.title_normalized, g.console)}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  );
+                })()}
               </div>
               {isOpen && (() => {
                 const uniqueConsoles = [...new Set(g.variants.map((v) => v.console))];

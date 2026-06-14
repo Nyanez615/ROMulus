@@ -13,6 +13,7 @@ import Roms from "@/pages/Roms";
 import SystemFiles from "@/pages/SystemFiles";
 import Downloads from "@/pages/Downloads";
 import History from "@/pages/History";
+import Journal from "@/pages/Journal";
 import Settings from "@/pages/Settings";
 
 const PAGES: Record<string, React.ComponentType> = {
@@ -21,6 +22,7 @@ const PAGES: Record<string, React.ComponentType> = {
   system: SystemFiles,
   downloads: Downloads,
   history: History,
+  journal: Journal,
   settings: Settings,
 };
 
