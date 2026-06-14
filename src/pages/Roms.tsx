@@ -50,11 +50,6 @@ function JournalPopover({ entry, onSave, onDelete }: JournalPopoverProps) {
   const [notes, setNotes] = useState(entry?.notes ?? "");
   const [compatNotes, setCompatNotes] = useState(entry?.compat_notes ?? "");
 
-  useEffect(() => {
-    setNotes(entry?.notes ?? "");
-    setCompatNotes(entry?.compat_notes ?? "");
-  }, [entry?.id, entry?.notes, entry?.compat_notes]);
-
   const currentStatus = entry?.status ?? "backlog";
 
   const communityDisplay = entry?.community_score != null ? (entry.community_score / 10).toFixed(1) : null;
@@ -690,6 +685,7 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
                       </PopoverTrigger>
                       <PopoverContent className="w-72 p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
                         <JournalPopover
+                          key={jEntry?.id ?? "new"}
                           titleNormalized={g.title_normalized}
                           console_={g.console}
                           entry={jEntry ?? null}

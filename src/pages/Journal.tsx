@@ -40,12 +40,6 @@ function EditPanel({ entry, onSave, onDelete }: EditPanelProps) {
   const [notes, setNotes] = useState(entry.notes ?? "");
   const [compatNotes, setCompatNotes] = useState(entry.compat_notes ?? "");
 
-  // Reset fields when the entry changes (different row expanded)
-  useEffect(() => {
-    setNotes(entry.notes ?? "");
-    setCompatNotes(entry.compat_notes ?? "");
-  }, [entry.id, entry.notes, entry.compat_notes]);
-
   function handleBlurNotes() {
     if (notes !== (entry.notes ?? "")) onSave({ notes: notes || null });
   }
@@ -149,7 +143,6 @@ export default function Journal() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    setLoading(true);
     Promise.all([getPlayEntries(), getPlayStats()])
       .then(([e, s]) => { setEntries(e); setStats(s); })
       .catch(console.error)
@@ -362,6 +355,7 @@ export default function Journal() {
                   {/* Inline edit panel */}
                   {isOpen && (
                     <EditPanel
+                      key={entry.id}
                       entry={entry}
                       onSave={(patch) => handleSave(entry, patch)}
                       onDelete={() => handleDelete(entry)}
