@@ -75,6 +75,10 @@ git clone https://github.com/Nyanez615/ROMulus
 cd ROMulus
 npm install
 npm run tauri dev      # opens native window with Vite HMR
+
+# One-time: activate the repo's git hooks (keeps src-tauri/target/ bounded on push)
+git config core.hooksPath .githooks
+cargo install cargo-sweep
 ```
 
 From `src-tauri/`:

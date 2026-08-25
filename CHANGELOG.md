@@ -4,6 +4,18 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Onboarding**
+- Continue button on the Language & Region step no longer blocks when preferred languages or regions are cleared to empty. Empty preferences are valid (no preference) and were already handled correctly by the scoring backend — only the UI guard was too strict. Fixes a fresh-install lockout reported on Windows.
+
+### Changed
+
+**Dev tooling**
+- Added a `pre-push` git hook (`.githooks/pre-push`) that runs `cargo-sweep --maxsize 5GB` against `src-tauri/target/` on every push, keeping the Rust build cache from growing unbounded while preserving recent artifacts (no cold-compile penalty, unlike `cargo clean`). One-time setup per clone: `git config core.hooksPath .githooks`. Requires `cargo install cargo-sweep`.
+
 ## [0.2.13] — 2026-08-25
 
 ### Added

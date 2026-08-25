@@ -23,6 +23,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.11** ✅ Scoring overhaul (World region fix, version bonus, dynamic collection penalty, Patreon exempt, numbered protos > dated protos), grouping key fixes (apostrophe, & vs +, vs., trailing article suffix, ISO date time strip), category detection order fix, format-pair detection for subfolders, compilation-subtitle grouping fix, catalog-number disambiguation, format prefs in qBt pre-download filter, UI polish (single-variant expandable, badge removal, prune reopen fix)
 - **v0.2.12** ✅ Play Journal — 7th tab; per-game status (Backlog/Testing/Playing/Completed/Dropped), 5-star rating, notes, technical notes; inline indicator + popover in ROMs tab; IGDB critic score; Now Playing strip + stats card on Dashboard; Export/Import JSON; persists across catalogue wipes; cloud-sync-ready schema (UUID PK, soft-delete, synced_at)
 - **v0.2.13** ✅ Downloads size estimates (download_bytes/skip_bytes/per-file), grouping fixes (word-internal hyphens, mid-title articles, `!` subtitle separator, `and`=`&` equivalence), GBA ±1 title count fix
+- **Unreleased** — Onboarding Continue-button fix (empty language/region no longer blocks proceeding), `pre-push` hook running `cargo-sweep` to keep `src-tauri/target/` bounded
 
 ## Dev setup
 
@@ -30,6 +31,10 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 # Prerequisites: Rust (rustup), Node 24, Xcode CLT (macOS)
 npm install
 npm run tauri dev      # Vite HMR + native Tauri window
+
+# One-time per clone: activate the repo's git hooks (pre-push cargo-sweep)
+git config core.hooksPath .githooks
+cargo install cargo-sweep   # required by .githooks/pre-push
 ```
 
 From `src-tauri/`:
