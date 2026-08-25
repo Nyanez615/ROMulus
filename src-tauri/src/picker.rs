@@ -339,6 +339,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn ampersand_and_plus_are_equivalent_separators() {
         // No-Intro uses " & " (Europe) and " + " (USA) interchangeably for the
         // same compilation title — they must produce the same group key.
