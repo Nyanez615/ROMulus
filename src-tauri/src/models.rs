@@ -535,6 +535,8 @@ pub struct QbtTorrent {
 pub struct QbtFileDecision {
     pub filename: String,
     pub download: bool,
+    #[ts(type = "number")]
+    pub size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -558,6 +560,11 @@ pub struct QbtFilterPreview {
     pub total: u32,
     pub to_download: u32,
     pub to_skip: u32,
+    /// Total bytes for files marked download / skip (0 when qBittorrent doesn't report sizes).
+    #[ts(type = "number")]
+    pub download_bytes: u64,
+    #[ts(type = "number")]
+    pub skip_bytes: u64,
     /// Every file in the torrent with its download/skip decision
     pub files: Vec<QbtFileDecision>,
     /// Only groups where >1 variant exists (single-variant groups are silently kept)

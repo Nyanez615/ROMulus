@@ -77,6 +77,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlayEntry> {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn set_play_entry(
     state: State<'_, AppState>,
     title_normalized: String,

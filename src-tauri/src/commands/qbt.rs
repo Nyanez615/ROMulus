@@ -33,6 +33,9 @@ struct QbtFileEntry {
     /// Added in Web API v2.1; absent in older builds — fall back to positional index.
     index: Option<u32>,
     name: String,
+    /// File size in bytes as reported by qBittorrent.
+    #[serde(default)]
+    size: u64,
     /// Can be -1 ("mixed") at the folder level or for torrents not yet started.
     #[serde(default)]
     #[allow(dead_code)]
@@ -157,8 +160,8 @@ fn detect_console(files: &[QbtFileEntry]) -> Option<String> {
 
 struct FilterResult {
     console_name: Option<String>,
-    /// (file_index, filename, is_preferred)
-    decisions: Vec<(u32, String, bool)>,
+    /// (file_index, filename, is_preferred, size_bytes)
+    decisions: Vec<(u32, String, bool, u64)>,
     /// Groups produced by group_roms — used to build QbtGroupInfo without
     /// re-collapsing catalog-number-split groups back to the same key.
     groups: Vec<crate::models::RomGroup>,
@@ -207,31 +210,31 @@ async fn run_filter(
             let idx = f.index.unwrap_or(pos as u32);
             let basename = f.name.split('/').next_back().unwrap_or(&f.name);
             let console = file_parent_folder(&f.name);
-            parse_from_filename(basename, console).map(|rom| (idx, rom))
+            parse_from_filename(basename, console).map(|rom| (idx, f.size, rom))
         })
         .collect();
 
     // Group with identical logic used by post-download prune, then apply
     // format variant preferences (e.g. "prefer GBA over GBA (Aftermarket)").
-    let rom_vec: Vec<_> = roms.iter().map(|(_, r)| r.clone()).collect();
+    let rom_vec: Vec<_> = roms.iter().map(|(_, _, r)| r.clone()).collect();
     let format_pairs = detect_format_pairs(&rom_vec);
     let groups = group_roms(rom_vec, &prefs);
     let groups = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
 
     // For each group, mark preferred index as priority 1, rest as 0
-    let mut decisions: Vec<(u32, String, bool)> = Vec::new();
+    let mut decisions: Vec<(u32, String, bool, u64)> = Vec::new();
 
     for group in &groups {
         for (variant_pos, rom) in group.variants.iter().enumerate() {
-            let file_index = roms
+            let (file_index, size_bytes) = roms
                 .iter()
-                .find(|(_, r)| r.filename == rom.filename)
-                .map(|(idx, _)| *idx)
-                .unwrap_or(0);
+                .find(|(_, _, r)| r.filename == rom.filename)
+                .map(|(idx, sz, _)| (*idx, *sz))
+                .unwrap_or((0, 0));
 
             let is_preferred = !rom.file_category.is_non_playable()
                 && group.preferred_idx == Some(variant_pos);
-            decisions.push((file_index, rom.filename.clone(), is_preferred));
+            decisions.push((file_index, rom.filename.clone(), is_preferred, size_bytes));
         }
     }
 
@@ -239,8 +242,8 @@ async fn run_filter(
     for (pos, f) in files.iter().enumerate() {
         let idx = f.index.unwrap_or(pos as u32);
         let basename = f.name.split('/').next_back().unwrap_or(&f.name);
-        if !decisions.iter().any(|(_, name, _)| name == basename) {
-            decisions.push((idx, basename.to_string(), true));
+        if !decisions.iter().any(|(_, name, _, _)| name == basename) {
+            decisions.push((idx, basename.to_string(), true, f.size));
         }
     }
 
@@ -356,14 +359,17 @@ pub async fn preview_qbt_filter(
     let result = run_filter(&state, &hash).await?;
 
     let total = result.decisions.len() as u32;
-    let to_download = result.decisions.iter().filter(|(_, _, p)| *p).count() as u32;
+    let to_download = result.decisions.iter().filter(|(_, _, p, _)| *p).count() as u32;
     let to_skip = total - to_download;
+    let download_bytes: u64 = result.decisions.iter().filter(|(_, _, p, _)| *p).map(|(_, _, _, sz)| *sz).sum();
+    let skip_bytes: u64 = result.decisions.iter().filter(|(_, _, p, _)| !*p).map(|(_, _, _, sz)| *sz).sum();
 
     // Full per-file decision list (all files, ordered as received from qBt)
     let mut files: Vec<QbtFileDecision> = result.decisions.iter()
-        .map(|(_, filename, is_preferred)| QbtFileDecision {
+        .map(|(_, filename, is_preferred, size_bytes)| QbtFileDecision {
             filename: filename.clone(),
             download: *is_preferred,
+            size_bytes: *size_bytes,
         })
         .collect();
     files.sort_by(|a, b| a.filename.cmp(&b.filename));
@@ -412,6 +418,8 @@ pub async fn preview_qbt_filter(
         total,
         to_download,
         to_skip,
+        download_bytes,
+        skip_bytes,
         files,
         multi_variant_groups,
     })
@@ -431,8 +439,8 @@ pub async fn apply_qbt_filter(
     let (client, cookie) = qbt_connect(&settings).await?;
 
     // Build priority 1 (download) and 0 (skip) index lists
-    let download_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p)| *p).map(|(i, _, _)| *i).collect();
-    let skip_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p)| !p).map(|(i, _, _)| *i).collect();
+    let download_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p, _)| *p).map(|(i, _, _, _)| *i).collect();
+    let skip_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p, _)| !p).map(|(i, _, _, _)| *i).collect();
 
     let to_download = download_ids.len() as u32;
     let to_skip = skip_ids.len() as u32;

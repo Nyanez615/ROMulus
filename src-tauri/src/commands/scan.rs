@@ -63,7 +63,7 @@ pub fn get_consoles(state: State<'_, AppState>) -> Vec<ConsoleStats> {
     let mut canonical_all: HashMap<String, u32> = HashMap::new();
     for group in &cache.groups {
         let has_playable = group.variants.iter().any(|v|
-            matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial)
+            matches!(v.file_category, FileCategory::Game | FileCategory::Unofficial | FileCategory::Demo | FileCategory::Utility)
         );
         if !has_playable { continue; }
         let base = strip_format_suffix(&group.console).to_owned();

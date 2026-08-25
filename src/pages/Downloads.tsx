@@ -337,11 +337,17 @@ function PreDownloadSection() {
                   <span className="font-semibold tabular-nums">
                     {preview.to_download.toLocaleString()}
                   </span>{" "}download
+                  {preview.download_bytes > 0 && (
+                    <span className="ml-1 opacity-70">({formatBytes(preview.download_bytes)})</span>
+                  )}
                 </span>
                 <span className="text-muted-foreground">
                   <span className="font-semibold tabular-nums text-foreground">
                     {preview.to_skip.toLocaleString()}
                   </span>{" "}skip
+                  {preview.skip_bytes > 0 && (
+                    <span className="ml-1 opacity-60">({formatBytes(preview.skip_bytes)})</span>
+                  )}
                 </span>
               </div>
             </div>
@@ -453,11 +459,16 @@ function PreDownloadSection() {
                         ? <ArrowDownToLine className="w-3 h-3 text-green-400 shrink-0 mt-0.5" />
                         : <X className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />}
                       <span className={cn(
-                        "text-xs font-mono break-all leading-relaxed",
+                        "text-xs font-mono break-all leading-relaxed flex-1",
                         f.download ? "text-foreground" : "text-muted-foreground",
                       )}>
                         {f.filename}
                       </span>
+                      {f.size_bytes > 0 && (
+                        <span className="text-xs text-muted-foreground/60 shrink-0 tabular-nums ml-2 mt-0.5">
+                          {formatBytes(f.size_bytes)}
+                        </span>
+                      )}
                     </div>
                   ))}
                   {hasMore && (

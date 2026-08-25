@@ -22,6 +22,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.10** ✅ Accessories in System Files, system_file_count in ConsoleStats + Sidebar + Dashboard, Format Variant Preferences (replaces Cleanup, wires into merge_format_pairs), Downloads post-apply rescan, removed apply/execute_format_pairs commands, DeletionReason simplified to NonPreferred + NoPreferredVersion
 - **v0.2.11** ✅ Scoring overhaul (World region fix, version bonus, dynamic collection penalty, Patreon exempt, numbered protos > dated protos), grouping key fixes (apostrophe, & vs +, vs., trailing article suffix, ISO date time strip), category detection order fix, format-pair detection for subfolders, compilation-subtitle grouping fix, catalog-number disambiguation, format prefs in qBt pre-download filter, UI polish (single-variant expandable, badge removal, prune reopen fix)
 - **v0.2.12** ✅ Play Journal — 7th tab; per-game status (Backlog/Testing/Playing/Completed/Dropped), 5-star rating, notes, technical notes; inline indicator + popover in ROMs tab; IGDB critic score; Now Playing strip + stats card on Dashboard; Export/Import JSON; persists across catalogue wipes; cloud-sync-ready schema (UUID PK, soft-delete, synced_at)
+- **v0.2.13** ✅ Downloads size estimates (download_bytes/skip_bytes/per-file), grouping fixes (word-internal hyphens, mid-title articles, `!` subtitle separator, `and`=`&` equivalence), GBA ±1 title count fix
 
 ## Dev setup
 
@@ -33,7 +34,7 @@ npm run tauri dev      # Vite HMR + native Tauri window
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 285 unit tests + regenerates src/lib/bindings/
+cargo test                    # 288 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -181,6 +182,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 285 tests, in-memory SQLite only
+- Rust: `cargo test` in `src-tauri/` — 288 tests, in-memory SQLite only
 - Frontend: `npm run test:run` (Vitest + jsdom) — 134 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

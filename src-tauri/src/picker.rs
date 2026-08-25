@@ -77,10 +77,31 @@ fn normalize_key(s: &str) -> String {
     // space.  " - " handles subtitle separators ("Pac-Man - Adventures"); " & "
     // and " + " are interchangeable list separators in No-Intro — Europe uses "&"
     // while USA uses "+" for the same compilation title ("Uno & Skip-Bo" vs
-    // "Uno + Skip-Bo").  Word-internal hyphens ("Pac-Man") are untouched.
+    // "Uno + Skip-Bo").
     let collapsed = lowered.split(" - ").collect::<Vec<_>>().join(" ");
     let collapsed = collapsed.split(" & ").collect::<Vec<_>>().join(" ");
     let collapsed = collapsed.split(" + ").collect::<Vec<_>>().join(" ");
+    let collapsed = collapsed.split(" and ").collect::<Vec<_>>().join(" ");
+    // Step 3b: replace all remaining hyphens (word-internal and leading/trailing)
+    // with a space so that "Re-Incarnation" and "Re – Incarnation" (em-dash form,
+    // already collapsed above) land in the same group, and "-TENSEI-" style tags
+    // are absorbed cleanly.  Multiple spaces are then normalised by split_whitespace.
+    let collapsed = collapsed.replace('-', " ");
+    let collapsed = collapsed.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Step 3c: strip article suffixes that appear mid-string after subtitle
+    // separator collapse.  "Legend of Korra, The – A New Era Begins" collapses to
+    // "legend of korra, the a new era begins"; replacing ", the " / ", an " / ", a "
+    // normalises it to match the form where the article trails the full title
+    // ("Legend of Korra – A New Era Begins, The"), which strip_article_suffix
+    // already handles at the end.
+    let collapsed = collapsed.replace(", the ", " ").replace(", an ", " ").replace(", a ", " ");
+    // Step 3d: treat "! " as an implicit subtitle separator.
+    // "Let's Ride! Best in Breed 3D" uses "!" where the No-Intro em-dash form
+    // "Let's Ride – Best in Breed 3D" uses " – "; both should share the same key.
+    // This only fires for "!" followed by a space, so trailing "!" (handled by
+    // step 4) and "!:" forms (WarioWare!: Snapped!) are unaffected.
+    let collapsed = collapsed.replace("! ", " ");
+    let collapsed = collapsed.split_whitespace().collect::<Vec<_>>().join(" ");
     // Normalize "vs." and "vs" to "v" so "Ecks vs. Sever" (No-Intro dot form) and
     // "Ecks V Sever" (regional abbreviation) resolve to the same group key.
     // Must run after the " - " collapse so only standalone word-separated tokens match.
@@ -306,9 +327,18 @@ mod tests {
         assert_eq!(k("Isabelle (Sweater) (World)"), "isabelle (sweater)");
     }
 
-    // ── List separator normalisation ( & / + ) ───────────────────────────────
+    // ── List separator normalisation ( & / + / and ) ────────────────────────
 
     #[test]
+    fn and_word_equivalent_to_ampersand_separator() {
+        // No-Intro sometimes uses "and" and "&" interchangeably in subtitle/compilation
+        // titles; both must collapse to the same group key.
+        assert_eq!(
+            k("Wipeout \u{2013} Create and Crash (USA).zip"),
+            k("Wipeout \u{2013} Create & Crash (USA).zip"),
+        );
+    }
+
     fn ampersand_and_plus_are_equivalent_separators() {
         // No-Intro uses " & " (Europe) and " + " (USA) interchangeably for the
         // same compilation title — they must produce the same group key.
@@ -318,7 +348,7 @@ mod tests {
         );
         assert_eq!(
             k("2 Game Pack! \u{2013} Uno & Skip-Bo (Europe) (En,Fr,De,Es,It).zip"),
-            "2 game pack! uno skip-bo",
+            "2 game pack uno skip bo",
         );
     }
 
@@ -388,10 +418,22 @@ mod tests {
     }
 
     #[test]
-    fn word_internal_hyphen_preserved() {
-        // Hyphens with no surrounding spaces are part of the word and must be kept.
-        assert_eq!(k("Pac-Man (USA).zip"), "pac-man");
-        assert_ne!(k("Pac-Man (USA).zip"), k("Pac Man (USA).zip"));
+    fn word_internal_hyphen_collapsed_to_space() {
+        // Word-internal hyphens are now collapsed to spaces so that
+        // "Re-Incarnation" and "Re – Incarnation" (em-dash form) land in the
+        // same group.  "Pac-Man" and "Pac Man" are treated as the same title.
+        assert_eq!(k("Pac-Man (USA).zip"), "pac man");
+        assert_eq!(k("Pac-Man (USA).zip"), k("Pac Man (USA).zip"));
+    }
+
+    #[test]
+    fn word_internal_hyphen_vs_em_dash_subtitle_same_group() {
+        // "Langrisser Re-Incarnation – Tensei" and "Langrisser Re – Incarnation –TENSEI–"
+        // are the same 3DS game dumped with different punctuation conventions.
+        assert_eq!(
+            k("Langrisser Re-Incarnation - Tensei (USA).zip"),
+            k("Langrisser Re \u{2013} Incarnation \u{2013}TENSEI\u{2013} (USA).zip"),
+        );
     }
 
     #[test]
@@ -400,6 +442,21 @@ mod tests {
         assert_eq!(
             k("Title \u{2014} Subtitle (World).zip"),
             k("Title Subtitle (World).zip"),
+        );
+    }
+
+    #[test]
+    fn exclamation_as_subtitle_separator_merges_with_dash_form() {
+        // "Let's Ride! Best in Breed 3D" uses "!" as an implicit subtitle boundary;
+        // "Let's Ride – Best in Breed 3D" uses the No-Intro em-dash form.  Both should
+        // share the same group key.
+        assert_eq!(
+            k("Let's Ride! Best in Breed 3D (USA).zip"),
+            k("Let's Ride \u{2013} Best in Breed 3D (USA).zip"),
+        );
+        assert_eq!(
+            k("Let's Ride! Best in Breed 3D (USA).zip"),
+            "lets ride best in breed 3d",
         );
     }
 
@@ -447,6 +504,22 @@ mod tests {
         // "An" and "A" suffixes
         assert_eq!(k("Game, An (USA).zip"), "game");
         assert_eq!(k("Game, A (USA).zip"), "game");
+    }
+
+    #[test]
+    fn article_mid_title_merges_with_article_at_end() {
+        // No-Intro places ", The" after the main title but before a subtitle separator
+        // in some releases ("Legend of Korra, The – A New Era Begins") and after the
+        // full title in others ("Legend of Korra – A New Era Begins, The").
+        // Both forms must land in the same group.
+        assert_eq!(
+            k("Legend of Korra, The \u{2013} A New Era Begins (USA).zip"),
+            k("Legend of Korra \u{2013} A New Era Begins, The (USA).zip"),
+        );
+        assert_eq!(
+            k("Legend of Korra \u{2013} A New Era Begins, The (USA).zip"),
+            "legend of korra a new era begins",
+        );
     }
 
     #[test]

@@ -4,6 +4,30 @@ All notable changes to ROMulus are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] — 2026-08-25
+
+### Added
+
+**Downloads tab — size estimates**
+- Download count now shows total byte size in parentheses next to the count (e.g. "42 download (4.2 GB)")
+- Skip count similarly shows total bytes to be skipped
+- Each file row in the expanded file list shows its individual file size right-aligned
+
+### Fixed
+
+**Grouping / key normalisation**
+- **Word-internal hyphens collapsed** — hyphens with no surrounding spaces are now replaced with a space before grouping, so "Re-Incarnation" and "Re – Incarnation" (em-dash form) land in the same group. "Pac-Man" and "Pac Man" are treated as the same title. Fixes Langrisser Re-Incarnation split.
+- **Mid-title article stripping** — `, the` / `, an` / `, a` appearing mid-string after subtitle-separator collapse are now stripped. "Legend of Korra, The – A New Era Begins" now merges with "Legend of Korra – A New Era Begins, The".
+- **`!` treated as subtitle separator** — "Let's Ride! Best in Breed 3D" and "Let's Ride – Best in Breed 3D" now share the same group key. The `!` form is normalised the same as the No-Intro em-dash separator.
+- **`and` / `&` equivalence** — ` and ` is now collapsed alongside ` & ` and ` + ` in the list-separator normalisation step. "Wipeout – Create and Crash" and "Wipeout – Create & Crash" now merge correctly.
+- **GBA title count ±1** — sidebar game count (`get_consoles`) now includes `Demo` and `Utility` file categories, matching the ROMs tab filter. Previously a group whose only variants were Demo/Utility files was not counted in the sidebar.
+
+### Technical
+- `QbtFileEntry.size: u64` deserialized from qBittorrent Web API `/api/v2/torrents/files`
+- `QbtFileDecision.size_bytes: u64` and `QbtFilterPreview.download_bytes / skip_bytes: u64` added to models and TS bindings
+- `journal.rs::set_play_entry` — added `#[allow(clippy::too_many_arguments)]` (pre-existing Tauri command; suppress surfaced by full recompile)
+- Rust tests: 285 → 288 (+3)
+
 ## [0.2.12] — 2026-06-14
 
 ### Added

@@ -331,7 +331,7 @@ export const listQbtTorrents = (): Promise<QbtTorrent[]> =>
 export const previewQbtFilter = (hash: string): Promise<QbtFilterPreview> =>
   isTauri()
     ? invoke("preview_qbt_filter", { hash })
-    : Promise.resolve({ console_name: null, total: 0, to_download: 0, to_skip: 0, files: [], multi_variant_groups: [] });
+    : Promise.resolve({ console_name: null, total: 0, to_download: 0, to_skip: 0, download_bytes: 0, skip_bytes: 0, files: [], multi_variant_groups: [] });
 
 export const applyQbtFilter = (hash: string): Promise<QbtApplyResult> =>
   isTauri()

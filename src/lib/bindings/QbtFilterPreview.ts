@@ -8,6 +8,10 @@ export type QbtFilterPreview = {
  */
 console_name: string | null, total: number, to_download: number, to_skip: number, 
 /**
+ * Total bytes for files marked download / skip (0 when qBittorrent doesn't report sizes).
+ */
+download_bytes: number, skip_bytes: number, 
+/**
  * Every file in the torrent with its download/skip decision
  */
 files: Array<QbtFileDecision>, 
