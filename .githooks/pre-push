@@ -4,5 +4,5 @@
 SWEEP="$HOME/.cargo/bin/cargo-sweep"
 if [ -x "$SWEEP" ]; then
   echo "🧹 Sweeping stale Rust artifacts…"
-  "$SWEEP" sweep --installed --maxsize 5GB "$(dirname "$0")/../src-tauri"
+  "$SWEEP" sweep --maxsize 5GB "$(dirname "$0")/../src-tauri" || true
 fi
