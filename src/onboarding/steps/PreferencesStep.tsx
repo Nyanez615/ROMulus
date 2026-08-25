@@ -31,7 +31,6 @@ export function PreferencesStep() {
   }
 
   async function handleContinue() {
-    if (langs.length === 0) return;
     setLoading(true);
     try {
       const settings = await getSettings();
@@ -81,7 +80,7 @@ export function PreferencesStep() {
           ))}
         </div>
         {langs.length === 0 && (
-          <p className="text-xs text-destructive mt-1">Select at least one language.</p>
+          <p className="text-xs text-muted-foreground mt-1">No language selected — all ROMs will be equally scored.</p>
         )}
       </div>
 
@@ -133,7 +132,7 @@ export function PreferencesStep() {
 
       <Button
         className="w-full"
-        disabled={langs.length === 0 || regions.length === 0 || loading}
+        disabled={loading}
         onClick={handleContinue}
       >
         {loading ? "Saving…" : "Continue"}
