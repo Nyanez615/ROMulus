@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Prune stale Rust build artifacts after every push.
+# Uses cargo-sweep --installed + --maxsize so the build cache stays warm.
+SWEEP="$HOME/.cargo/bin/cargo-sweep"
+if [ -x "$SWEEP" ]; then
+  echo "🧹 Sweeping stale Rust artifacts…"
+  "$SWEEP" sweep --installed --maxsize 5GB "$(dirname "$0")/../src-tauri"
+fi
