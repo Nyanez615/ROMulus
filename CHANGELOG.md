@@ -6,10 +6,40 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+**Archive extraction & compression**
+- **Extract** and **Compress** bulk actions in the ROMs tab toolbar, plus a per-file "Extract"/"Compress to Zip" entry in every row's right-click menu. Extraction places files flat as siblings of the zip (no `<zipname>/` subfolder, unlike 7-Zip's multi-select "Extract Here"); compression is the exact inverse (`path.zip` alongside the source).
+- The dialog owns its own filtering — full `FilterBar` (Category/Language/Region/Preferred) plus a new **Starts With** letter group (same `#`/A–Z bucketing as the ROMs tab's `AlphabetScrubber`) for working through a large collection one letter (or a few) at a time — independent of whatever filters were active on the ROMs page when the dialog was opened.
+- **Smart already-converted detection** — a zip that already has a matching extracted file (or vice versa) doesn't show up asking to be extracted again; it's split into its own "already extracted/compressed" section with a direct "delete the redundant file" action, never mixed into the normal convert flow.
+- **Delete-after-success** — optional per-action checkbox ("delete the .zip after successful extraction" / "delete the original file after successful compression"), defaulting **on**. Deletion happens per-file immediately after that file's own conversion succeeds, never batched, and now retries once after clearing the Windows read-only attribute if the first attempt fails (a common cause of silently-stuck downloaded/extracted files) — a failed deletion is reported, not silently swallowed.
+- **Live disk-space warnings** — computed from your actual checkbox selection (not the whole filtered candidate list), netted against the delete-after toggle: extracting-then-deleting only needs *(uncompressed − compressed)* of new headroom, not the full uncompressed size.
+- **Live run feedback** — each row gets a checkmark or failure marker as it completes, an "N done · M failed" summary, and a byte-weighted countdown ETA (anchored at each file completion, ticking down every second in between, rather than recomputed every second from a naive per-file average).
+- Collisions (a same-name target that already exists with a *different* size) are never overwritten — that item is reported as a conflict and its source is left untouched.
+
+### Changed
+
+**Pruning**
+- Prune now prefers the extracted/native file over its zip twin when both exist for the same game (previously the reverse — zips were kept for storage efficiency). Deliberately not configurable via Settings; use the Extract/Compress dialogs' own delete-after option for zip-vs-raw cleanup control instead.
+
 ### Fixed
 
 **Onboarding**
 - Continue button on the Language & Region step no longer blocks when preferred languages or regions are cleared to empty. Empty preferences are valid (no preference) and were already handled correctly by the scoring backend — only the UI guard was too strict. Fixes a fresh-install lockout reported on Windows.
+- Added a Back button to every onboarding step (previously only forward navigation existed), and the wizard now correctly resumes at the first *incomplete* step on relaunch rather than looking stuck.
+
+**Windows**
+- Native window title was empty (`tauri.conf.json` had `title: ""`) — now shows "ROMulus" in the caption bar, taskbar, and Alt-Tab.
+- The macOS application menu (About/Services/Hide/Quit) was being applied on every platform; on Windows, with no global menu bar, Tauri rendered it as an extra strip below the title bar. Now gated to `#[cfg(target_os = "macos")]`.
+
+**Sidebar**
+- Removed the redundant "ROMulus" wordmark from the sidebar header (the OS title bar already shows it) in favor of an icon-only brand mark that doubles as the collapse toggle — identical position/size in both expanded and collapsed states (previously the icon visibly shifted between them), with a hover-swap to a directional chevron so the toggle affordance is discoverable.
+
+### Technical
+- New Rust module `commands/archive.rs`; new models `ExtractCandidate`, `CompressCandidate`, `DirSpace`, `ExtractPreview`, `CompressPreview`, `ExtractProgress`, `CompressProgress`, `ArchiveCollision`, `ExtractionResult`, `CompressionResult`
+- New crate: `fs4` (cross-platform free-disk-space queries)
+- New events: `extract:progress` / `extract:complete`, `compress:progress` / `compress:complete`
+- Rust tests: 288 → 305 (+17)
 
 ### Changed
 

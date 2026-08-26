@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
-  LayoutDashboard, Gamepad2, Cpu,
-  Download, History, BookOpen, Settings, PanelLeftClose, PanelLeft, ChevronRight,
+  LayoutDashboard, Gamepad2, Cpu, Joystick,
+  Download, History, BookOpen, Settings, ChevronRight, PanelLeft, PanelLeftClose,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConsoleIcon } from "./ConsoleIcon";
@@ -112,25 +112,27 @@ export function Sidebar() {
   // ── Collapsed icon rail ───────────────────────────────────────────────────
   if (!sidebarOpen) {
     return (
-      <aside className="flex flex-col w-10 shrink-0 border-r border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-center h-14 border-b border-border">
+      <aside className="flex flex-col w-12 shrink-0 border-r border-border bg-card overflow-hidden">
+        <div className="flex items-center h-14 pl-3 border-b border-border">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            className="group relative w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 hover:bg-primary/30 transition-colors flex items-center justify-center"
             aria-label="Show sidebar"
+            title="Show sidebar"
           >
-            <PanelLeft className="w-4 h-4" />
+            <Joystick className="w-4 h-4 text-primary group-hover:opacity-0 transition-opacity" />
+            <PanelLeft className="w-4 h-4 text-primary absolute opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
-          <ul className="space-y-0.5 px-1">
+          <ul className="space-y-0.5">
             {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
               <li key={id}>
                 <button
                   onClick={() => setActiveTab(id)}
                   title={label}
                   className={cn(
-                    "w-full flex items-center justify-center p-2 rounded-md transition-colors",
+                    "w-full flex items-center pl-5 py-2 rounded-md transition-colors",
                     activeTab === id
                       ? "bg-primary/15 text-primary"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -149,15 +151,18 @@ export function Sidebar() {
   // ── Full sidebar ──────────────────────────────────────────────────────────
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-border bg-card overflow-hidden">
-      {/* Header: ROMulus wordmark + collapse toggle */}
-      <div className="flex items-center h-14 px-4 border-b border-border">
-        <span className="font-bold text-lg tracking-tight text-foreground flex-1">ROMulus</span>
+      {/* Header: app icon mark doubles as collapse toggle (name lives in the OS title bar — not repeated here).
+          pl-3 matches the collapsed rail's header inset, and the icon (centered in a w-8 badge,
+          8px in from the badge edge) lands at the same x as the nav icons below (px-2 ul + px-3 button). */}
+      <div className="flex items-center h-14 pl-3 border-b border-border">
         <button
           onClick={() => setSidebarOpen(false)}
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          className="group relative w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 hover:bg-primary/30 transition-colors flex items-center justify-center"
           aria-label="Hide sidebar"
+          title="Hide sidebar"
         >
-          <PanelLeftClose className="w-4 h-4" />
+          <Joystick className="w-4 h-4 text-primary group-hover:opacity-0 transition-opacity" />
+          <PanelLeftClose className="w-4 h-4 text-primary absolute opacity-0 group-hover:opacity-100 transition-opacity" />
         </button>
       </div>
 

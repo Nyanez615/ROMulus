@@ -129,6 +129,31 @@ export const applyFilters = (consoles?: string[]): Promise<DeletionPlan> =>
 export const exportCsv = (toDelete: DeletionItem[], path: string): Promise<void> =>
   isTauri() ? invoke("export_csv", { toDelete, path }) : Promise.resolve();
 
+// ── Archive (extract/compress) ────────────────────────────────────────────────
+
+import type { ExtractPreview } from "./bindings/ExtractPreview";
+import type { ExtractProgress } from "./bindings/ExtractProgress";
+import type { ExtractionResult } from "./bindings/ExtractionResult";
+import type { CompressPreview } from "./bindings/CompressPreview";
+import type { CompressProgress } from "./bindings/CompressProgress";
+import type { CompressionResult } from "./bindings/CompressionResult";
+
+export const previewExtract = (paths: string[]): Promise<ExtractPreview> =>
+  isTauri()
+    ? invoke("preview_extract", { paths })
+    : Promise.resolve({ candidates: [], invalid: [], total_compressed_bytes: 0, total_uncompressed_bytes: 0, available_space: [] });
+
+export const extractZips = (paths: string[], deleteAfter: boolean): Promise<void> =>
+  isTauri() ? invoke("extract_zips", { paths, deleteAfter }) : Promise.resolve();
+
+export const previewCompress = (paths: string[]): Promise<CompressPreview> =>
+  isTauri()
+    ? invoke("preview_compress", { paths })
+    : Promise.resolve({ candidates: [], total_source_bytes: 0, available_space: [] });
+
+export const compressFiles = (paths: string[], deleteAfter: boolean): Promise<void> =>
+  isTauri() ? invoke("compress_files", { paths, deleteAfter }) : Promise.resolve();
+
 export const getSystemFiles = (params: GetGamesParams): Promise<PagedGroups> =>
   isTauri()
     ? invoke("get_system_files", { consoles: params.consoles ?? null, search: params.search ?? null, page: params.page, perPage: params.perPage })
@@ -363,6 +388,18 @@ export const onScanComplete = (cb: (status: ScanStatus) => void): Promise<Unlist
   isTauri()
     ? listen<ScanStatus>("scan:complete", (e) => cb(e.payload))
     : Promise.resolve(noop);
+
+export const onExtractProgress = (cb: (p: ExtractProgress) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<ExtractProgress>("extract:progress", (e) => cb(e.payload)) : Promise.resolve(noop);
+
+export const onExtractComplete = (cb: (r: ExtractionResult) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<ExtractionResult>("extract:complete", (e) => cb(e.payload)) : Promise.resolve(noop);
+
+export const onCompressProgress = (cb: (p: CompressProgress) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<CompressProgress>("compress:progress", (e) => cb(e.payload)) : Promise.resolve(noop);
+
+export const onCompressComplete = (cb: (r: CompressionResult) => void): Promise<UnlistenFn> =>
+  isTauri() ? listen<CompressionResult>("compress:complete", (e) => cb(e.payload)) : Promise.resolve(noop);
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 

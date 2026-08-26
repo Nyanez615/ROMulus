@@ -253,6 +253,127 @@ pub struct FailedFile {
     pub error: String,
 }
 
+// ── Archive (extract/compress) ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExtractCandidate {
+    pub path: String,
+    pub filename: String,
+    pub console: String,
+    /// The zip's own parent directory, formatted identically to `DirSpace.parent_dir`
+    /// so the frontend can group candidates by directory with an exact string match.
+    pub parent_dir: String,
+    #[ts(type = "number")]
+    pub compressed_size: u64,
+    #[ts(type = "number")]
+    pub uncompressed_size: u64,
+    pub entry_count: u32,
+    /// True when every entry already exists on disk with a matching size —
+    /// extracting would be a no-op; the zip is safe to delete directly.
+    pub already_extracted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CompressCandidate {
+    pub path: String,
+    pub filename: String,
+    pub console: String,
+    /// The source file's own parent directory, formatted identically to
+    /// `DirSpace.parent_dir` so the frontend can group candidates by directory
+    /// with an exact string match.
+    pub parent_dir: String,
+    #[ts(type = "number")]
+    pub source_size: u64,
+    /// True when a matching .zip already exists with the same content size —
+    /// compressing would be a no-op; the source file is safe to delete directly.
+    pub already_compressed: bool,
+}
+
+/// Free space available in one directory. Carries no "needed" figure — how
+/// many bytes are actually needed depends on which candidates the user has
+/// selected, which is a frontend-only, live-changing concern; the frontend
+/// computes that itself from the checked candidates' sizes and compares it
+/// against `available_bytes` here.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DirSpace {
+    pub parent_dir: String,
+    #[ts(type = "number")]
+    pub available_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExtractPreview {
+    pub candidates: Vec<ExtractCandidate>,
+    /// Zip files that failed to open/parse — surfaced, not silently dropped.
+    pub invalid: Vec<FailedFile>,
+    #[ts(type = "number")]
+    pub total_compressed_bytes: u64,
+    #[ts(type = "number")]
+    pub total_uncompressed_bytes: u64,
+    pub available_space: Vec<DirSpace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CompressPreview {
+    pub candidates: Vec<CompressCandidate>,
+    #[ts(type = "number")]
+    pub total_source_bytes: u64,
+    pub available_space: Vec<DirSpace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExtractProgress {
+    pub current_file: String,
+    pub done: u32,
+    pub total: u32,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CompressProgress {
+    pub current_file: String,
+    pub done: u32,
+    pub total: u32,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ArchiveCollision {
+    pub source_path: String,
+    pub target_path: String,
+    /// "exists_different_size" — the only conflict reason surfaced today
+    /// (same-size collisions are treated as already-done, not a conflict).
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExtractionResult {
+    pub success_count: u32,
+    pub failed: Vec<FailedFile>,
+    pub collisions: Vec<ArchiveCollision>,
+    pub deleted_count: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CompressionResult {
+    pub success_count: u32,
+    pub failed: Vec<FailedFile>,
+    pub collisions: Vec<ArchiveCollision>,
+    pub deleted_count: u32,
+    pub total: u32,
+}
+
 /// Returned by get_interrupted_session when there are pending action_log rows.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -625,5 +746,15 @@ mod tests {
         PlayStatus::export_all_to(out).unwrap();
         PlayEntry::export_all_to(out).unwrap();
         PlayStats::export_all_to(out).unwrap();
+        ExtractCandidate::export_all_to(out).unwrap();
+        CompressCandidate::export_all_to(out).unwrap();
+        DirSpace::export_all_to(out).unwrap();
+        ExtractPreview::export_all_to(out).unwrap();
+        CompressPreview::export_all_to(out).unwrap();
+        ExtractProgress::export_all_to(out).unwrap();
+        CompressProgress::export_all_to(out).unwrap();
+        ArchiveCollision::export_all_to(out).unwrap();
+        ExtractionResult::export_all_to(out).unwrap();
+        CompressionResult::export_all_to(out).unwrap();
     }
 }

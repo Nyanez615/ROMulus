@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen, Plus, X, AlertTriangle } from "lucide-react";
+import { FolderOpen, Plus, X, AlertTriangle, ChevronLeft } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -81,13 +81,24 @@ export function AddRootStep() {
         </Alert>
       )}
 
-      <Button
-        className="w-full"
-        disabled={roots.length === 0 || loading}
-        onClick={handleContinue}
-      >
-        {loading ? "Saving…" : `Continue with ${roots.length} folder${roots.length !== 1 ? "s" : ""}`}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading}
+          onClick={() => setStep(2)}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back
+        </Button>
+        <Button
+          className="flex-1"
+          disabled={roots.length === 0 || loading}
+          onClick={handleContinue}
+        >
+          {loading ? "Saving…" : `Continue with ${roots.length} folder${roots.length !== 1 ? "s" : ""}`}
+        </Button>
+      </div>
 
       <button
         onClick={() => setStep(4)}

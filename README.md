@@ -19,6 +19,7 @@
 - **Format variant preferences** — per-pair preferred folder setting (NES Headered/Headerless, N64 BigEndian/ByteSwapped, FDS/QD, etc.); preference wired into pruner so the right format wins the ★
 - **Faceted chip filtering** — selecting a Region chip hides Category/Status chips that would produce zero results; no dead-end filter combinations
 - **Incremental scanning** — mtime-based cache; filesystem watcher auto-detects new ROMs without rescanning
+- **Archive extraction & compression** — extract zip archives flat (no per-archive subfolder) or compress raw files back to zip, in bulk or per-file, with their own filter/search and letter-batching; automatically detects files already converted on both sides and offers a one-click cleanup for the now-redundant copy; live disk-space warnings, per-file progress, and byte-weighted ETA
 
 ### Browse
 - **Unified ROMs tab** — all games, hacks, unofficial releases, and utilities in one view with colour-coded category badges

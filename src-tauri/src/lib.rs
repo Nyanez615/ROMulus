@@ -1,6 +1,7 @@
 // All dead code is wired — no suppressor needed.
 
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
 use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
 use tauri::Manager;
 
@@ -17,9 +18,10 @@ pub use commands::group::{group_roms, score_rom, COLLECTION_TAGS};
 pub use models::{FileCategory, RomFile, RomGroup, UserPreferences};
 pub use parser::{parse_file, parse_from_filename};
 
-use commands::{dat, execute, group, history, journal, metadata, prune, qbt, scan, settings, thumbnail};
+use commands::{archive, dat, execute, group, history, journal, metadata, prune, qbt, scan, settings, thumbnail};
 use db::AppState;
 
+#[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(
         app,
@@ -66,6 +68,7 @@ fn build_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(app, &[&app_menu])
 }
 
+#[cfg(target_os = "macos")]
 fn chrono_year() -> u32 {
     // Safe constant — update when the year rolls over
     2026
@@ -88,8 +91,11 @@ pub fn run() {
                 scan_cache: std::sync::Arc::new(Mutex::new(db::ScanCache::default())),
                 watcher: Mutex::new(None),
             });
-            let menu = build_menu(app)?;
-            app.set_menu(menu)?;
+            #[cfg(target_os = "macos")]
+            {
+                let menu = build_menu(app)?;
+                app.set_menu(menu)?;
+            }
             // Set dock icon programmatically so dev builds show the correct icon
             // (bundled release builds pick it up from the .icns automatically).
             if let Some(win) = app.get_webview_window("main") {
@@ -118,6 +124,11 @@ pub fn run() {
             execute::get_interrupted_session,
             execute::get_empty_roots,
             execute::cleanup_empty_roots,
+            // Archive (extract/compress)
+            archive::preview_extract,
+            archive::extract_zips,
+            archive::preview_compress,
+            archive::compress_files,
             // History
             history::get_history,
             history::clear_history,

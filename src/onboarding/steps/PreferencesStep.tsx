@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Languages, GripVertical, X, Plus } from "lucide-react";
+import { Languages, GripVertical, X, Plus, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { completeOnboardingStep, getSettings, saveSettings } from "@/lib/tauri";
 import { useOnboardingStore } from "@/store/onboarding";
@@ -130,13 +130,24 @@ export function PreferencesStep() {
         </div>
       </div>
 
-      <Button
-        className="w-full"
-        disabled={loading}
-        onClick={handleContinue}
-      >
-        {loading ? "Saving…" : "Continue"}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading}
+          onClick={() => setStep(1)}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back
+        </Button>
+        <Button
+          className="flex-1"
+          disabled={loading}
+          onClick={handleContinue}
+        >
+          {loading ? "Saving…" : "Continue"}
+        </Button>
+      </div>
     </div>
   );
 }

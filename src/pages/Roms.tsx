@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle, Trash2, Loader2 } from "lucide-react";
+import { ChevronRight, ChevronDown, CheckCircle2, AlertCircle, HelpCircle, Trash2, Loader2, PackageOpen, PackagePlus } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,12 +8,14 @@ import { cn } from "@/lib/utils";
 import { getRoms, applyFilters, executePrune, scanRoots, getSettings, getConsoles, formatBytes, getPlayEntries, setPlayEntry, deletePlayEntry } from "@/lib/tauri";
 import type { PlayEntry, PlayStatus } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
-import { ROM_SORT_FIELDS, type RomSortField, type SortDir } from "@/lib/romUtils";
+import { matchesLang, matchesRegion, matchesStatus, matchesPreferred } from "@/lib/romFilters";
+import { ROM_SORT_FIELDS, isArchive, type RomSortField, type SortDir } from "@/lib/romUtils";
 import { SortControl } from "@/components/SortControl";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 import type { RomFile } from "@/lib/bindings/RomFile";
 import type { DeletionPlan } from "@/lib/bindings/DeletionPlan";
 import { PrunePreviewDialog } from "@/components/PrunePreviewDialog";
+import { ArchiveActionDialog } from "@/components/ArchiveActionDialog";
 import { TagList } from "@/components/TagBadge";
 import { DiscBadge } from "@/components/DiscBadge";
 import { useScanStore } from "@/store/scan";
@@ -146,40 +148,6 @@ function VerificationBadge({ status }: { status?: string }) {
 // collection — 100k covers any local library; SQLite returns this quickly.
 const ALL_GROUPS = 100_000;
 
-// ── Pure filter predicates (reused by displayGroups and facet memos) ─────────
-
-function matchesLang(g: RomGroup, langs: string[]): boolean {
-  return g.variants.some((v) => {
-    if (v.languages.some((l) => langs.includes(l))) return true;
-    if (v.languages.length === 0) {
-      return getRegionDefaultLanguages(v.regions[0] ?? "").some((l) => langs.includes(l));
-    }
-    return false;
-  });
-}
-
-function matchesRegion(g: RomGroup, regions: string[]): boolean {
-  return g.variants.some((v) => {
-    if (v.regions.some((r) => regions.includes(r))) return true;
-    if (v.regions.length === 0) {
-      return regions.some((r) =>
-        getRegionDefaultLanguages(r).some((l) => v.languages.includes(l)),
-      );
-    }
-    return false;
-  });
-}
-
-function matchesStatus(g: RomGroup, statuses: string[]): boolean {
-  return g.variants.some((v) => v.status_flags.some((s) => statuses.includes(s)));
-}
-
-function matchesPreferred(g: RomGroup, preferred: string[]): boolean {
-  if (preferred.includes("Has preferred") && !g.has_preferred_version) return false;
-  if (preferred.includes("No preferred") &&  g.has_preferred_version) return false;
-  return true;
-}
-
 export default function Roms() {
   const { selectedConsoles, cacheVersion, setConsoles, setStatus, bumpCacheVersion } = useScanStore();
   const useShort = usePreferencesStore((s) => s.preferences.short_console_names);
@@ -309,6 +277,35 @@ export default function Roms() {
     }
   }
 
+  // ── Archive (extract/compress) — dialog owns its own filtering/preview/execution ──
+  const [archiveDialogMode, setArchiveDialogMode] = useState<"extract" | "compress" | null>(null);
+  const [archiveSingleFocus, setArchiveSingleFocus] = useState<string | null>(null);
+
+  // Refresh the library after any file-converting action so new/removed files show up.
+  async function refreshAfterArchiveAction() {
+    const settings = await getSettings().catch(() => null);
+    if (!settings?.rom_roots.length) return;
+    try {
+      const scanResult = await scanRoots(settings.rom_roots);
+      setStatus(scanResult);
+      setConsoles(await getConsoles());
+      refreshTagStore();
+      bumpCacheVersion();
+    } catch {
+      // silent — user can rescan manually from the Dashboard if needed
+    }
+  }
+
+  function handleExtractSingle(path: string) {
+    setArchiveSingleFocus(path);
+    setArchiveDialogMode("extract");
+  }
+
+  function handleCompressSingle(path: string) {
+    setArchiveSingleFocus(path);
+    setArchiveDialogMode("compress");
+  }
+
   useEffect(() => {
     clearTimeout(debouncedRef.current);
     debouncedRef.current = setTimeout(() => {
@@ -409,6 +406,10 @@ export default function Roms() {
     );
   }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs, activePreferred]);
 
+  // Button enabled state only — the dialog itself does its own filtering over `groups`.
+  const hasAnyZip = useMemo(() => groups.some((g) => g.variants.some((v) => v.file_format === "zip")), [groups]);
+  const hasAnyRaw = useMemo(() => groups.some((g) => g.variants.some((v) => v.file_format !== "zip")), [groups]);
+
   function toggleExpand(key: string) {
     setExpanded((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
@@ -423,6 +424,26 @@ export default function Roms() {
       <div className="h-14 flex items-center px-6 border-b border-border">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="ROMs" />
         <div className="ml-auto flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 h-7 text-xs"
+            onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("extract"); }}
+            disabled={!hasAnyZip}
+          >
+            <PackageOpen className="w-3 h-3" />
+            Extract
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 h-7 text-xs"
+            onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("compress"); }}
+            disabled={!hasAnyRaw}
+          >
+            <PackagePlus className="w-3 h-3" />
+            Compress
+          </Button>
           {pruneResult ? (
             <span className="text-xs text-green-400 flex items-center gap-1.5">
               ✓ Deleted {pruneResult.deleted.toLocaleString()} files · {formatBytes(pruneResult.bytes)} freed
@@ -517,7 +538,7 @@ export default function Roms() {
           <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
         </ConsoleEmptyState>
       )}
-      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} journalMap={journalMap} onJournalSave={handleJournalSave} onJournalDelete={handleJournalDelete} />
+      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} journalMap={journalMap} onJournalSave={handleJournalSave} onJournalDelete={handleJournalDelete} onExtractSingle={handleExtractSingle} onCompressSingle={handleCompressSingle} />
 
       {/* Prune confirmation dialog */}
       {prunePlan && (
@@ -529,6 +550,20 @@ export default function Roms() {
           onCancel={() => setPrunePlan(null)}
         />
       )}
+
+      {/* Extract / Compress dialog — self-contained: own filters, preview, execution */}
+      {archiveDialogMode && (
+        <ArchiveActionDialog
+          mode={archiveDialogMode}
+          groups={groups}
+          singleFocusPath={archiveSingleFocus}
+          knownRegions={knownRegions}
+          knownLanguages={knownLanguages}
+          knownCategories={allCategoryTags}
+          onActionComplete={refreshAfterArchiveAction}
+          onClose={() => { setArchiveDialogMode(null); setArchiveSingleFocus(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -536,13 +571,24 @@ export default function Roms() {
 
 // ── Variant row ───────────────────────────────────────────────────────────────
 
-function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; isPreferred: boolean; verificationStatus?: string }) {
+function VariantRow({ rom, isPreferred, verificationStatus, onExtractSingle, onCompressSingle }: {
+  rom: RomFile;
+  isPreferred: boolean;
+  verificationStatus?: string;
+  onExtractSingle: (path: string) => void;
+  onCompressSingle: (path: string) => void;
+}) {
   const statusColor = rom.is_bios ? "border-l-orange-400" : isPreferred ? "border-l-green-500" : "border-l-transparent";
   const baseClass = `flex items-center gap-3 pl-12 pr-6 py-2 border-b border-border/20 border-l-2 ${statusColor} text-xs bg-muted/10`;
+  const archive = isArchive(rom.path);
+  const menuProps = {
+    onExtract: archive ? () => onExtractSingle(rom.path) : undefined,
+    onCompress: !archive ? () => onCompressSingle(rom.path) : undefined,
+  };
 
   if (rom.file_category === "unofficial") {
     return (
-      <FileContextMenu path={rom.path}>
+      <FileContextMenu path={rom.path} {...menuProps}>
         <div className={baseClass}>
           <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
           <TagList regions={rom.regions} languages={rom.languages} max={3} />
@@ -554,7 +600,7 @@ function VariantRow({ rom, isPreferred, verificationStatus }: { rom: RomFile; is
   }
 
   return (
-    <FileContextMenu path={rom.path}>
+    <FileContextMenu path={rom.path} {...menuProps}>
       <div className={baseClass}>
         <span className="flex-1 truncate text-muted-foreground font-mono">{rom.filename}</span>
         <TagList regions={rom.regions} languages={rom.languages} statusFlags={rom.status_flags} max={3} />
@@ -579,9 +625,11 @@ interface VirtualRomListProps {
   journalMap: Map<string, PlayEntry>;
   onJournalSave: (titleNormalized: string, console_: string, patch: Partial<PlayEntry>, displayTitle: string) => void;
   onJournalDelete: (titleNormalized: string, console_: string) => void;
+  onExtractSingle: (path: string) => void;
+  onCompressSingle: (path: string) => void;
 }
 
-function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir, journalMap, onJournalSave, onJournalDelete }: VirtualRomListProps) {
+function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir, journalMap, onJournalSave, onJournalDelete, onExtractSingle, onCompressSingle }: VirtualRomListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
   // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns non-memoizable functions; known React Compiler v7 limitation, isolated here
@@ -710,14 +758,14 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
                       <div key={console_}>
                         <div className="px-6 py-1 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider bg-muted/5 border-b border-border/20">{label}</div>
                         {consoleVariants.map((v, vi) => (
-                          <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === g.variants.indexOf(v)} />
+                          <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === g.variants.indexOf(v)} onExtractSingle={onExtractSingle} onCompressSingle={onCompressSingle} />
                         ))}
                       </div>
                     );
                   });
                 }
                 return g.variants.map((v, vi) => (
-                  <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} />
+                  <VariantRow key={vi} rom={v} isPreferred={g.preferred_idx === vi} onExtractSingle={onExtractSingle} onCompressSingle={onCompressSingle} />
                 ));
               })()}
             </div>

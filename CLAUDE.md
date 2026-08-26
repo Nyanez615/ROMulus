@@ -23,7 +23,7 @@ Plan file: `/Users/nyanez/.claude/plans/in-the-folder-emulation-minerva-myrient-
 - **v0.2.11** ✅ Scoring overhaul (World region fix, version bonus, dynamic collection penalty, Patreon exempt, numbered protos > dated protos), grouping key fixes (apostrophe, & vs +, vs., trailing article suffix, ISO date time strip), category detection order fix, format-pair detection for subfolders, compilation-subtitle grouping fix, catalog-number disambiguation, format prefs in qBt pre-download filter, UI polish (single-variant expandable, badge removal, prune reopen fix)
 - **v0.2.12** ✅ Play Journal — 7th tab; per-game status (Backlog/Testing/Playing/Completed/Dropped), 5-star rating, notes, technical notes; inline indicator + popover in ROMs tab; IGDB critic score; Now Playing strip + stats card on Dashboard; Export/Import JSON; persists across catalogue wipes; cloud-sync-ready schema (UUID PK, soft-delete, synced_at)
 - **v0.2.13** ✅ Downloads size estimates (download_bytes/skip_bytes/per-file), grouping fixes (word-internal hyphens, mid-title articles, `!` subtitle separator, `and`=`&` equivalence), GBA ±1 title count fix
-- **Unreleased** — Onboarding Continue-button fix (empty language/region no longer blocks proceeding), `pre-push` hook running `cargo-sweep` to keep `src-tauri/target/` bounded
+- **Unreleased** — Onboarding Continue-button fix, `pre-push` cargo-sweep hook, Windows title bar fix (native menu macOS-only, window title populated), sidebar icon-only brand mark (doubles as collapse toggle, aligned identically in both states), onboarding Back buttons on all steps; **Archive extraction/compression** — new Extract/Compress bulk actions in the ROMs tab (`commands/archive.rs`, `ArchiveActionDialog.tsx`): flat extraction/compression (no per-archive subfolder), own FilterBar + Starts-With-letter batching independent of the page's filters, automatic already-extracted/already-compressed detection with a dedicated redundant-file cleanup flow, live per-file disk-space warnings netted against the delete-after toggle, per-row done/failed markers, byte-weighted countdown ETA, Windows read-only-attribute-aware deletion retry; Prune now prefers the extracted/native file over its zip twin (`score_rom`'s `extracted_bonus`, flipped from the prior zip-preferring `compressed_bonus`)
 
 ## Dev setup
 
@@ -39,7 +39,7 @@ cargo install cargo-sweep   # required by .githooks/pre-push
 
 From `src-tauri/`:
 ```bash
-cargo test                    # 288 unit tests + regenerates src/lib/bindings/
+cargo test                    # 305 unit tests + regenerates src/lib/bindings/
 cargo clippy -- -D warnings   # must be clean (same as CI)
 ```
 
@@ -61,9 +61,10 @@ src/                             React frontend (Vite root)
     ConsoleEmptyState.tsx        Empty state for console-filtered views with no results
     AlphabetScrubber.tsx         A–Z # strip for ROMs tab (name sort); reverses in desc order
     VariantCountScrubber.tsx     Numeric variant-count strip for ROMs tab (variants sort)
-    FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab)
+    FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab); also reused inside ArchiveActionDialog with an added Starts-With letter group
     SortControl.tsx              Field <select> + direction <button> pill; used on ROMs tab and Dashboard
-    FileContextMenu.tsx          Right-click wrapper: "Show in Folder" + "Copy Path"; applied to all file rows
+    ArchiveActionDialog.tsx      Extract/Compress popup — mode-parameterized ("extract" | "compress"), owns its own FilterBar/search/candidate-preview/execution; needs-vs-already-done split with a dedicated redundant-file delete flow
+    FileContextMenu.tsx          Right-click wrapper: "Show in Folder" + "Copy Path" + conditional "Extract"/"Compress to Zip"; applied to all file rows
     TagBadge.tsx / TagList.tsx   Region/language/status chips
     DiscBadge.tsx                Multi-disc count badge
     ErrorBoundary.tsx            Per-page React error boundary
@@ -73,7 +74,8 @@ src/                             React frontend (Vite root)
     bindings/                    Auto-generated TS types from Rust structs (never edit)
     consoleUtils.ts              SINGLE SOURCE OF TRUTH for all console data/logic — never import colors or abbreviations from ConsoleIcon.tsx in new code
     regionUtils.ts               REGION_DEFAULT_LANGUAGES map + helpers — mirrors parser.rs::region_default_languages; keep in sync
-    romUtils.ts                  ROM_SORT_FIELDS / RomSortField / SortDir shared by ROMs tab — import from here, never inline
+    romUtils.ts                  ROM_SORT_FIELDS / RomSortField / SortDir shared by ROMs tab — import from here, never inline; also isArchive(path) (.zip check)
+    romFilters.ts                matchesLang/Region/Status/Preferred/StartingLetter — pure RomGroup predicates shared by Roms.tsx's own FilterBar and ArchiveActionDialog's independent one; STARTING_LETTERS mirrors AlphabetScrubber's # + A–Z bucketing
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
@@ -91,6 +93,7 @@ src-tauri/
     db.rs                        AppState (Arc<Mutex<>> for db+scan_cache), migrations, helpers
     watcher.rs                   notify-based FS watcher, 200ms debounce, kept in AppState
     commands/
+      archive.rs       preview_extract/extract_zips, preview_compress/compress_files — flat placement (no per-archive subfolder), already_extracted/already_compressed detection, per-file delete-after (never batched), remove_file_robust (Windows read-only retry)
       scan.rs          scan_roots, get_scan_status, get_consoles, get_format_pairs
       group.rs         get_roms, get_system_files, merge_format_pairs
       prune.rs         apply_filters (→ DeletionPlan w/ DeletionItem+DeletionReason), export_csv (DeletionReason: NonPreferred | NoPreferredVersion)
@@ -111,7 +114,7 @@ src-tauri/
                        011_play_journal.sql · 012_metadata_critic_rating.sql · 013_journal_display_title.sql
   capabilities/        Tauri v2 permissions (fs, shell, dialog, notification, shortcuts)
   tauri.conf.json      Bundle ID: com.romulus.app · assetProtocol enabled
-  Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip
+  Cargo.toml           All crates incl. rusqlite, notify, keyring, reqwest, quick-xml, zip, fs4 (disk-space queries)
 ```
 
 ## Key conventions
@@ -136,6 +139,8 @@ src-tauri/
 - **`romUtils.ts`** — `ROM_SORT_FIELDS` / `RomSortField` / `SortDir` shared by the ROMs tab — import from here, never inline.
 - **`DeletionPlan`** — `to_delete` is `DeletionItem[]` (not `RomFile[]`). Each item has `{ rom: RomFile, reason: DeletionReason }`. Frontend must extract `.rom` when passing to `execute_prune` or `export_csv`.
 - **Prune filter settings** — persisted via dedicated `get_filter_settings` / `save_filter_settings` commands (KV `settings` table). Not bundled in `AppSettings`. Prune.tsx loads on mount and saves on each toggle.
+- **Zip vs extracted scoring** — `score_rom`'s `extracted_bonus` favors any non-archive `FileFormat` over `Zip`/`SevenZip`, so Prune always prefers the extracted/native copy over a zip of the same game. This is intentionally *not* configurable via Settings — the Extract/Compress dialogs' own per-action "delete original after success" checkbox is the place to control zip-vs-raw cleanup, not Prune's scoring.
+- **Archive preview is stateless, execution is live-tracked** — `preview_extract`/`preview_compress` are one-time snapshots (candidate list + `already_extracted`/`already_compressed` + per-directory `available_bytes`); nothing about disk state is re-checked mid-run. All "what's happened so far" UI (per-row done/failed markers, byte-weighted ETA, disk-space warnings netted against the delete-after toggle) is computed live on the frontend from `ExtractProgress`/`CompressProgress` events (`{current_file, done, total, success}` — no byte-size or duration field; that's why the ETA is byte-weighted using sizes already sitting in the initial preview response, not anything in the event payload).
 
 ## Database
 SQLite at `~/Library/Application Support/com.romulus.app/romulus.db` (macOS).
@@ -187,6 +192,6 @@ Always use `motion-safe:` Tailwind prefix on non-essential animations (WCAG 2.1)
 Manufacturer accent colors: Nintendo `#E4000F`, Sega `#0066B3`, Sony `#003087`, Atari `#FF6600`.
 
 ## Testing
-- Rust: `cargo test` in `src-tauri/` — 288 tests, in-memory SQLite only
+- Rust: `cargo test` in `src-tauri/` — 305 tests, in-memory SQLite only
 - Frontend: `npm run test:run` (Vitest + jsdom) — 134 tests in `src/**/*.test.tsx`
 - No `#![allow(dead_code)]` — all code is wired; clippy runs clean without suppressors

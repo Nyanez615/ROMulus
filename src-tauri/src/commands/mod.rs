@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod dat;
 pub mod execute;
 pub mod group;

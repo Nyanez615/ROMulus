@@ -1,5 +1,5 @@
 import * as React from "react"
-import { FolderOpen, Copy } from "lucide-react"
+import { FolderOpen, Copy, PackageOpen, PackagePlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -13,9 +13,13 @@ import { useToast } from "@/hooks/use-toast"
 export function FileContextMenu({
   path,
   children,
+  onExtract,
+  onCompress,
 }: {
   path: string
   children: React.ReactNode
+  onExtract?: () => void
+  onCompress?: () => void
 }) {
   const { toast } = useToast()
 
@@ -35,6 +39,18 @@ export function FileContextMenu({
           <FolderOpen className="w-3.5 h-3.5 mr-2 shrink-0" />
           Show in Folder
         </ContextMenuItem>
+        {onExtract && (
+          <ContextMenuItem onSelect={onExtract}>
+            <PackageOpen className="w-3.5 h-3.5 mr-2 shrink-0" />
+            Extract
+          </ContextMenuItem>
+        )}
+        {onCompress && (
+          <ContextMenuItem onSelect={onCompress}>
+            <PackagePlus className="w-3.5 h-3.5 mr-2 shrink-0" />
+            Compress to Zip
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => navigator.clipboard.writeText(path)}>
           <Copy className="w-3.5 h-3.5 mr-2 shrink-0" />

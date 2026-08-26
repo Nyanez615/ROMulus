@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "",
+        "title": "ROMulus",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

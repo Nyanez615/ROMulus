@@ -5,3 +5,7 @@ export const ROM_SORT_FIELDS = [
 
 export type RomSortField = (typeof ROM_SORT_FIELDS)[number]["value"];
 export type SortDir = "asc" | "desc";
+
+export function isArchive(path: string): boolean {
+  return path.toLowerCase().endsWith(".zip");
+}

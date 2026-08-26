@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Zap, CheckCircle2 } from "lucide-react";
+import { Zap, CheckCircle2, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -10,7 +10,7 @@ import { useOnboardingStore } from "@/store/onboarding";
 import { useScanStore } from "@/store/scan";
 
 export function ScanStep() {
-  const { setState } = useOnboardingStore();
+  const { setState, setStep } = useOnboardingStore();
   const { setConsoles, setStatus, setProgress } = useScanStore();
   const [scanning, setScanning] = useState(false);
   const [done, setDone] = useState(false);
@@ -86,13 +86,24 @@ export function ScanStep() {
         </div>
       )}
 
-      <Button
-        className="w-full"
-        disabled={scanning}
-        onClick={startScan}
-      >
-        {scanning ? "Scanning…" : "Start scan"}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={scanning}
+          onClick={() => setStep(3)}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back
+        </Button>
+        <Button
+          className="flex-1"
+          disabled={scanning}
+          onClick={startScan}
+        >
+          {scanning ? "Scanning…" : "Start scan"}
+        </Button>
+      </div>
 
       {!scanning && (
         <button
