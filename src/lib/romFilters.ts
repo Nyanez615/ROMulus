@@ -1,11 +1,19 @@
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
+import type { RomFile } from "@/lib/bindings/RomFile";
 
 // Pure filter predicates — shared between the ROMs tab's own FilterBar and
-// any other UI (e.g. ArchiveActionDialog) that needs the same chip-filter
-// semantics applied to a RomGroup[].
+// any other UI (e.g. ArchiveActionDialog, Downloads) that needs the same
+// chip-filter semantics. Signatures are widened to the minimal structural
+// shape each predicate actually reads, so callers that don't have a real
+// RomGroup (e.g. Downloads' qBittorrent preview data) can satisfy them
+// without casting or synthesizing unused fields.
 
-export function matchesLang(g: RomGroup, langs: string[]): boolean {
+type FilterVariant = Pick<RomFile, "regions" | "languages" | "status_flags">;
+type FilterableGroup = { variants: FilterVariant[] };
+type LetterableGroup = Pick<RomGroup, "title_normalized">;
+
+export function matchesLang(g: FilterableGroup, langs: string[]): boolean {
   return g.variants.some((v) => {
     if (v.languages.some((l) => langs.includes(l))) return true;
     if (v.languages.length === 0) {
@@ -15,7 +23,7 @@ export function matchesLang(g: RomGroup, langs: string[]): boolean {
   });
 }
 
-export function matchesRegion(g: RomGroup, regions: string[]): boolean {
+export function matchesRegion(g: FilterableGroup, regions: string[]): boolean {
   return g.variants.some((v) => {
     if (v.regions.some((r) => regions.includes(r))) return true;
     if (v.regions.length === 0) {
@@ -27,7 +35,7 @@ export function matchesRegion(g: RomGroup, regions: string[]): boolean {
   });
 }
 
-export function matchesStatus(g: RomGroup, statuses: string[]): boolean {
+export function matchesStatus(g: FilterableGroup, statuses: string[]): boolean {
   return g.variants.some((v) => v.status_flags.some((s) => statuses.includes(s)));
 }
 
@@ -48,6 +56,6 @@ export function startingLetter(title: string): string {
   return ch >= "a" && ch <= "z" ? ch.toUpperCase() : "#";
 }
 
-export function matchesStartingLetter(g: RomGroup, letters: string[]): boolean {
+export function matchesStartingLetter(g: LetterableGroup, letters: string[]): boolean {
   return letters.includes(startingLetter(g.title_normalized));
 }

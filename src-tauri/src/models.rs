@@ -671,6 +671,16 @@ pub struct QbtGroupInfo {
     pub chosen: String,
     /// Skipped filenames (will be set to priority 0)
     pub skipped: Vec<String>,
+    /// The preferred variant's title_normalized — for the Starts-With filter chip
+    pub title_normalized: String,
+    /// The preferred variant's regions
+    pub regions: Vec<String>,
+    /// The preferred variant's languages
+    pub languages: Vec<String>,
+    /// The preferred variant's status_flags (e.g. "Beta", "Proto")
+    pub status_flags: Vec<String>,
+    /// The preferred variant's file category
+    pub file_category: FileCategory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

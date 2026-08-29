@@ -382,11 +382,12 @@ pub async fn preview_qbt_filter(
         .iter()
         .filter_map(|g| {
             let preferred_idx = g.preferred_idx?; // skip no-preferred-version groups
+            let preferred = &g.variants[preferred_idx];
             // Skip groups where the preferred variant is non-playable (BIOS, Utility, etc.)
-            if g.variants[preferred_idx].file_category.is_non_playable() {
+            if preferred.file_category.is_non_playable() {
                 return None;
             }
-            let chosen_name = g.variants[preferred_idx].filename.clone();
+            let chosen_name = preferred.filename.clone();
 
             let mut skipped: Vec<String> = g.variants.iter().enumerate()
                 .filter(|(i, r)| *i != preferred_idx && !r.file_category.is_non_playable())
@@ -408,7 +409,17 @@ pub async fn preview_qbt_filter(
                 crate::picker::display_title(&chosen_name)
             };
 
-            Some(QbtGroupInfo { key, display_title, chosen: chosen_name, skipped })
+            Some(QbtGroupInfo {
+                key,
+                display_title,
+                chosen: chosen_name,
+                skipped,
+                title_normalized: g.title_normalized.clone(),
+                regions: preferred.regions.clone(),
+                languages: preferred.languages.clone(),
+                status_flags: preferred.status_flags.clone(),
+                file_category: preferred.file_category.clone(),
+            })
         })
         .collect();
     multi_variant_groups.sort_by(|a, b| a.key.cmp(&b.key));

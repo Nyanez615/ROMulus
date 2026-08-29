@@ -4,6 +4,8 @@ import {
   Search, ChevronDown, ChevronRight, ChevronsUpDown, Check, ArrowDownToLine, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterBar } from "@/components/FilterBar";
+import { matchesLang, matchesRegion, matchesStatus, matchesStartingLetter, startingLetter, STARTING_LETTERS } from "@/lib/romFilters";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem,
@@ -58,6 +60,10 @@ function PreDownloadSection() {
   const [fileSearch, setFileSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
+  const [activeStatus, setActiveStatus] = useState<string[]>([]);
+  const [activeLangs, setActiveLangs] = useState<string[]>([]);
+  const [activeRegions, setActiveRegions] = useState<string[]>([]);
 
   useEffect(() => {
     getQbtSettings().then((s) => {
@@ -97,6 +103,10 @@ function PreDownloadSection() {
     setFileSearch("");
     setShowAll(false);
     setExpandedGroups(new Set());
+    setActiveLetters([]);
+    setActiveStatus([]);
+    setActiveLangs([]);
+    setActiveRegions([]);
     try {
       const result = await previewQbtFilter(hash);
       setPreview(result);
@@ -167,16 +177,64 @@ function PreDownloadSection() {
 
   const filteredGroups = useMemo(() => {
     if (!preview) return [];
-    // Backend already sorts alphabetically; filter by search if active.
-    if (!fileSearch.trim()) return preview.multi_variant_groups;
-    const q = fileSearch.toLowerCase();
-    return preview.multi_variant_groups.filter(
-      (g) =>
-        g.display_title.toLowerCase().includes(q) ||
-        g.chosen.toLowerCase().includes(q) ||
-        g.skipped.some((s) => s.toLowerCase().includes(q)),
-    );
-  }, [preview, fileSearch]);
+    // Backend already sorts alphabetically; filter by search + active chips.
+    let result = preview.multi_variant_groups;
+    if (fileSearch.trim()) {
+      const q = fileSearch.toLowerCase();
+      result = result.filter(
+        (g) =>
+          g.display_title.toLowerCase().includes(q) ||
+          g.chosen.toLowerCase().includes(q) ||
+          g.skipped.some((s) => s.toLowerCase().includes(q)),
+      );
+    }
+    if (activeLetters.length > 0) {
+      result = result.filter((g) => matchesStartingLetter(g, activeLetters));
+    }
+    if (activeStatus.length > 0 || activeLangs.length > 0 || activeRegions.length > 0) {
+      result = result.filter((g) => {
+        const adapted = { variants: [{ regions: g.regions, languages: g.languages, status_flags: g.status_flags }] };
+        if (activeStatus.length  > 0 && !matchesStatus(adapted, activeStatus))  return false;
+        if (activeLangs.length   > 0 && !matchesLang(adapted, activeLangs))     return false;
+        if (activeRegions.length > 0 && !matchesRegion(adapted, activeRegions)) return false;
+        return true;
+      });
+    }
+    return result;
+  }, [preview, fileSearch, activeLetters, activeStatus, activeLangs, activeRegions]);
+
+  // Available chip values: a flat union across every title group, not narrowed
+  // by other active chips (unlike ROMs' faceted availability) — a deliberate
+  // simplification appropriate for a single torrent's worth of groups (dozens,
+  // not thousands). No "Preferred" dimension: every group here already passed
+  // group.preferred_idx, so that chip would always match everything.
+  const availableLetters = useMemo(() => {
+    if (!preview) return [];
+    const present = new Set(preview.multi_variant_groups.map((g) => startingLetter(g.title_normalized)));
+    return STARTING_LETTERS.filter((l) => present.has(l));
+  }, [preview]);
+  const availableStatusTags = useMemo(() => {
+    if (!preview) return [];
+    const present = new Set<string>();
+    preview.multi_variant_groups.forEach((g) => g.status_flags.forEach((s) => present.add(s)));
+    return [...present].sort();
+  }, [preview]);
+  const availableLangs = useMemo(() => {
+    if (!preview) return [];
+    const present = new Set<string>();
+    preview.multi_variant_groups.forEach((g) => g.languages.forEach((l) => present.add(l)));
+    return [...present].sort();
+  }, [preview]);
+  const availableRegions = useMemo(() => {
+    if (!preview) return [];
+    const present = new Set<string>();
+    preview.multi_variant_groups.forEach((g) => g.regions.forEach((r) => present.add(r)));
+    return [...present].sort();
+  }, [preview]);
+
+  function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
+    set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
+  }
 
 
   function torrentLabel(t: QbtTorrent): string {
@@ -353,8 +411,8 @@ function PreDownloadSection() {
             </div>
           </div>
 
-          {/* Filter tabs + search — non-scrolling */}
-          <div className="px-4 pt-2 pb-2 border-b border-border shrink-0 space-y-2">
+          {/* Filter tabs — non-scrolling */}
+          <div className="px-4 pt-2 pb-2 border-b border-border shrink-0">
             <div className="flex items-center gap-1 flex-wrap">
               {([
                 { id: "groups", label: "Titles", count: preview.multi_variant_groups.length },
@@ -390,17 +448,36 @@ function PreDownloadSection() {
                 </button>
               )}
             </div>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                value={fileSearch}
-                onChange={(e) => { setFileSearch(e.target.value); setShowAll(false); }}
-                placeholder={fileTab === "groups" ? "Search titles…" : "Search files…"}
-                className="w-full text-xs bg-background border border-border rounded-md pl-7 pr-3 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
           </div>
+
+          {/* Search + (Titles view only) filter chips — chip dimensions rely on
+              region/language/status metadata that only multi_variant_groups
+              carries; the flat All/Download/Skip lists include unparsed files
+              with no such metadata, so they stay search-only. */}
+          <FilterBar
+            groups={
+              fileTab === "groups"
+                ? [
+                    { key: "letter", label: "Starts With", items: availableLetters, active: activeLetters, onToggle: (v) => toggleChip(activeLetters, v, setActiveLetters), onClear: () => setActiveLetters([]) },
+                    { key: "status", label: "Category", items: availableStatusTags, active: activeStatus, onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus), onClear: () => setActiveStatus([]) },
+                    { key: "language", label: "Language", items: availableLangs, active: activeLangs, onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs), onClear: () => setActiveLangs([]) },
+                    { key: "region", label: "Region", items: availableRegions, active: activeRegions, onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions), onClear: () => setActiveRegions([]) },
+                  ]
+                : []
+            }
+            leading={
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  value={fileSearch}
+                  onChange={(e) => { setFileSearch(e.target.value); setShowAll(false); }}
+                  placeholder={fileTab === "groups" ? "Search titles…" : "Search files…"}
+                  className="w-full text-xs bg-background border border-border rounded-md pl-7 pr-3 py-1.5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            }
+          />
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto min-h-0">
