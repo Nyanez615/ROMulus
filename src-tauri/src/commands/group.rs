@@ -118,6 +118,18 @@ const HARDWARE_FEATURE_TAGS: &[&str] = &[
 // Switch Online, Switch, Classic Mini, GameCube) are not listed here — they receive
 // the generic extra_tag penalty below (-5) so plain cartridge releases are preferred.
 
+/// Bare 4-character cartridge product/serial codes (e.g. "YWDZ", matching
+/// Nintendo's AGB-/NTR-xxxx-REGION code format with the platform prefix and
+/// region suffix already stripped) are a disambiguation label No-Intro
+/// sometimes appends to near-identical dumps — not a distribution variant.
+/// Exempt from the generic unrecognized-extra_tag penalty so they don't
+/// silently suppress revision_bonus for an otherwise normal release.
+fn is_bare_serial_code(s: &str) -> bool {
+    s.len() == 4
+        && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && s.chars().any(|c| c.is_ascii_alphabetic())
+}
+
 /// Higher score = more preferred variant.
 /// Returns (score, revision, lang_match_count) tuple — all three compared
 /// lexicographically so ties break cleanly: same score → higher revision → more
@@ -187,7 +199,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
             } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
                 -5
             } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
-                .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part)) {
+                .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part) && !is_bare_serial_code(part)) {
                 // Any unrecognised extra_tag that isn't a hardware capability flag
                 // (platform port, store label, date stamp, studio label, etc.)
                 // indicates a platform/distribution variant — prefer the base ROM.
@@ -225,7 +237,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
             -5
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
-            .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part)) {
+            .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part) && !is_bare_serial_code(part)) {
             // Any unrecognised extra_tag that isn't a hardware capability flag
             // (platform port, store label, studio label, etc.) indicates a
             // platform/distribution variant — prefer the base ROM.
@@ -1906,6 +1918,41 @@ mod tests {
             "Europe Rev 1 (GB Compatible) {:?} must beat USA original {:?}",
             score_rom(&europe_rev1, &en_prefs()),
             score_rom(&usa, &en_prefs()),
+        );
+    }
+
+    #[test]
+    fn bare_serial_code_does_not_suppress_revision_bonus() {
+        // Real-world case: "I Love Horses (Europe) (En,Fr,Es,It,Nl) (Rev 1) (YWDZ)"
+        // was losing to "I Love Horses (USA)" because "YWDZ" — a bare 4-char
+        // cartridge serial code, not a distribution variant — fell through to the
+        // generic unrecognised-extra_tag penalty and silenced revision_bonus.
+        let usa = rom("I Love Horses", &["USA"], &[], &[]);
+        let mut europe_rev1 = rom("I Love Horses", &["Europe"], &["En", "Fr", "Es", "It", "Nl"], &[]);
+        europe_rev1.revision = 1;
+        europe_rev1.extra_tags = vec!["YWDZ".into()];
+        assert!(
+            score_rom(&europe_rev1, &en_prefs()) > score_rom(&usa, &en_prefs()),
+            "Europe Rev 1 (YWDZ) {:?} must beat plain USA {:?}",
+            score_rom(&europe_rev1, &en_prefs()),
+            score_rom(&usa, &en_prefs()),
+        );
+    }
+
+    #[test]
+    fn distribution_variant_tag_still_suppresses_revision_bonus() {
+        // Sanity check for the bare_serial_code exemption: a genuine unrecognised
+        // distribution-variant tag (not 4 uppercase alnum chars) must still trigger
+        // the penalty and suppress revision_bonus, same as before this fix.
+        let usa = rom("Game", &["USA"], &[], &[]);
+        let mut europe_rev1 = rom("Game", &["Europe"], &[], &[]);
+        europe_rev1.revision = 1;
+        europe_rev1.extra_tags = vec!["Not for Resale".into()];
+        assert!(
+            score_rom(&usa, &en_prefs()) > score_rom(&europe_rev1, &en_prefs()),
+            "USA {:?} must still beat Europe Rev 1 (Not for Resale) {:?}",
+            score_rom(&usa, &en_prefs()),
+            score_rom(&europe_rev1, &en_prefs()),
         );
     }
 
