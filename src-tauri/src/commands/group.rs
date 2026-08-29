@@ -21,6 +21,22 @@ pub fn matches_preferred(rom: &RomFile, prefs: &UserPreferences) -> bool {
     inferred.iter().any(|l| prefs.preferred_languages.contains(&l.to_string()))
 }
 
+/// Counts how many of the user's preferred languages this ROM matches, falling
+/// back to region-inferred language when no explicit language tag is present —
+/// the same fallback `matches_preferred` uses. Without this, a tag-less
+/// regional release (e.g. a USA ROM, English implied by region) scores 0 on
+/// this tiebreak purely for not bothering to spell its language out, even
+/// against a release that explicitly tags the exact same language.
+fn preferred_lang_count(rom: &RomFile, prefs: &UserPreferences) -> usize {
+    if !rom.languages.is_empty() {
+        return rom.languages.iter().filter(|l| prefs.preferred_languages.contains(*l)).count();
+    }
+    let primary = rom.regions.first().map(|s| s.as_str()).unwrap_or("");
+    region_default_languages(primary).iter()
+        .filter(|l| prefs.preferred_languages.contains(&l.to_string()))
+        .count()
+}
+
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
 // Distribution-format / platform variants — minor penalty.
@@ -138,9 +154,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         )
     }) {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
-        let lang_count = rom.languages.iter()
-            .filter(|l| prefs.preferred_languages.contains(*l))
-            .count();
+        let lang_count = preferred_lang_count(rom, prefs);
         // Ordering: numbered protos (Proto N) > dated protos > bare proto.
         // Numbered protos are explicitly sequenced by archivists and represent the
         // most complete builds in the series, so they rank above any dated snapshot.
@@ -156,9 +170,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // Bad dump → very low; same lang+region+alt tiebreaker for consistency.
     if rom.bad_dump {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
-        let lang_count = rom.languages.iter()
-            .filter(|l| prefs.preferred_languages.contains(*l))
-            .count();
+        let lang_count = preferred_lang_count(rom, prefs);
         return (-80 + alt_penalty + extracted_bonus, rom.revision, lang_count * 1000 + r_score);
     }
 
@@ -168,9 +180,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // Multiplier 1000 exceeds any realistic region score (~200 max with 10 preferred regions).
     if matches!(rom.file_category, FileCategory::Unofficial) {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
-        let lang_count = rom.languages.iter()
-            .filter(|l| prefs.preferred_languages.contains(*l))
-            .count();
+        let lang_count = preferred_lang_count(rom, prefs);
         let format_penalty: i32 =
             if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| COLLECTION_TAGS.contains(&part)) {
                 -80
@@ -2195,6 +2205,28 @@ mod tests {
         let prefs = en_prefs();
         let (score, _, _) = score_rom(&kiosk, &prefs);
         assert_eq!(score, -100, "Wi-Fi Kiosk firmware (zip) must score −100 (pre-release -100, no extracted-format bonus since it's a zip)");
+    }
+
+    #[test]
+    fn wifi_kiosk_tagless_usa_beats_explicit_language_europe() {
+        // Regression: a USA pre-release with no explicit language tag (English
+        // implied by region, per No-Intro convention) was losing this tier's
+        // lang_count tiebreak to a Europe release that simply bothers to spell
+        // its languages out — even though both are equally "English" to an En
+        // user, and USA is the user's top preferred region. preferred_lang_count
+        // must fall back to region-inferred language exactly like
+        // matches_preferred already does, so the region tiebreak actually decides.
+        let mut usa = rom("Celebi Distribution 2011", &["USA"], &[], &["Wi-Fi Kiosk"]);
+        usa.status_flags = vec!["Wi-Fi Kiosk".into()];
+        let mut eu = rom("Celebi Distribution 2011", &["Europe"], &["En", "Fr", "De", "Es", "It"], &["Wi-Fi Kiosk"]);
+        eu.status_flags = vec!["Wi-Fi Kiosk".into()];
+        let prefs = en_prefs();
+        assert!(
+            score_rom(&usa, &prefs) > score_rom(&eu, &prefs),
+            "tag-less USA {:?} must score above explicit-language Europe {:?}",
+            score_rom(&usa, &prefs),
+            score_rom(&eu, &prefs),
+        );
     }
 
     #[test]
