@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { getRoms, applyFilters, executePrune, scanRoots, getSettings, getConsoles, formatBytes, getPlayEntries, setPlayEntry, deletePlayEntry } from "@/lib/tauri";
 import type { PlayEntry, PlayStatus } from "@/lib/tauri";
 import { getRegionDefaultLanguages } from "@/lib/regionUtils";
-import { matchesLang, matchesRegion, matchesStatus, matchesPreferred } from "@/lib/romFilters";
+import { matchesLang, matchesRegion, matchesStatus, matchesPreferred, matchesStartingLetter, startingLetter, STARTING_LETTERS } from "@/lib/romFilters";
 import { ROM_SORT_FIELDS, isArchive, type RomSortField, type SortDir } from "@/lib/romUtils";
 import { SortControl } from "@/components/SortControl";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
@@ -27,7 +27,6 @@ import { FileContextMenu } from "@/components/FileContextMenu";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { FilterBar } from "@/components/FilterBar";
 import { RomThumbnail } from "@/components/RomThumbnail";
-import { AlphabetScrubber } from "@/components/AlphabetScrubber";
 import { VariantCountScrubber } from "@/components/VariantCountScrubber";
 import { refreshTagStore } from "@/components/Layout";
 import { PlayStatusBadge } from "@/components/PlayStatusBadge";
@@ -168,6 +167,7 @@ export default function Roms() {
   const [activeStatus, setActiveStatus] = useState<string[]>([]);
   const [activeLangs, setActiveLangs] = useState<string[]>([]);
   const [activePreferred, setActivePreferred] = useState<string[]>([]);
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const debouncedRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -328,22 +328,33 @@ export default function Roms() {
     () => groups
       .filter((g) => activeLangs.length   === 0 || matchesLang(g, activeLangs))
       .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => activeLetters.length === 0 || matchesStartingLetter(g, activeLetters))
       .filter((g) => matchesPreferred(g, activePreferred)),
-    [groups, activeLangs, activeRegions, activePreferred],
+    [groups, activeLangs, activeRegions, activeLetters, activePreferred],
   );
   const langFacetGroups = useMemo(
     () => groups
       .filter((g) => activeStatus.length  === 0 || matchesStatus(g, activeStatus))
       .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => activeLetters.length === 0 || matchesStartingLetter(g, activeLetters))
       .filter((g) => matchesPreferred(g, activePreferred)),
-    [groups, activeStatus, activeRegions, activePreferred],
+    [groups, activeStatus, activeRegions, activeLetters, activePreferred],
   );
   const regionFacetGroups = useMemo(
     () => groups
       .filter((g) => activeStatus.length === 0 || matchesStatus(g, activeStatus))
       .filter((g) => activeLangs.length  === 0 || matchesLang(g, activeLangs))
+      .filter((g) => activeLetters.length === 0 || matchesStartingLetter(g, activeLetters))
       .filter((g) => matchesPreferred(g, activePreferred)),
-    [groups, activeStatus, activeLangs, activePreferred],
+    [groups, activeStatus, activeLangs, activeLetters, activePreferred],
+  );
+  const letterFacetGroups = useMemo(
+    () => groups
+      .filter((g) => activeStatus.length  === 0 || matchesStatus(g, activeStatus))
+      .filter((g) => activeLangs.length   === 0 || matchesLang(g, activeLangs))
+      .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
+      .filter((g) => matchesPreferred(g, activePreferred)),
+    [groups, activeStatus, activeLangs, activeRegions, activePreferred],
   );
 
   const availableCategoryTags = useMemo(() => {
@@ -387,12 +398,19 @@ export default function Roms() {
     return knownRegions.filter((r) => present.has(r) || activeRegions.includes(r));
   }, [groups, knownRegions, regionFacetGroups, activeRegions]);
 
+  const availableLetters = useMemo(() => {
+    if (groups.length === 0) return [...STARTING_LETTERS];
+    const present = new Set(letterFacetGroups.map((g) => startingLetter(g.title_normalized)));
+    return STARTING_LETTERS.filter((l) => present.has(l) || activeLetters.includes(l));
+  }, [groups, letterFacetGroups, activeLetters]);
+
   // Client-side sort + filter
   const displayGroups = useMemo(() => {
     const result = groups
       .filter((g) => activeLangs.length   === 0 || matchesLang(g, activeLangs))
       .filter((g) => activeRegions.length === 0 || matchesRegion(g, activeRegions))
       .filter((g) => activeStatus.length  === 0 || matchesStatus(g, activeStatus))
+      .filter((g) => activeLetters.length === 0 || matchesStartingLetter(g, activeLetters))
       .filter((g) => matchesPreferred(g, activePreferred));
 
     return [...result].sort((a, b) =>
@@ -404,7 +422,7 @@ export default function Roms() {
           ? a.title_normalized.localeCompare(b.title_normalized)
           : b.title_normalized.localeCompare(a.title_normalized),
     );
-  }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs, activePreferred]);
+  }, [groups, sortField, sortDir, activeRegions, activeStatus, activeLangs, activeLetters, activePreferred]);
 
   // Button enabled state only — the dialog itself does its own filtering over `groups`.
   const hasAnyZip = useMemo(() => groups.some((g) => g.variants.some((v) => v.file_format === "zip")), [groups]);
@@ -427,6 +445,14 @@ export default function Roms() {
 
       <FilterBar
         groups={[
+          {
+            key: "letter",
+            label: "Starts With",
+            items: availableLetters,
+            active: activeLetters,
+            onToggle: (v) => toggleChip(activeLetters, v, setActiveLetters),
+            onClear: () => setActiveLetters([]),
+          },
           {
             key: "status",
             label: "Category",
@@ -539,7 +565,7 @@ export default function Roms() {
           <div className="text-center py-16 text-muted-foreground text-sm">No ROMs found. Run a scan from the Dashboard.</div>
         </ConsoleEmptyState>
       )}
-      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showScrubber={sortField === "name" && search === "" && displayGroups.length > 50} reverseStrip={sortField === "name" && sortDir === "desc"} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} journalMap={journalMap} onJournalSave={handleJournalSave} onJournalDelete={handleJournalDelete} onExtractSingle={handleExtractSingle} onCompressSingle={handleCompressSingle} />
+      <VirtualRomList items={displayGroups} expanded={expanded} onToggle={toggleExpand} selectedConsoles={selectedConsoles} useShort={useShort} showCountScrubber={sortField === "variants" && search === "" && displayGroups.length > 50} sortDir={sortDir} journalMap={journalMap} onJournalSave={handleJournalSave} onJournalDelete={handleJournalDelete} onExtractSingle={handleExtractSingle} onCompressSingle={handleCompressSingle} />
 
       {/* Prune confirmation dialog */}
       {prunePlan && (
@@ -619,8 +645,6 @@ interface VirtualRomListProps {
   onToggle: (key: string) => void;
   selectedConsoles: string[] | null;
   useShort: boolean;
-  showScrubber: boolean;
-  reverseStrip: boolean;
   showCountScrubber: boolean;
   sortDir: "asc" | "desc";
   journalMap: Map<string, PlayEntry>;
@@ -630,7 +654,7 @@ interface VirtualRomListProps {
   onCompressSingle: (path: string) => void;
 }
 
-function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showScrubber, reverseStrip, showCountScrubber, sortDir, journalMap, onJournalSave, onJournalDelete, onExtractSingle, onCompressSingle }: VirtualRomListProps) {
+function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort, showCountScrubber, sortDir, journalMap, onJournalSave, onJournalDelete, onExtractSingle, onCompressSingle }: VirtualRomListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
   // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer returns non-memoizable functions; known React Compiler v7 limitation, isolated here
@@ -652,14 +676,6 @@ function VirtualRomList({ items, expanded, onToggle, selectedConsoles, useShort,
   });
   return (
     <div className="flex-1 overflow-hidden flex flex-row min-h-0">
-    {showScrubber && (
-      <AlphabetScrubber
-        items={items}
-        firstVisibleIndex={firstVisibleIndex}
-        onJump={(idx) => virtualizer.scrollToIndex(idx, { align: "start" })}
-        reverseStrip={reverseStrip}
-      />
-    )}
     {showCountScrubber && (
       <VariantCountScrubber
         items={items}

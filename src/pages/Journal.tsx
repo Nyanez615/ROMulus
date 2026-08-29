@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FilterBar } from "@/components/FilterBar";
 import { SortControl } from "@/components/SortControl";
+import { startingLetter, STARTING_LETTERS } from "@/lib/romFilters";
 import { cn } from "@/lib/utils";
 import { pluralize } from "@/lib/pluralize";
 import { useToast } from "@/hooks/use-toast";
@@ -149,6 +150,7 @@ export default function Journal() {
   const [stats, setStats] = useState<PlayStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeStatuses, setActiveStatuses] = useState<PlayStatus[]>([]);
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -212,9 +214,15 @@ export default function Journal() {
     }
   }
 
+  const availableLetters = useMemo(() => {
+    const present = new Set(entries.map((e) => startingLetter(e.title_normalized)));
+    return STARTING_LETTERS.filter((l) => present.has(l) || activeLetters.includes(l));
+  }, [entries, activeLetters]);
+
   const filtered = useMemo(() => {
     let result = entries;
     if (activeStatuses.length > 0) result = result.filter((e) => activeStatuses.includes(e.status));
+    if (activeLetters.length > 0) result = result.filter((e) => activeLetters.includes(startingLetter(e.title_normalized)));
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((e) =>
@@ -233,7 +241,7 @@ export default function Journal() {
       const diff = a.updated_at.localeCompare(b.updated_at);
       return sortDir === "asc" ? diff : -diff;
     });
-  }, [entries, activeStatuses, search, sortKey, sortDir]);
+  }, [entries, activeStatuses, activeLetters, search, sortKey, sortDir]);
 
   return (
     <div className="flex flex-col h-full">
@@ -245,6 +253,14 @@ export default function Journal() {
       {/* Toolbar */}
       <FilterBar
         groups={[
+          {
+            key: "letter",
+            label: "Starts With",
+            items: availableLetters,
+            active: activeLetters,
+            onToggle: (v) => setActiveLetters((prev) => prev.includes(v) ? prev.filter((l) => l !== v) : [...prev, v]),
+            onClear: () => setActiveLetters([]),
+          },
           {
             key: "status",
             label: "Status",

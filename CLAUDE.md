@@ -59,9 +59,8 @@ src/                             React frontend (Vite root)
     ConsoleIcon.tsx              Manufacturer/console icon + accent color (wraps consoleUtils.ts)
     ConsolePageTitle.tsx         Colored console heading shared by all console-filtered tabs
     ConsoleEmptyState.tsx        Empty state for console-filtered views with no results
-    AlphabetScrubber.tsx         A–Z # strip for ROMs tab (name sort); reverses in desc order
     VariantCountScrubber.tsx     Numeric variant-count strip for ROMs tab (variants sort)
-    FilterBar.tsx                Collapsible Category/Language/Region/Preferred filter panel (ROMs tab); also reused inside ArchiveActionDialog with an added Starts-With letter group
+    FilterBar.tsx                Collapsible, dimension-agnostic filter panel (groups: FilterGroup[] + leading/trailing slots); used by ROMs, System Files, History, Journal, and ArchiveActionDialog
     SortControl.tsx              Field <select> + direction <button> pill; used on ROMs tab and Dashboard
     ArchiveActionDialog.tsx      Extract/Compress popup — mode-parameterized ("extract" | "compress"), owns its own FilterBar/search/candidate-preview/execution; needs-vs-already-done split with a dedicated redundant-file delete flow
     FileContextMenu.tsx          Right-click wrapper: "Show in Folder" + "Copy Path" + conditional "Extract"/"Compress to Zip"; applied to all file rows
@@ -75,7 +74,7 @@ src/                             React frontend (Vite root)
     consoleUtils.ts              SINGLE SOURCE OF TRUTH for all console data/logic — never import colors or abbreviations from ConsoleIcon.tsx in new code
     regionUtils.ts               REGION_DEFAULT_LANGUAGES map + helpers — mirrors parser.rs::region_default_languages; keep in sync
     romUtils.ts                  ROM_SORT_FIELDS / RomSortField / SortDir shared by ROMs tab — import from here, never inline; also isArchive(path) (.zip check)
-    romFilters.ts                matchesLang/Region/Status/Preferred/StartingLetter — pure RomGroup predicates shared by Roms.tsx's own FilterBar and ArchiveActionDialog's independent one; STARTING_LETTERS mirrors AlphabetScrubber's # + A–Z bucketing
+    romFilters.ts                matchesLang/Region/Status/Preferred/StartingLetter — pure RomGroup predicates shared by every FilterBar-based tab (Roms.tsx, ArchiveActionDialog); STARTING_LETTERS/startingLetter() are the app-wide # + A–Z bucketing, also used directly against flat RomFile/PlayEntry lists (SystemFiles.tsx, Journal.tsx) that don't have RomGroup shape
     tauri.ts                     All invoke()/listen() wrappers with browser-safe defaults
     env.ts                       isTauri() helper
     utils.ts                     cn() helper

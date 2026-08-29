@@ -38,7 +38,7 @@ export function matchesPreferred(g: RomGroup, preferred: string[]): boolean {
 }
 
 // # first: title_normalized strips articles so numeric titles (007, 1942) sort
-// before alphabetical ones — same bucketing AlphabetScrubber uses for its A-Z jump strip.
+// before alphabetical ones.
 export const STARTING_LETTERS = ["#", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K",
                                   "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W",
                                   "X", "Y", "Z"] as const;

@@ -12,6 +12,7 @@ import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { PrunePreviewDialog } from "@/components/PrunePreviewDialog";
 import { FilterBar } from "@/components/FilterBar";
+import { startingLetter, STARTING_LETTERS } from "@/lib/romFilters";
 import { refreshTagStore } from "@/components/Layout";
 import { getFormatVariantLabel } from "@/lib/consoleUtils";
 import { FileContextMenu } from "@/components/FileContextMenu";
@@ -28,6 +29,7 @@ export default function SystemFiles() {
   const [groups, setGroups] = useState<RomGroup[]>([]);
   const [search, setSearch] = useState("");
   const [activeCategories, setActiveCategories] = useState<FileCategory[]>([]);
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
   const [showAllCategories, setShowAllCategories] = useState<FileCategory[]>([]);
 
   // ── Prune state ──────────────────────────────────────────────────────────────
@@ -114,7 +116,8 @@ export default function SystemFiles() {
     items: files.filter(
       (f) =>
         f.file_category === key &&
-        (searchLower === "" || f.filename.toLowerCase().includes(searchLower)),
+        (searchLower === "" || f.filename.toLowerCase().includes(searchLower)) &&
+        (activeLetters.length === 0 || activeLetters.includes(startingLetter(f.title_normalized))),
     ),
   })).filter((c) => {
     if (c.items.length === 0) return false;
@@ -126,6 +129,11 @@ export default function SystemFiles() {
     files.some((f) => f.file_category === cat.key),
   );
 
+  const availableLetters = useMemo(() => {
+    const present = new Set(files.map((f) => startingLetter(f.title_normalized)));
+    return STARTING_LETTERS.filter((l) => present.has(l) || activeLetters.includes(l));
+  }, [files, activeLetters]);
+
   const categoryLabelToKey = new Map(ALL_CATEGORIES.map((c) => [c.label, c.key]));
 
   return (
@@ -136,6 +144,14 @@ export default function SystemFiles() {
 
       <FilterBar
         groups={[
+          {
+            key: "letter",
+            label: "Starts With",
+            items: availableLetters,
+            active: activeLetters,
+            onToggle: (v) => setActiveLetters((prev) => prev.includes(v) ? prev.filter((l) => l !== v) : [...prev, v]),
+            onClear: () => setActiveLetters([]),
+          },
           {
             key: "category",
             label: "Category",
