@@ -40,7 +40,8 @@ describe("History (Group E)", () => {
 
   it("Deleted chip sends moved_to_trash + deleted actions", async () => {
     render(<History />);
-    await waitFor(() => screen.getByText("Deleted"));
+    await waitFor(() => screen.getByText("Action"));
+    fireEvent.click(screen.getByText("Action"));
     fireEvent.click(screen.getByText("Deleted"));
     await waitFor(() =>
       expect(mockGetHistory).toHaveBeenCalledWith(
@@ -54,7 +55,8 @@ describe("History (Group E)", () => {
 
   it("Kept chip sends kept actions", async () => {
     render(<History />);
-    await waitFor(() => screen.getByText("Kept"));
+    await waitFor(() => screen.getByText("Action"));
+    fireEvent.click(screen.getByText("Action"));
     fireEvent.click(screen.getByText("Kept"));
     await waitFor(() =>
       expect(mockGetHistory).toHaveBeenCalledWith(
@@ -68,7 +70,8 @@ describe("History (Group E)", () => {
 
   it("Skipped chip sends skipped actions", async () => {
     render(<History />);
-    await waitFor(() => screen.getByText("Skipped"));
+    await waitFor(() => screen.getByText("Action"));
+    fireEvent.click(screen.getByText("Action"));
     fireEvent.click(screen.getByText("Skipped"));
     await waitFor(() =>
       expect(mockGetHistory).toHaveBeenCalledWith(
@@ -82,7 +85,8 @@ describe("History (Group E)", () => {
 
   it("Deferred chip sends deferred + pending actions", async () => {
     render(<History />);
-    await waitFor(() => screen.getByText("Deferred"));
+    await waitFor(() => screen.getByText("Action"));
+    fireEvent.click(screen.getByText("Action"));
     fireEvent.click(screen.getByText("Deferred"));
     await waitFor(() =>
       expect(mockGetHistory).toHaveBeenCalledWith(

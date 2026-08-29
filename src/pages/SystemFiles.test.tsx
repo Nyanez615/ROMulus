@@ -130,7 +130,8 @@ describe("SystemFiles (Group D)", () => {
     render(<SystemFiles />);
     await waitFor(() => expect(screen.getByText("BIOS.bin")).toBeInTheDocument());
 
-    // Click the "Video" chip (it's a button in the toolbar)
+    // Open the Category filter group, then click the "Video" chip within it
+    fireEvent.click(screen.getByText("Category"));
     const chips = screen.getAllByRole("button").filter((b) => b.textContent === "Video");
     fireEvent.click(chips[0]);
 

@@ -10,6 +10,7 @@ import type { HistoryFilter } from "@/lib/bindings/HistoryFilter";
 import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
+import { FilterBar } from "@/components/FilterBar";
 import { cn } from "@/lib/utils";
 import { getAbbrev } from "@/lib/consoleUtils";
 import { FileContextMenu } from "@/components/FileContextMenu";
@@ -105,67 +106,67 @@ export default function History() {
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border gap-3">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="History" />
-        <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} total actions</span>
-        {total > 0 && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button size="sm" variant="ghost" className="text-xs text-muted-foreground hover:text-destructive gap-1.5 shrink-0" disabled={clearing}>
-                <Trash2 className="w-3.5 h-3.5" />
-                Clear
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Clear history?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  All {total.toLocaleString()} history {pluralize(total, "entry", "entries")} will be permanently removed. Any in-progress operations (pending rows) are preserved.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={doClearHistory} className="bg-destructive hover:bg-destructive/90">
-                  Clear history
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
       </div>
 
-      {/* Secondary toolbar: action chips + date filter */}
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-2 flex-wrap">
-        {ACTION_CHIP_GROUPS.map(({ label }) => (
-          <button
-            key={label}
-            onClick={() => toggleActionGroup(label)}
-            className={cn(
-              "px-2.5 py-1 rounded-full text-xs border transition-colors",
-              activeGroups.includes(label)
-                ? "bg-primary/20 border-primary/60 text-primary"
-                : "bg-muted border-border text-muted-foreground hover:text-foreground",
+      <FilterBar
+        groups={[
+          {
+            key: "action",
+            label: "Action",
+            items: ACTION_CHIP_GROUPS.map((g) => g.label),
+            active: activeGroups,
+            onToggle: toggleActionGroup,
+            onClear: () => setHs((prev) => ({ ...prev, activeGroups: [], page: 1 })),
+          },
+        ]}
+        leading={
+          <div className="flex gap-1">
+            {DATE_OPTIONS.map(({ label, days }) => (
+              <button
+                key={label}
+                onClick={() => changeDateDays(days)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs border transition-colors",
+                  hs.dateDays === days
+                    ? "bg-primary/20 border-primary/60 text-primary"
+                    : "bg-muted border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        }
+        trailing={
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-xs text-muted-foreground">{total.toLocaleString()} total actions</span>
+            {total > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="ghost" className="text-xs text-muted-foreground hover:text-destructive gap-1.5 shrink-0" disabled={clearing}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear history?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      All {total.toLocaleString()} history {pluralize(total, "entry", "entries")} will be permanently removed. Any in-progress operations (pending rows) are preserved.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={doClearHistory} className="bg-destructive hover:bg-destructive/90">
+                      Clear history
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
-          >
-            {label}
-          </button>
-        ))}
-
-        <div className="ml-2 flex gap-1">
-          {DATE_OPTIONS.map(({ label, days }) => (
-            <button
-              key={label}
-              onClick={() => changeDateDays(days)}
-              className={cn(
-                "px-2.5 py-1 rounded-full text-xs border transition-colors",
-                hs.dateDays === days
-                  ? "bg-primary/20 border-primary/60 text-primary"
-                  : "bg-muted border-border text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <div className="flex-1 overflow-auto">
         {entries.length === 0 && (

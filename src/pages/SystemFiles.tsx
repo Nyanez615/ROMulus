@@ -11,8 +11,8 @@ import { useScanStore } from "@/store/scan";
 import { ConsolePageTitle } from "@/components/ConsolePageTitle";
 import { ConsoleEmptyState } from "@/components/ConsoleEmptyState";
 import { PrunePreviewDialog } from "@/components/PrunePreviewDialog";
+import { FilterBar } from "@/components/FilterBar";
 import { refreshTagStore } from "@/components/Layout";
-import { cn } from "@/lib/utils";
 import { getFormatVariantLabel } from "@/lib/consoleUtils";
 import { FileContextMenu } from "@/components/FileContextMenu";
 
@@ -126,12 +126,38 @@ export default function SystemFiles() {
     files.some((f) => f.file_category === cat.key),
   );
 
+  const categoryLabelToKey = new Map(ALL_CATEGORIES.map((c) => [c.label, c.key]));
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center gap-3 px-6 border-b border-border">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="System Files" />
-        <div className="ml-auto flex items-center gap-3">
-          {pruneResult ? (
+      </div>
+
+      <FilterBar
+        groups={[
+          {
+            key: "category",
+            label: "Category",
+            items: availableCategories.map((c) => c.label),
+            active: activeCategories.map((k) => ALL_CATEGORIES.find((c) => c.key === k)!.label),
+            onToggle: (label) => {
+              const key = categoryLabelToKey.get(label);
+              if (key) toggleCategory(key);
+            },
+            onClear: () => setActiveCategories([]),
+          },
+        ]}
+        leading={
+          <Input
+            placeholder="Search files…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-xs h-8 text-sm"
+          />
+        }
+        trailing={
+          pruneResult ? (
             <span className="text-xs text-green-400 flex items-center gap-1.5">
               ✓ Deleted {pruneResult.deleted.toLocaleString()} files · {formatBytes(pruneResult.bytes)} freed
               {pruneScanState === "scanning" && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -147,33 +173,9 @@ export default function SystemFiles() {
               <Trash2 className="w-3 h-3" />
               {pruneLoading ? "Computing…" : "Prune"}
             </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Secondary toolbar: search + category chips */}
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
-        <Input
-          placeholder="Search files…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs h-8 text-sm"
-        />
-        {availableCategories.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => toggleCategory(key)}
-            className={cn(
-              "px-2.5 py-1 rounded-full text-xs border transition-colors",
-              activeCategories.includes(key)
-                ? "bg-primary/20 border-primary/60 text-primary"
-                : "bg-muted border-border text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+          )
+        }
+      />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {byCategory.length === 0 && (
