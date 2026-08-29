@@ -80,7 +80,8 @@ src/                             React frontend (Vite root)
     env.ts                       isTauri() helper
     utils.ts                     cn() helper
   pages/                         One component per tab (Dashboard.tsx, Roms.tsx, SystemFiles.tsx, History.tsx, Settings.tsx)
-                                 Note: Prune workflow lives inside Settings.tsx; Duplicates.tsx removed
+                                 Note: Prune triggers from Roms.tsx/SystemFiles.tsx via PrunePreviewDialog; Settings.tsx only
+                                 holds the prune_system_files toggle and Format Variant Preferences. Duplicates.tsx removed
   store/                         scan.ts · preferences.ts · onboarding.ts · ui.ts
   onboarding/                    4-step wizard (Terms → Prefs → Roots → Scan)
 

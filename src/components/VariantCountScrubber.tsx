@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { pluralize } from "@/lib/pluralize";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
 
 interface VariantCountScrubberProps {
@@ -52,7 +53,7 @@ export function VariantCountScrubber({ items, firstVisibleIndex, onJump, sortDir
               <TooltipTrigger asChild>
                 <button
                   onClick={() => onJump(entry.firstIndex)}
-                  aria-label={`Jump to ${count} ${count === 1 ? "variant" : "variants"} — ${entry.titleCount} ${entry.titleCount === 1 ? "title" : "titles"}`}
+                  aria-label={`Jump to ${count} ${pluralize(count, "variant")} — ${entry.titleCount} ${pluralize(entry.titleCount, "title")}`}
                   className={cn(
                     "w-3.5 h-3 flex items-center justify-center rounded text-[8px] font-medium leading-none motion-safe:transition-colors",
                     isActive
@@ -64,7 +65,7 @@ export function VariantCountScrubber({ items, firstVisibleIndex, onJump, sortDir
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right" sideOffset={8} className="text-xs">
-                {count} {count === 1 ? "variant" : "variants"} — {entry.titleCount.toLocaleString()} {entry.titleCount === 1 ? "title" : "titles"}
+                {count} {pluralize(count, "variant")} — {entry.titleCount.toLocaleString()} {pluralize(entry.titleCount, "title")}
               </TooltipContent>
             </Tooltip>
           );

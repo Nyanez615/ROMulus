@@ -423,45 +423,6 @@ export default function Roms() {
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center px-6 border-b border-border">
         <ConsolePageTitle selectedConsoles={selectedConsoles} tabName="ROMs" />
-        <div className="ml-auto flex items-center gap-3">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 h-7 text-xs"
-            onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("extract"); }}
-            disabled={!hasAnyZip}
-          >
-            <PackageOpen className="w-3 h-3" />
-            Extract
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 h-7 text-xs"
-            onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("compress"); }}
-            disabled={!hasAnyRaw}
-          >
-            <PackagePlus className="w-3 h-3" />
-            Compress
-          </Button>
-          {pruneResult ? (
-            <span className="text-xs text-green-400 flex items-center gap-1.5">
-              ✓ Deleted {pruneResult.deleted.toLocaleString()} files · {formatBytes(pruneResult.bytes)} freed
-              {pruneScanState === "scanning" && <Loader2 className="w-3 h-3 animate-spin" />}
-            </span>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
-              onClick={handlePrune}
-              disabled={pruneLoading || groups.length === 0}
-            >
-              <Trash2 className="w-3 h-3" />
-              {pruneLoading ? "Computing…" : "Prune"}
-            </Button>
-          )}
-        </div>
       </div>
 
       <FilterBar
@@ -517,19 +478,59 @@ export default function Roms() {
           </>
         }
         trailing={
-          displayGroups.length > 0 ? (
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="text-xs text-muted-foreground/60">
-                {displayGroups.length.toLocaleString()} titles
+          <div className="flex items-center gap-3 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 h-7 text-xs"
+              onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("extract"); }}
+              disabled={!hasAnyZip}
+            >
+              <PackageOpen className="w-3 h-3" />
+              Extract
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 h-7 text-xs"
+              onClick={() => { setArchiveSingleFocus(null); setArchiveDialogMode("compress"); }}
+              disabled={!hasAnyRaw}
+            >
+              <PackagePlus className="w-3 h-3" />
+              Compress
+            </Button>
+            {pruneResult ? (
+              <span className="text-xs text-green-400 flex items-center gap-1.5">
+                ✓ Deleted {pruneResult.deleted.toLocaleString()} files · {formatBytes(pruneResult.bytes)} freed
+                {pruneScanState === "scanning" && <Loader2 className="w-3 h-3 animate-spin" />}
               </span>
-              <button
-                onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={handlePrune}
+                disabled={pruneLoading || groups.length === 0}
               >
-                {allExpanded ? "Collapse all" : "Expand all"}
-              </button>
-            </div>
-          ) : undefined
+                <Trash2 className="w-3 h-3" />
+                {pruneLoading ? "Computing…" : "Prune"}
+              </Button>
+            )}
+            {displayGroups.length > 0 && (
+              <>
+                <div className="h-4 w-px bg-border shrink-0" />
+                <span className="text-xs text-muted-foreground/60">
+                  {displayGroups.length.toLocaleString()} titles
+                </span>
+                <button
+                  onClick={() => setExpanded(allExpanded ? [] : displayGroups.map(g => `${g.console}::${g.title_normalized}`))}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {allExpanded ? "Collapse all" : "Expand all"}
+                </button>
+              </>
+            )}
+          </div>
         }
       />
 

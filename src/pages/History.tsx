@@ -3,6 +3,7 @@ import { Clock, Trash2, Check, SkipForward, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getHistory, clearHistory } from "@/lib/tauri";
+import { pluralize } from "@/lib/pluralize";
 import type { ActionLogEntry } from "@/lib/bindings/ActionLogEntry";
 import type { ActionType } from "@/lib/bindings/ActionType";
 import type { HistoryFilter } from "@/lib/bindings/HistoryFilter";
@@ -117,7 +118,7 @@ export default function History() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Clear history?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  All {total.toLocaleString()} history entries will be permanently removed. Any in-progress operations (pending rows) are preserved.
+                  All {total.toLocaleString()} history {pluralize(total, "entry", "entries")} will be permanently removed. Any in-progress operations (pending rows) are preserved.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

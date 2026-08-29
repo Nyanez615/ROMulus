@@ -8,6 +8,7 @@ import {
   onExtractProgress, onExtractComplete, onCompressProgress, onCompressComplete,
 } from "@/lib/tauri";
 import { matchesLang, matchesRegion, matchesStatus, matchesPreferred, matchesStartingLetter, startingLetter, STARTING_LETTERS } from "@/lib/romFilters";
+import { pluralize } from "@/lib/pluralize";
 import { FileContextMenu } from "@/components/FileContextMenu";
 import { FilterBar } from "@/components/FilterBar";
 import type { RomGroup } from "@/lib/bindings/RomGroup";
@@ -60,12 +61,8 @@ const MODE_COPY: Record<ArchiveMode, {
   verb: string;
   verbing: string;
   deleteLabel: string;
-  needsLabel: string;
-  alreadyLabel: string;
-  needsLabelOne: string;
-  needsLabelMany: string;
-  alreadyLabelOne: string;
-  alreadyLabelMany: string;
+  needsNoun: string;
+  alreadyPast: string;
   redundantNoun: string;
 }> = {
   extract: {
@@ -74,12 +71,8 @@ const MODE_COPY: Record<ArchiveMode, {
     verb: "Extract",
     verbing: "Extracting",
     deleteLabel: "Delete .zip after successful extraction",
-    needsLabel: "Needs extraction",
-    alreadyLabel: "Already extracted",
-    needsLabelOne: "File needs extraction",
-    needsLabelMany: "Files need extraction",
-    alreadyLabelOne: "File already extracted",
-    alreadyLabelMany: "Files already extracted",
+    needsNoun: "extraction",
+    alreadyPast: "extracted",
     redundantNoun: "zip",
   },
   compress: {
@@ -88,12 +81,8 @@ const MODE_COPY: Record<ArchiveMode, {
     verb: "Compress",
     verbing: "Compressing",
     deleteLabel: "Delete original file after successful compression",
-    needsLabel: "Needs compression",
-    alreadyLabel: "Already compressed",
-    needsLabelOne: "File needs compression",
-    needsLabelMany: "Files need compression",
-    alreadyLabelOne: "File already compressed",
-    alreadyLabelMany: "Files already compressed",
+    needsNoun: "compression",
+    alreadyPast: "compressed",
     redundantNoun: "file",
   },
 };
@@ -345,8 +334,15 @@ export function ArchiveActionDialog({
             {copy.title}
           </DialogTitle>
           <div className="grid grid-cols-3 gap-3 text-center">
-            <StatCell value={needsConversion.length.toLocaleString()} label={needsConversion.length === 1 ? copy.needsLabelOne : copy.needsLabelMany} />
-            <StatCell value={alreadyDone.length.toLocaleString()} label={alreadyDone.length === 1 ? copy.alreadyLabelOne : copy.alreadyLabelMany} color="text-amber-400" />
+            <StatCell
+              value={needsConversion.length.toLocaleString()}
+              label={`${pluralize(needsConversion.length, "File")} ${pluralize(needsConversion.length, "needs", "need")} ${copy.needsNoun}`}
+            />
+            <StatCell
+              value={alreadyDone.length.toLocaleString()}
+              label={`${pluralize(alreadyDone.length, "File")} already ${copy.alreadyPast}`}
+              color="text-amber-400"
+            />
             <StatCell
               value={formatBytes(needsConversion.reduce((s, c) => s + c.primarySize, 0))}
               label={mode === "extract" ? "compressed" : "source size"}
@@ -372,7 +368,7 @@ export function ArchiveActionDialog({
           <div className="mx-4 mt-2 px-3 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400 flex items-start gap-2 shrink-0">
             <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
             <div>
-              Not enough free space in {diskSpaceWarnings.length} folder{diskSpaceWarnings.length !== 1 ? "s" : ""}:
+              Not enough free space in {diskSpaceWarnings.length} {pluralize(diskSpaceWarnings.length, "folder")}:
               {diskSpaceWarnings.map((w) => (
                 <span key={w.parent_dir} className="block font-mono text-[10px] mt-0.5">
                   {w.parent_dir} — needs {formatBytes(w.needed_bytes)}, has {formatBytes(w.available_bytes)}
@@ -384,7 +380,7 @@ export function ArchiveActionDialog({
         {invalid && invalid.length > 0 && (
           <div className="mx-4 mt-2 px-3 py-1.5 rounded bg-muted/30 border border-border text-xs text-muted-foreground flex items-start gap-2 shrink-0">
             <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-            <span>{invalid.length} file{invalid.length !== 1 ? "s" : ""} couldn't be read as valid zips and were excluded.</span>
+            <span>{invalid.length} {pluralize(invalid.length, "file")} couldn't be read as valid zips and were excluded.</span>
           </div>
         )}
 
@@ -416,7 +412,7 @@ export function ArchiveActionDialog({
           {needsDisplayed.length > 0 && (
             <div>
               <div className="px-4 py-1.5 flex items-center justify-between bg-muted sticky top-0 z-10 border-b border-border/40">
-                <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">{copy.needsLabel} ({needsConversion.length})</span>
+                <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">Needs {copy.needsNoun} ({needsConversion.length})</span>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => setUncheckedNeedsPaths(new Set())} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
                     <CheckSquare className="w-3 h-3" /> All
@@ -454,7 +450,7 @@ export function ArchiveActionDialog({
           {doneDisplayed.length > 0 && (
             <div>
               <div className="px-4 py-1.5 flex items-center justify-between bg-muted sticky top-0 z-10 border-b border-amber-500/30">
-                <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">{copy.alreadyLabel} ({alreadyDone.length}) — {copy.redundantNoun} is redundant</span>
+                <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">Already {copy.alreadyPast} ({alreadyDone.length}) — {copy.redundantNoun} is redundant</span>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => setCheckedDeletePaths(new Set(alreadyDone.map((c) => c.path)))} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
                     <CheckSquare className="w-3 h-3" /> All
@@ -495,7 +491,7 @@ export function ArchiveActionDialog({
           <div className="mx-4 my-2 px-3 py-1.5 rounded bg-destructive/10 border border-destructive/30 text-xs text-destructive shrink-0 max-h-24 overflow-y-auto">
             <div className="flex items-center gap-2 font-medium mb-1">
               <AlertTriangle className="w-3 h-3 shrink-0" />
-              {lastFailures.length} file{lastFailures.length !== 1 ? "s" : ""} failed
+              {lastFailures.length} {pluralize(lastFailures.length, "file")} failed
             </div>
             {lastFailures.map((f) => (
               <div key={f.path} className="font-mono text-[10px] text-destructive/80 pl-5">
@@ -519,7 +515,7 @@ export function ArchiveActionDialog({
           {alreadyDone.length > 0 && (
             <div className="px-6 py-2.5 border-b border-border/50 flex items-center gap-3 bg-amber-500/5">
               <span className="text-xs text-amber-400 flex-1">
-                {alreadyDone.length} {copy.redundantNoun}{alreadyDone.length !== 1 ? "s" : ""} redundant — {mode === "extract" ? "the extracted file already exists" : "a matching zip already exists"}.
+                {alreadyDone.length} {pluralize(alreadyDone.length, copy.redundantNoun)} redundant — {mode === "extract" ? "the extracted file already exists" : "a matching zip already exists"}.
               </span>
               <Button
                 size="sm" variant="outline"
@@ -555,7 +551,7 @@ export function ArchiveActionDialog({
               <Icon className="w-3.5 h-3.5" />
               {executing === "convert"
                 ? `${copy.verbing}… ${progress?.done ?? 0}/${progress?.total ?? checkedNeeds.length}`
-                : `${copy.verb} ${checkedNeeds.length.toLocaleString()} file${checkedNeeds.length !== 1 ? "s" : ""}`}
+                : `${copy.verb} ${checkedNeeds.length.toLocaleString()} ${pluralize(checkedNeeds.length, "file")}`}
             </Button>
           </div>
         </div>

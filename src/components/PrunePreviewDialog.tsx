@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { exportCsv, formatBytes } from "@/lib/tauri";
+import { pluralize } from "@/lib/pluralize";
 import { getAbbrev, getFormatVariantLabel } from "@/lib/consoleUtils";
 import { FileContextMenu } from "@/components/FileContextMenu";
 import type { DeletionItem } from "@/lib/bindings/DeletionItem";
@@ -195,7 +196,7 @@ export function PrunePreviewDialog({ plan, executing, selectedConsoles, onConfir
           {noPreferredCount > 0 && (
             <div className="mx-4 my-1.5 px-3 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400 flex items-center gap-2">
               <AlertTriangle className="w-3 h-3 shrink-0" />
-              {noPreferredCount} title{noPreferredCount !== 1 ? "s" : ""} deleted — no preferred-language version exists
+              {noPreferredCount} {pluralize(noPreferredCount, "title")} deleted — no preferred-language version exists
             </div>
           )}
           <div className="px-4 py-2 flex items-center gap-2">
