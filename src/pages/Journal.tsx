@@ -3,13 +3,17 @@ import { BookOpen, Search, Upload, Download as DownloadIcon, ChevronDown, Chevro
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { FilterBar } from "@/components/FilterBar";
+import { SortControl } from "@/components/SortControl";
 import { cn } from "@/lib/utils";
+import { pluralize } from "@/lib/pluralize";
 import { useToast } from "@/hooks/use-toast";
 import { getPlayEntries, getPlayStats, setPlayEntry, deletePlayEntry, exportJournalToFile, importJournalFromFile } from "@/lib/tauri";
 import type { PlayEntry, PlayStats, PlayStatus } from "@/lib/tauri";
 import { PlayStatusBadge } from "@/components/PlayStatusBadge";
 import { StarRating } from "@/components/StarRating";
 import { isTauri } from "@/lib/env";
+import type { SortDir } from "@/lib/romUtils";
 
 const ALL_STATUSES: PlayStatus[] = ["backlog", "testing", "playing", "completed", "dropped"];
 
@@ -26,7 +30,14 @@ const STATUS_ACTIVE: Record<PlayStatus, string> = {
   dropped:   "bg-muted/60      text-muted-foreground border border-border",
 };
 
-type SortKey = "title" | "rating" | "updated";
+const STATUS_BY_LABEL = new Map<string, PlayStatus>(ALL_STATUSES.map((s) => [STATUS_LABEL[s], s]));
+
+const JOURNAL_SORT_FIELDS = [
+  { value: "updated", label: "Recently updated" },
+  { value: "title", label: "Title" },
+  { value: "rating", label: "Rating" },
+] as const;
+type SortKey = typeof JOURNAL_SORT_FIELDS[number]["value"];
 
 // ── Inline edit panel ─────────────────────────────────────────────────────────
 
@@ -137,9 +148,10 @@ export default function Journal() {
   const [entries, setEntries] = useState<PlayEntry[]>([]);
   const [stats, setStats] = useState<PlayStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<PlayStatus | "all">("all");
+  const [activeStatuses, setActiveStatuses] = useState<PlayStatus[]>([]);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -202,7 +214,7 @@ export default function Journal() {
 
   const filtered = useMemo(() => {
     let result = entries;
-    if (statusFilter !== "all") result = result.filter((e) => e.status === statusFilter);
+    if (activeStatuses.length > 0) result = result.filter((e) => activeStatuses.includes(e.status));
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((e) =>
@@ -210,17 +222,18 @@ export default function Journal() {
       );
     }
     return [...result].sort((a, b) => {
-      if (sortKey === "title") return (a.display_title ?? a.title_normalized).localeCompare(b.display_title ?? b.title_normalized);
-      if (sortKey === "rating") return (b.rating ?? 0) - (a.rating ?? 0);
-      return b.updated_at.localeCompare(a.updated_at);
+      if (sortKey === "title") {
+        const at = a.display_title ?? a.title_normalized, bt = b.display_title ?? b.title_normalized;
+        return sortDir === "asc" ? at.localeCompare(bt) : bt.localeCompare(at);
+      }
+      if (sortKey === "rating") {
+        const diff = (a.rating ?? 0) - (b.rating ?? 0);
+        return sortDir === "asc" ? diff : -diff;
+      }
+      const diff = a.updated_at.localeCompare(b.updated_at);
+      return sortDir === "asc" ? diff : -diff;
     });
-  }, [entries, statusFilter, search, sortKey]);
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const e of entries) counts[e.status] = (counts[e.status] ?? 0) + 1;
-    return counts;
-  }, [entries]);
+  }, [entries, activeStatuses, search, sortKey, sortDir]);
 
   return (
     <div className="flex flex-col h-full">
@@ -230,76 +243,57 @@ export default function Journal() {
       </div>
 
       {/* Toolbar */}
-      <div className="px-6 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
-        {/* Status chips */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setStatusFilter("all")}
-            className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
-              statusFilter === "all"
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            All {entries.length > 0 && <span className="ml-1 opacity-60">{entries.length}</span>}
-          </button>
-          {ALL_STATUSES.map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={cn(
-                "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
-                statusFilter === s
-                  ? STATUS_ACTIVE[s]
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {STATUS_LABEL[s]}
-              {statusCounts[s] != null && (
-                <span className="ml-1 opacity-60">{statusCounts[s]}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="relative ml-2">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search titles…"
-            className="pl-7 h-7 text-xs w-44"
-          />
-        </div>
-
-        {/* Sort */}
-        <select
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as SortKey)}
-          className="ml-1 text-xs bg-transparent border border-border rounded px-2 py-1 text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <option value="updated">Recently updated</option>
-          <option value="title">Title A–Z</option>
-          <option value="rating">Rating ↓</option>
-        </select>
-
-        {/* Count */}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "entry" : "entries"}
-        </span>
-
-        {/* Export / Import */}
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={handleExport}>
-          <DownloadIcon className="w-3.5 h-3.5" />
-          Export
-        </Button>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={handleImport}>
-          <Upload className="w-3.5 h-3.5" />
-          Import
-        </Button>
-      </div>
+      <FilterBar
+        groups={[
+          {
+            key: "status",
+            label: "Status",
+            items: ALL_STATUSES.map((s) => STATUS_LABEL[s]),
+            active: activeStatuses.map((s) => STATUS_LABEL[s]),
+            onToggle: (label) => {
+              const status = STATUS_BY_LABEL.get(label);
+              if (!status) return;
+              setActiveStatuses((prev) => prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]);
+            },
+            onClear: () => setActiveStatuses([]),
+          },
+        ]}
+        leading={
+          <>
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search titles…"
+                className="pl-7 h-8 text-sm w-44"
+              />
+            </div>
+            <SortControl
+              fields={JOURNAL_SORT_FIELDS}
+              field={sortKey}
+              dir={sortDir}
+              onField={setSortKey}
+              onDir={setSortDir}
+            />
+          </>
+        }
+        trailing={
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-xs text-muted-foreground">
+              {filtered.length} {pluralize(filtered.length, "entry", "entries")}
+            </span>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={handleExport}>
+              <DownloadIcon className="w-3.5 h-3.5" />
+              Export
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={handleImport}>
+              <Upload className="w-3.5 h-3.5" />
+              Import
+            </Button>
+          </div>
+        }
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
