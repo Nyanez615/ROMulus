@@ -129,7 +129,9 @@ fn normalize_key(s: &str) -> String {
             let tok = crate::parser::roman_to_arabic(tok)
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| tok.to_string());
-            if tok.ends_with("ou") {
+            if let Some(canonical) = british_american_word_equivalent(&tok) {
+                canonical.to_string()
+            } else if tok.ends_with("ou") {
                 // Japanese long-vowel romanization: Heiankyou → Heiankyo
                 tok[..tok.len() - 1].to_string()
             } else if tok.len() >= 5 && tok.ends_with("our") {
@@ -142,6 +144,17 @@ fn normalize_key(s: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Explicit British/American word-pair equivalents that aren't a simple
+/// suffix swap (unlike colour→color, handled separately above). Kept to a
+/// short, confirmed list — a blanket word-final "-s" strip would be unsafe,
+/// since plenty of titles differ only by a genuinely-plural trailing "s".
+fn british_american_word_equivalent(tok: &str) -> Option<&'static str> {
+    match tok {
+        "maths" => Some("math"), // "Challenge Me - Maths Workout" (Europe) vs "Math Workout" (USA)
+        _ => None,
+    }
 }
 
 /// Same as `group_key` but preserves original casing — use for display only.
@@ -597,5 +610,18 @@ mod tests {
         // Short words (four, tour, pour, your, hour) must be left untouched.
         assert_eq!(k("Four Swords Adventures (USA).zip"), "four swords adventures");
         assert_eq!(k("Tour de France (Europe).zip"), "tour de france");
+    }
+
+    #[test]
+    fn british_american_math_maths_same_group() {
+        // "Challenge Me - Math Workout" (USA) and "Challenge Me - Maths Workout"
+        // (Europe) are the same game — maths→math must normalise to the same key.
+        assert_eq!(
+            k("Challenge Me - Math Workout (USA).zip"),
+            k("Challenge Me - Maths Workout (Europe) (En,Fr,De,Es,It).zip"),
+        );
+        // Genuinely distinct plural titles must NOT be collapsed by a blanket
+        // trailing-"s" rule — only the explicit math/maths pair is normalised.
+        assert_ne!(k("Tank (USA).zip"), k("Tanks (USA).zip"));
     }
 }
