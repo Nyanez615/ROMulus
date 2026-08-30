@@ -72,10 +72,13 @@ pub struct RomFile {
     pub extra_tags: Vec<String>,
     pub bad_dump: bool,
     pub revision: u32,
-    /// ISO build date parsed from `(YYYY-MM-DD)` tags, stored as YYYYMMDD.
-    /// Separate from `revision` so date-stamped proto builds sort chronologically
-    /// without inflating `revision` for finished releases.
-    pub build_date: Option<u32>,
+    /// ISO build date parsed from `(YYYY-MM-DD)` or `(YYYY-MM-DDTHHMMSS)` tags,
+    /// stored as YYYYMMDD * 1_000_000 + HHMMSS (000000 when no time is present)
+    /// so same-day builds still sort chronologically by time of day, not just
+    /// by date. Separate from `revision` so date-stamped proto builds sort
+    /// chronologically without inflating `revision` for finished releases.
+    #[ts(type = "number | null")]
+    pub build_date: Option<u64>,
     pub disc_number: Option<u32>,
     pub version: Option<String>,
     pub is_bios: bool,

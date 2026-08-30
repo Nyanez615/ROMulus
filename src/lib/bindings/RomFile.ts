@@ -4,9 +4,11 @@ import type { FileFormat } from "./FileFormat";
 
 export type RomFile = { path: string, filename: string, console: string, title: string, title_normalized: string, regions: Array<string>, languages: Array<string>, status_flags: Array<string>, extra_tags: Array<string>, bad_dump: boolean, revision: number, 
 /**
- * ISO build date parsed from `(YYYY-MM-DD)` tags, stored as YYYYMMDD.
- * Separate from `revision` so date-stamped proto builds sort chronologically
- * without inflating `revision` for finished releases.
+ * ISO build date parsed from `(YYYY-MM-DD)` or `(YYYY-MM-DDTHHMMSS)` tags,
+ * stored as YYYYMMDD * 1_000_000 + HHMMSS (000000 when no time is present)
+ * so same-day builds still sort chronologically by time of day, not just
+ * by date. Separate from `revision` so date-stamped proto builds sort
+ * chronologically without inflating `revision` for finished releases.
  */
 build_date: number | null, disc_number: number | null, version: string | null, is_bios: boolean, file_format: FileFormat, file_category: FileCategory, filesize: number, 
 /**

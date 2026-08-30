@@ -134,7 +134,7 @@ struct ParsedTags {
     extra_tags: Vec<String>,
     bad_dump: bool,
     revision: u32,
-    build_date: Option<u32>,
+    build_date: Option<u64>,
     disc_number: Option<u32>,
     version: Option<String>,
 }
@@ -146,7 +146,7 @@ fn parse_tags(raw_paren: &[&str], raw_bracket: &[&str]) -> ParsedTags {
     let mut extra_tags = vec![];
     let mut bad_dump = false;
     let mut revision = 0u32;
-    let mut build_date: Option<u32> = None;
+    let mut build_date: Option<u64> = None;
     let mut disc_number: Option<u32> = None;
     let mut version: Option<String> = None;
 
@@ -290,20 +290,43 @@ fn parse_disc(s: &str) -> Option<u32> {
 }
 
 /// Parses "YYYY-MM-DD" → YYYYMMDD as a u32 so date-stamped protos sort chronologically.
-fn parse_iso_date(s: &str) -> Option<u32> {
-    // Strip optional time component ("2000-09-14T121024" → "2000-09-14")
-    let s = s.split('T').next().unwrap_or(s);
-    if s.len() != 10 { return None; }
-    let (y_str, rest) = s.split_once('-')?;
+/// Parses "YYYY-MM-DD" or "YYYY-MM-DDTHHMMSS" into a comparable u64:
+/// YYYYMMDD * 1_000_000 + HHMMSS (000000 when no time suffix is present).
+/// Keeping the time-of-day component (rather than discarding it) means two
+/// builds stamped on the same day still sort chronologically — e.g. a Proto
+/// dumped at 14:47 correctly outranks one dumped at 11:15 the same day,
+/// instead of tying on date alone and falling to an arbitrary tiebreak.
+fn parse_iso_date(s: &str) -> Option<u64> {
+    let (date_part, time_part) = match s.split_once('T') {
+        Some((d, t)) => (d, Some(t)),
+        None => (s, None),
+    };
+    if date_part.len() != 10 { return None; }
+    let (y_str, rest) = date_part.split_once('-')?;
     let (m_str, d_str) = rest.split_once('-')?;
     if y_str.len() != 4 || m_str.len() != 2 || d_str.len() != 2 { return None; }
-    let y: u32 = y_str.parse().ok()?;
-    let m: u32 = m_str.parse().ok()?;
-    let d: u32 = d_str.parse().ok()?;
+    let y: u64 = y_str.parse().ok()?;
+    let m: u64 = m_str.parse().ok()?;
+    let d: u64 = d_str.parse().ok()?;
     if !(1970..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
-    Some(y * 10000 + m * 100 + d)
+    let date_val = y * 10000 + m * 100 + d;
+    let time_val = time_part.and_then(parse_iso_time).unwrap_or(0);
+    Some(date_val * 1_000_000 + time_val)
+}
+
+/// Parses a bare 6-digit "HHMMSS" time suffix (no separators) into
+/// [0, 235959]. Returns None for malformed/out-of-range input so a garbled
+/// suffix degrades to 000000 (same-day, undated-by-time) rather than
+/// corrupting the whole build_date value.
+fn parse_iso_time(s: &str) -> Option<u64> {
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    let h: u64 = s[0..2].parse().ok()?;
+    let m: u64 = s[2..4].parse().ok()?;
+    let sec: u64 = s[4..6].parse().ok()?;
+    if h > 23 || m > 59 || sec > 59 { return None; }
+    Some(h * 10000 + m * 100 + sec)
 }
 
 // ── File category detection ───────────────────────────────────────────────────
@@ -884,9 +907,47 @@ mod tests {
     fn iso_date_stored_as_build_date() {
         let r = parse("Mick & Mack as the Global Gladiators (USA) (Proto) (1993-07-20).zip");
         assert!(r.status_flags.contains(&"Proto".to_string()));
-        assert_eq!(r.build_date, Some(19930720), "1993-07-20 → build_date = Some(19930720)");
+        assert_eq!(r.build_date, Some(19_930_720_000_000), "1993-07-20 → build_date = Some(19930720_000000)");
         assert_eq!(r.revision, 0, "no explicit Rev tag → revision stays 0");
         assert!(r.extra_tags.contains(&"1993-07-20".to_string()), "date must remain in extra_tags for display");
+    }
+
+    #[test]
+    fn iso_datetime_stored_as_build_date_with_time() {
+        let r = parse("Crash Landed (USA) (Proto) (2009-07-31T111550).zip");
+        assert!(r.status_flags.contains(&"Proto".to_string()));
+        assert_eq!(
+            r.build_date, Some(20_090_731_111_550),
+            "2009-07-31T111550 → build_date = Some(20090731_111550)",
+        );
+        assert!(r.extra_tags.contains(&"2009-07-31T111550".to_string()), "timestamp must remain in extra_tags for display");
+    }
+
+    #[test]
+    fn same_day_later_time_proto_preferred_over_earlier_time() {
+        // Real-world case: "Crash Landed (USA) (Proto) (2009-07-31T144710)" was
+        // losing to "(2009-07-31T111550)" because parse_iso_date used to discard
+        // the time-of-day, so both ties tied on date alone (20090731) and the
+        // pick between them was arbitrary rather than reflecting the later,
+        // presumably more complete build.
+        let mut earlier = parse("Crash Landed (USA) (Proto) (2009-07-31T111550).zip");
+        let mut later   = parse("Crash Landed (USA) (Proto) (2009-07-31T144710).zip");
+        earlier.title_normalized = "crash landed".into();
+        later.title_normalized   = "crash landed".into();
+        let prefs = crate::models::UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec!["USA".into(), "World".into(), "Europe".into()],
+            short_console_names: false,
+        };
+        let groups = crate::commands::group::group_roms(vec![earlier, later], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.extra_tags.contains(&"2009-07-31T144710".to_string()),
+            "later same-day build (14:47) must be preferred over earlier (11:15), got extra_tags: {:?}",
+            preferred.extra_tags,
+        );
     }
 
     #[test]
@@ -924,7 +985,7 @@ mod tests {
         };
         let dated = parse("Some Game (World) (2024-10-16) (Aftermarket) (Unl).zip");
         let revised = parse("Some Game (World) (Rev 2) (Aftermarket) (Unl).zip");
-        assert_eq!(dated.build_date, Some(20241016), "date must land in build_date");
+        assert_eq!(dated.build_date, Some(20_241_016_000_000), "date must land in build_date");
         assert_eq!(dated.revision, 0, "date must not inflate revision");
         assert_eq!(revised.revision, 2, "Rev 2 must set revision = 2");
         assert_eq!(revised.build_date, None, "Rev 2 must not set build_date");

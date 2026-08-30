@@ -133,11 +133,13 @@ fn is_bare_serial_code(s: &str) -> bool {
 /// Higher score = more preferred variant.
 /// Returns (score, revision, lang_match_count) tuple — all three compared
 /// lexicographically so ties break cleanly: same score → higher revision → more
-/// preferred-language matches.
-pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
+/// preferred-language matches. Second slot is u64 (not u32) because the
+/// pre-release tier also stores build_date there, which itself packs
+/// YYYYMMDD * 1_000_000 + HHMMSS to preserve time-of-day precision.
+pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u64, usize) {
     // Non-matching language → lowest priority
     if !matches_preferred(rom, prefs) {
-        return (-9999, rom.revision, 0);
+        return (-9999, rom.revision as u64, 0);
     }
 
     // Alt penalty: non-Alt is always preferred over Alt within the same tier.
@@ -170,10 +172,11 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         // Ordering: numbered protos (Proto N) > dated protos > bare proto.
         // Numbered protos are explicitly sequenced by archivists and represent the
         // most complete builds in the series, so they rank above any dated snapshot.
-        // Sentinel 99_000_000 + N safely exceeds any YYYYMMDD value (≤ 20_991_231).
-        let build_ord = match (rom.build_date, rom.revision) {
+        // Sentinel 99_000_000_000_000 + N safely exceeds any packed build_date
+        // value (YYYYMMDD * 1_000_000 + HHMMSS, ≤ ~20_991_231_235_959).
+        let build_ord: u64 = match (rom.build_date, rom.revision) {
             (Some(d), _) => d,
-            (None, r) if r > 0 => 99_000_000 + r,
+            (None, r) if r > 0 => 99_000_000_000_000 + r as u64,
             _ => 0,
         };
         return (-100 + alt_penalty + extracted_bonus, build_ord, lang_count * 1000 + r_score);
@@ -183,7 +186,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     if rom.bad_dump {
         let r_score = region_score(&rom.regions, prefs).max(0) as usize;
         let lang_count = preferred_lang_count(rom, prefs);
-        return (-80 + alt_penalty + extracted_bonus, rom.revision, lang_count * 1000 + r_score);
+        return (-80 + alt_penalty + extracted_bonus, rom.revision as u64, lang_count * 1000 + r_score);
     }
 
     // Unofficial (Pirate/Unl/Aftermarket) → low but above prerelease.
@@ -218,7 +221,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
         // When two tagged releases tie on this bonus (e.g. v1.2 vs Rev 2), the tuple's
         // `revision` field breaks the tie: Rev 2 (revision=2) beats v1.2 (revision=0).
         let version_bonus: i32 = if rom.version.is_some() || rom.revision > 0 { 6 } else { 0 };
-        return (-30 + alt_penalty + format_penalty + completeness_bonus + version_bonus + extracted_bonus, rom.revision, lang_count * 1000 + r_score);
+        return (-30 + alt_penalty + format_penalty + completeness_bonus + version_bonus + extracted_bonus, rom.revision as u64, lang_count * 1000 + r_score);
     }
 
     // Region score from user's preferred_regions list
@@ -297,7 +300,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u32, usize) {
     // publisher label (e.g. "(Incube8 Games)") in its extra_tags.
     let version_bonus: i32 = if rom.version.is_some() { 6 } else { 0 };
 
-    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus + version_bonus + extracted_bonus, rom.revision, lang_matches)
+    (lang_priority + region_score + collection_penalty + alt_penalty + revision_bonus + version_bonus + extracted_bonus, rom.revision as u64, lang_matches)
 }
 
 pub(crate) fn region_score(regions: &[String], prefs: &UserPreferences) -> i32 {

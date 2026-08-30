@@ -161,7 +161,7 @@ fn scores_summary(
     (pref_name, pref_score, runner_name, runner_score)
 }
 
-fn fmt_score(s: (i32, u32, usize)) -> String {
+fn fmt_score(s: (i32, u64, usize)) -> String {
     format!("{}+{}+{}", s.0, s.1, s.2)
 }
 
