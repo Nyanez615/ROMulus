@@ -169,8 +169,20 @@ function PreDownloadSection() {
       const q = fileSearch.toLowerCase();
       files = files.filter((f) => f.filename.toLowerCase().includes(q));
     }
+    if (activeLetters.length > 0) {
+      files = files.filter((f) => matchesStartingLetter(f, activeLetters));
+    }
+    if (activeStatus.length > 0 || activeLangs.length > 0 || activeRegions.length > 0) {
+      files = files.filter((f) => {
+        const adapted = { variants: [{ regions: f.regions, languages: f.languages, status_flags: f.status_flags }] };
+        if (activeStatus.length  > 0 && !matchesStatus(adapted, activeStatus))  return false;
+        if (activeLangs.length   > 0 && !matchesLang(adapted, activeLangs))     return false;
+        if (activeRegions.length > 0 && !matchesRegion(adapted, activeRegions)) return false;
+        return true;
+      });
+    }
     return files;
-  }, [preview, fileTab, fileSearch]);
+  }, [preview, fileTab, fileSearch, activeLetters, activeStatus, activeLangs, activeRegions]);
 
   const visibleFiles = showAll ? filteredFiles : filteredFiles.slice(0, SHOW_ALL_THRESHOLD);
   const hasMore = filteredFiles.length > SHOW_ALL_THRESHOLD && !showAll;
@@ -203,34 +215,38 @@ function PreDownloadSection() {
     return result;
   }, [preview, fileSearch, activeLetters, activeStatus, activeLangs, activeRegions]);
 
-  // Available chip values: a flat union across every title group, not narrowed
-  // by other active chips (unlike ROMs' faceted availability) — a deliberate
-  // simplification appropriate for a single torrent's worth of groups (dozens,
-  // not thousands). No "Preferred" dimension: every group here already passed
+  // Available chip values: a flat union across whichever dataset the active
+  // tab shows, not narrowed by other active chips (unlike ROMs' faceted
+  // availability) — a deliberate simplification appropriate for a single
+  // torrent's worth of files (thousands, not the whole library). No
+  // "Preferred" dimension: every Titles-view group here already passed
   // group.preferred_idx, so that chip would always match everything.
+  const baseFilterItems = useMemo(() => {
+    if (!preview) return [];
+    if (fileTab === "groups") return preview.multi_variant_groups;
+    if (fileTab === "download") return preview.files.filter((f) => f.download);
+    if (fileTab === "skip") return preview.files.filter((f) => !f.download);
+    return preview.files;
+  }, [preview, fileTab]);
   const availableLetters = useMemo(() => {
-    if (!preview) return [];
-    const present = new Set(preview.multi_variant_groups.map((g) => startingLetter(g.title_normalized)));
+    const present = new Set(baseFilterItems.map((g) => startingLetter(g.title_normalized)));
     return STARTING_LETTERS.filter((l) => present.has(l));
-  }, [preview]);
+  }, [baseFilterItems]);
   const availableStatusTags = useMemo(() => {
-    if (!preview) return [];
     const present = new Set<string>();
-    preview.multi_variant_groups.forEach((g) => g.status_flags.forEach((s) => present.add(s)));
+    baseFilterItems.forEach((g) => g.status_flags.forEach((s) => present.add(s)));
     return [...present].sort();
-  }, [preview]);
+  }, [baseFilterItems]);
   const availableLangs = useMemo(() => {
-    if (!preview) return [];
     const present = new Set<string>();
-    preview.multi_variant_groups.forEach((g) => g.languages.forEach((l) => present.add(l)));
+    baseFilterItems.forEach((g) => g.languages.forEach((l) => present.add(l)));
     return [...present].sort();
-  }, [preview]);
+  }, [baseFilterItems]);
   const availableRegions = useMemo(() => {
-    if (!preview) return [];
     const present = new Set<string>();
-    preview.multi_variant_groups.forEach((g) => g.regions.forEach((r) => present.add(r)));
+    baseFilterItems.forEach((g) => g.regions.forEach((r) => present.add(r)));
     return [...present].sort();
-  }, [preview]);
+  }, [baseFilterItems]);
 
   function toggleChip<T extends string>(active: T[], value: T, set: (v: T[]) => void) {
     set(active.includes(value) ? active.filter((v) => v !== value) : [...active, value]);
@@ -450,21 +466,18 @@ function PreDownloadSection() {
             </div>
           </div>
 
-          {/* Search + (Titles view only) filter chips — chip dimensions rely on
-              region/language/status metadata that only multi_variant_groups
-              carries; the flat All/Download/Skip lists include unparsed files
-              with no such metadata, so they stay search-only. */}
+          {/* Search + filter chips — available on every tab. QbtFileDecision
+              (the flat All/Download/Skip data) carries the same region/
+              language/status metadata as QbtGroupInfo; unparsed files just
+              get empty metadata, so they naturally never match an active
+              chip rather than needing special-casing here. */}
           <FilterBar
-            groups={
-              fileTab === "groups"
-                ? [
-                    { key: "letter", label: "Starts With", items: availableLetters, active: activeLetters, onToggle: (v) => toggleChip(activeLetters, v, setActiveLetters), onClear: () => setActiveLetters([]) },
-                    { key: "status", label: "Category", items: availableStatusTags, active: activeStatus, onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus), onClear: () => setActiveStatus([]) },
-                    { key: "language", label: "Language", items: availableLangs, active: activeLangs, onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs), onClear: () => setActiveLangs([]) },
-                    { key: "region", label: "Region", items: availableRegions, active: activeRegions, onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions), onClear: () => setActiveRegions([]) },
-                  ]
-                : []
-            }
+            groups={[
+              { key: "letter", label: "Starts With", items: availableLetters, active: activeLetters, onToggle: (v) => toggleChip(activeLetters, v, setActiveLetters), onClear: () => setActiveLetters([]) },
+              { key: "status", label: "Category", items: availableStatusTags, active: activeStatus, onToggle: (v) => toggleChip(activeStatus, v, setActiveStatus), onClear: () => setActiveStatus([]) },
+              { key: "language", label: "Language", items: availableLangs, active: activeLangs, onToggle: (v) => toggleChip(activeLangs, v, setActiveLangs), onClear: () => setActiveLangs([]) },
+              { key: "region", label: "Region", items: availableRegions, active: activeRegions, onToggle: (v) => toggleChip(activeRegions, v, setActiveRegions), onClear: () => setActiveRegions([]) },
+            ]}
             leading={
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />

@@ -661,6 +661,12 @@ pub struct QbtFileDecision {
     pub download: bool,
     #[ts(type = "number")]
     pub size_bytes: u64,
+    /// Empty string for files that failed to parse — never matches a Starts-With chip.
+    pub title_normalized: String,
+    pub regions: Vec<String>,
+    pub languages: Vec<String>,
+    pub status_flags: Vec<String>,
+    pub file_category: FileCategory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

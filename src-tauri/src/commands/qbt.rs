@@ -6,7 +6,7 @@ use crate::commands::group::{group_roms, merge_format_pairs};
 use crate::deduper::detect_format_pairs;
 use crate::commands::settings::get_settings_inner;
 use crate::db::{get_setting, set_setting, AppState};
-use crate::models::{QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
+use crate::models::{FileCategory, QbtApplyResult, QbtFileDecision, QbtFilterPreview, QbtGroupInfo, QbtSettings, QbtTorrent};
 use crate::parser::parse_from_filename;
 
 // ── Keyring ───────────────────────────────────────────────────────────────────
@@ -158,10 +158,25 @@ fn detect_console(files: &[QbtFileEntry]) -> Option<String> {
 
 // ── Shared filter logic ───────────────────────────────────────────────────────
 
+/// One torrent file's download/skip decision, carrying the same region/
+/// language/status metadata QbtGroupInfo does — so both the flat file list
+/// and the grouped Titles view can be filtered by the same chips. Files that
+/// failed to parse get empty metadata (never matches a filter chip).
+struct FileDecision {
+    file_index: u32,
+    filename: String,
+    download: bool,
+    size_bytes: u64,
+    title_normalized: String,
+    regions: Vec<String>,
+    languages: Vec<String>,
+    status_flags: Vec<String>,
+    file_category: FileCategory,
+}
+
 struct FilterResult {
     console_name: Option<String>,
-    /// (file_index, filename, is_preferred, size_bytes)
-    decisions: Vec<(u32, String, bool, u64)>,
+    decisions: Vec<FileDecision>,
     /// Groups produced by group_roms — used to build QbtGroupInfo without
     /// re-collapsing catalog-number-split groups back to the same key.
     groups: Vec<crate::models::RomGroup>,
@@ -222,7 +237,7 @@ async fn run_filter(
     let groups = merge_format_pairs(groups, &format_pairs, &prefs, &format_prefs);
 
     // For each group, mark preferred index as priority 1, rest as 0
-    let mut decisions: Vec<(u32, String, bool, u64)> = Vec::new();
+    let mut decisions: Vec<FileDecision> = Vec::new();
 
     for group in &groups {
         for (variant_pos, rom) in group.variants.iter().enumerate() {
@@ -234,16 +249,37 @@ async fn run_filter(
 
             let is_preferred = !rom.file_category.is_non_playable()
                 && group.preferred_idx == Some(variant_pos);
-            decisions.push((file_index, rom.filename.clone(), is_preferred, size_bytes));
+            decisions.push(FileDecision {
+                file_index,
+                filename: rom.filename.clone(),
+                download: is_preferred,
+                size_bytes,
+                title_normalized: rom.title_normalized.clone(),
+                regions: rom.regions.clone(),
+                languages: rom.languages.clone(),
+                status_flags: rom.status_flags.clone(),
+                file_category: rom.file_category.clone(),
+            });
         }
     }
 
-    // Files that failed to parse are kept (priority 1)
+    // Files that failed to parse are kept (priority 1), with empty metadata —
+    // they simply won't match any filter chip on the frontend.
     for (pos, f) in files.iter().enumerate() {
         let idx = f.index.unwrap_or(pos as u32);
         let basename = f.name.split('/').next_back().unwrap_or(&f.name);
-        if !decisions.iter().any(|(_, name, _, _)| name == basename) {
-            decisions.push((idx, basename.to_string(), true, f.size));
+        if !decisions.iter().any(|d| d.filename == basename) {
+            decisions.push(FileDecision {
+                file_index: idx,
+                filename: basename.to_string(),
+                download: true,
+                size_bytes: f.size,
+                title_normalized: String::new(),
+                regions: vec![],
+                languages: vec![],
+                status_flags: vec![],
+                file_category: FileCategory::default(),
+            });
         }
     }
 
@@ -359,17 +395,22 @@ pub async fn preview_qbt_filter(
     let result = run_filter(&state, &hash).await?;
 
     let total = result.decisions.len() as u32;
-    let to_download = result.decisions.iter().filter(|(_, _, p, _)| *p).count() as u32;
+    let to_download = result.decisions.iter().filter(|d| d.download).count() as u32;
     let to_skip = total - to_download;
-    let download_bytes: u64 = result.decisions.iter().filter(|(_, _, p, _)| *p).map(|(_, _, _, sz)| *sz).sum();
-    let skip_bytes: u64 = result.decisions.iter().filter(|(_, _, p, _)| !*p).map(|(_, _, _, sz)| *sz).sum();
+    let download_bytes: u64 = result.decisions.iter().filter(|d| d.download).map(|d| d.size_bytes).sum();
+    let skip_bytes: u64 = result.decisions.iter().filter(|d| !d.download).map(|d| d.size_bytes).sum();
 
     // Full per-file decision list (all files, ordered as received from qBt)
     let mut files: Vec<QbtFileDecision> = result.decisions.iter()
-        .map(|(_, filename, is_preferred, size_bytes)| QbtFileDecision {
-            filename: filename.clone(),
-            download: *is_preferred,
-            size_bytes: *size_bytes,
+        .map(|d| QbtFileDecision {
+            filename: d.filename.clone(),
+            download: d.download,
+            size_bytes: d.size_bytes,
+            title_normalized: d.title_normalized.clone(),
+            regions: d.regions.clone(),
+            languages: d.languages.clone(),
+            status_flags: d.status_flags.clone(),
+            file_category: d.file_category.clone(),
         })
         .collect();
     files.sort_by(|a, b| a.filename.cmp(&b.filename));
@@ -450,8 +491,8 @@ pub async fn apply_qbt_filter(
     let (client, cookie) = qbt_connect(&settings).await?;
 
     // Build priority 1 (download) and 0 (skip) index lists
-    let download_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p, _)| *p).map(|(i, _, _, _)| *i).collect();
-    let skip_ids: Vec<u32> = result.decisions.iter().filter(|(_, _, p, _)| !p).map(|(i, _, _, _)| *i).collect();
+    let download_ids: Vec<u32> = result.decisions.iter().filter(|d| d.download).map(|d| d.file_index).collect();
+    let skip_ids: Vec<u32> = result.decisions.iter().filter(|d| !d.download).map(|d| d.file_index).collect();
 
     let to_download = download_ids.len() as u32;
     let to_skip = skip_ids.len() as u32;
