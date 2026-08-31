@@ -102,6 +102,27 @@ pub fn roman_to_arabic(s: &str) -> Option<u32> {
     })
 }
 
+/// Maps spelled-out cardinal number words to their digit form, so e.g.
+/// "Happy Feet 2" and "Happy Feet Two" — genuinely the same game, with
+/// region-specific box art spelling the number out differently — group
+/// together. Deliberately excludes "one" and "four" — unlike the others,
+/// they're common as ordinary English words in real titles ("4 Games on
+/// One Game Pak", "Four Swords Adventures"), so converting them
+/// unconditionally would produce misleading (if not actually colliding)
+/// group keys. No-Intro titles don't spell out numbers past twenty as a
+/// single word, and compound numbers beyond this aren't a single token
+/// anyway, so extending further isn't worth the added surface.
+pub fn word_number_to_arabic(s: &str) -> Option<u32> {
+    Some(match s {
+        "two" => 2, "three" => 3, "five" => 5,
+        "six" => 6, "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10,
+        "eleven" => 11, "twelve" => 12, "thirteen" => 13, "fourteen" => 14,
+        "fifteen" => 15, "sixteen" => 16, "seventeen" => 17, "eighteen" => 18,
+        "nineteen" => 19, "twenty" => 20,
+        _ => return None,
+    })
+}
+
 pub fn normalize_title(title: &str) -> String {
     let t = title.to_lowercase();
     // Strip No-Intro trailing article suffix ("Blues Brothers, The" → "blues brothers")
@@ -118,9 +139,15 @@ pub fn normalize_title(title: &str) -> String {
         .unwrap_or(t);
     // Keep only alphanumeric + spaces
     let t: String = t.chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect();
-    // Normalize Roman numeral tokens so "Genesis II" and "Genesis 2" group together
+    // Normalize Roman numeral and spelled-out number tokens so "Genesis II"/
+    // "Genesis 2" and "Happy Feet Two"/"Happy Feet 2" group together
     t.split_whitespace()
-        .map(|tok| roman_to_arabic(tok).map(|n| n.to_string()).unwrap_or_else(|| tok.to_string()))
+        .map(|tok| {
+            roman_to_arabic(tok)
+                .or_else(|| word_number_to_arabic(tok))
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| tok.to_string())
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -693,6 +720,17 @@ mod tests {
         // Single-char tokens are also normalised: X = 10, V = 5
         assert_eq!(normalize_title("Mega Man X"), "mega man 10");
         assert_eq!(normalize_title("Street Fighter V"), "street fighter 5");
+    }
+
+    #[test]
+    fn normalize_title_spelled_out_numbers() {
+        // Spelled-out cardinal number words in sequel positions normalise to
+        // Arabic digits too, same as Roman numerals.
+        assert_eq!(normalize_title("Happy Feet Two"), "happy feet 2");
+        assert_eq!(normalize_title("Happy Feet 2"), "happy feet 2");
+        // "One" and "Four" are deliberately NOT converted — they're common as
+        // ordinary English words in real titles ("Four Swords Adventures").
+        assert_eq!(normalize_title("Four Swords Adventures"), "four swords adventures");
     }
 
     #[test]

@@ -118,8 +118,9 @@ fn normalize_key(s: &str) -> String {
     } else {
         strip_article_suffix(collapsed.trim_end_matches(['!', '?'])).to_string()
     };
-    // Step 5: normalize Roman numeral tokens (II→2, VII→7, etc.) so that
-    // "Genesis II" and "Genesis 2" land in the same group.
+    // Step 5: normalize Roman numeral tokens (II→2, VII→7, etc.) and spelled-out
+    // number words (Two→2, Twelve→12, etc.) so that "Genesis II"/"Genesis 2" and
+    // "Happy Feet Two"/"Happy Feet 2" land in the same group.
     // Step 6: normalize Japanese long-vowel romanization: word tokens ending
     // in "ou" are mapped to "o" so "Heiankyou Alien" and "Heiankyo Alien"
     // (same game, inconsistent No-Intro spelling) share the same group key.
@@ -127,6 +128,7 @@ fn normalize_key(s: &str) -> String {
         .split(' ')
         .map(|tok| {
             let tok = crate::parser::roman_to_arabic(tok)
+                .or_else(|| crate::parser::word_number_to_arabic(tok))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| tok.to_string());
             if let Some(canonical) = british_american_word_equivalent(&tok) {
@@ -572,6 +574,24 @@ mod tests {
         assert_eq!(k("Final Fantasy VII (USA).zip"), k("Final Fantasy 7 (USA).zip"));
         // Single-char tokens are also normalised: X = 10, V = 5
         assert_eq!(k("Mega Man X (USA).zip"), k("Mega Man 10 (USA).zip"));
+    }
+
+    #[test]
+    fn spelled_out_number_titles_share_group_key() {
+        // Real-world case: "Happy Feet 2 (Europe)" and "Happy Feet Two (USA)"
+        // were landing in separate groups because the numeral/spelled-out
+        // difference wasn't normalised, unlike the equivalent Roman-numeral case.
+        assert_eq!(
+            k("Happy Feet 2 (Europe) (En,Fr,De,Es,It,Nl).zip"),
+            k("Happy Feet Two (USA) (En,Fr,De,Es,It,Nl).zip"),
+        );
+        // "One" and "Four" must NOT be converted — real titles use them as
+        // ordinary words, not sequel numbers.
+        assert_eq!(
+            k("4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It).zip"),
+            "4 games on one game pak (racing)",
+        );
+        assert_eq!(k("Four Swords Adventures (USA).zip"), "four swords adventures");
     }
 
     #[test]
