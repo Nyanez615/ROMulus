@@ -105,6 +105,10 @@ const HARDWARE_FEATURE_TAGS: &[&str] = &[
     // "GB Compatible" = GBC game that also runs on original Game Boy hardware.
     "SGB Enhanced", "CGB Enhanced", "GBC Mode", "GBC Required", "GB Compatible",
     "GBA Mode", "DSi Enhanced", "DSi Exclusive",
+    // Some No-Intro DS/DSi dumps use "NDSi" ("Nintendo DSi") instead of "DSi" for
+    // the same tag — real-world case: "Just Sing! (Europe) (Rev 1) (NDSi Enhanced)"
+    // was losing its revision bonus because "NDSi Enhanced" wasn't recognised.
+    "NDSi Enhanced", "NDSi Exclusive",
     // Memory bank controller specs: purely technical metadata, not release variants.
     "MBC1", "MBC2", "MBC3", "MBC5", "MBC6", "MBC7",
     "HuC1", "HuC3", "MMM01",
@@ -1919,6 +1923,26 @@ mod tests {
         assert!(
             score_rom(&europe_rev1, &en_prefs()) > score_rom(&usa, &en_prefs()),
             "Europe Rev 1 (GB Compatible) {:?} must beat USA original {:?}",
+            score_rom(&europe_rev1, &en_prefs()),
+            score_rom(&usa, &en_prefs()),
+        );
+    }
+
+    #[test]
+    fn ndsi_enhanced_tag_does_not_suppress_revision_bonus() {
+        // Real-world case: "Just Sing! (Europe) (En,Fr,De,Nl) (Rev 1) (NDSi Enhanced)"
+        // was losing to "Just Sing (USA) (En,Fr) (NDSi Enhanced)" because "NDSi
+        // Enhanced" (this No-Intro set's spelling of the DSi-hardware-feature tag)
+        // wasn't in HARDWARE_FEATURE_TAGS, so it fell through to the generic
+        // unrecognised-extra_tag penalty and zeroed out revision_bonus.
+        let mut usa = rom("Just Sing", &["USA"], &["En", "Fr"], &[]);
+        usa.extra_tags = vec!["NDSi Enhanced".into()];
+        let mut europe_rev1 = rom("Just Sing", &["Europe"], &["En", "Fr", "De", "Nl"], &[]);
+        europe_rev1.revision = 1;
+        europe_rev1.extra_tags = vec!["NDSi Enhanced".into()];
+        assert!(
+            score_rom(&europe_rev1, &en_prefs()) > score_rom(&usa, &en_prefs()),
+            "Europe Rev 1 (NDSi Enhanced) {:?} must beat USA original {:?}",
             score_rom(&europe_rev1, &en_prefs()),
             score_rom(&usa, &en_prefs()),
         );
