@@ -233,26 +233,33 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u64, usize) {
 
     // Split each extra_tag on ", " before matching so compound tags like
     // "Namcot Collection, Namco Museum Archives Vol 1" hit the penalty correctly.
-    let collection_penalty: i32 =
+    // `suppress_revision_bonus` tracks whether the penalty came from a *confident*
+    // tier (COLLECTION_TAGS, FORMAT_VARIANT_TAGS) or the low-confidence generic
+    // catch-all — only the confident tiers should also erase a genuine revision
+    // improvement (see revision_bonus below).
+    let (collection_penalty, suppress_revision_bonus): (i32, bool) =
         if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| COLLECTION_TAGS.contains(&part)) {
             // Dynamic penalty: always larger than the ROM's own region_score so the
             // net region contribution is exactly −6.  This means no collection re-release
             // can beat an unpenalised original regardless of how large the region score is —
             // including "World" releases boosted by the World-universal-region rule.
             // Any original (minimum region score = 5) always outscores any collection.
-            -(region_score + 6)
+            (-(region_score + 6), true)
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
-            -5
+            (-5, true)
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
             .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part) && !is_bare_serial_code(part)) {
             // Any unrecognised extra_tag that isn't a hardware capability flag
             // (platform port, store label, studio label, etc.) indicates a
-            // platform/distribution variant — prefer the base ROM.
+            // possible platform/distribution variant — apply a mild penalty, but
+            // this is a low-confidence catch-all (we don't actually know what the
+            // tag means), so it must NOT also erase a concrete revision advantage
+            // the way the confident COLLECTION_TAGS/FORMAT_VARIANT_TAGS tiers do.
             // Hardware feature tags like "SGB Enhanced" or "GBC Mode" are exempt
-            // so they don't suppress the revision_bonus for enhanced editions.
-            -5
+            // entirely so they don't trigger this penalty at all.
+            (-5, false)
         } else {
-            0
+            (0, false)
         };
 
     // alt_penalty already computed above (status_flags check); reuse it here.
@@ -293,11 +300,14 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u64, usize) {
             .unwrap_or(0)
     };
 
-    // Revision bonus applies only to original (non-penalised) releases.
-    // For collection re-releases and distribution-format variants, suppressing the bonus
-    // prevents high-revision re-releases from outranking unrevised originals.
-    // The score tuple's `revision` field still provides within-tier tiebreaking.
-    let revision_bonus = if collection_penalty == 0 { rom.revision as i32 * 100 } else { 0 };
+    // Revision bonus is suppressed only for the confident penalty tiers (known
+    // third-party collections, known distribution-format variants) — that
+    // prevents e.g. a high-revision third-party reissue from outranking an
+    // unrevised original. A generic unrecognized-tag copy still gets full
+    // credit for its own revision, since we don't actually know that tag
+    // indicates a lesser release. The score tuple's `revision` field still
+    // provides within-tier tiebreaking either way.
+    let revision_bonus = if !suppress_revision_bonus { rom.revision as i32 * 100 } else { 0 };
 
     // A version tag signals a newer release — +6 overcomes the -5 unknown-tag penalty
     // so a versioned release beats a plain unversioned one even when it carries a
@@ -1967,19 +1977,34 @@ mod tests {
     }
 
     #[test]
-    fn distribution_variant_tag_still_suppresses_revision_bonus() {
-        // Sanity check for the bare_serial_code exemption: a genuine unrecognised
-        // distribution-variant tag (not 4 uppercase alnum chars) must still trigger
-        // the penalty and suppress revision_bonus, same as before this fix.
-        let usa = rom("Game", &["USA"], &[], &[]);
-        let mut europe_rev1 = rom("Game", &["Europe"], &[], &[]);
+    fn generic_unrecognized_tag_still_applies_penalty_but_not_to_revision() {
+        // A genuine unrecognised extra_tag (not a hardware feature, not a bare
+        // serial code) still applies the -5 penalty — but must NOT also zero out
+        // revision_bonus, since it's a low-confidence catch-all, not a confident
+        // "this is a lesser release" signal like COLLECTION_TAGS/FORMAT_VARIANT_TAGS.
+        // Real-world case: "Labyrinth (Europe) (En,Fr,De,It) (Rev 1) (Ravensburger)"
+        // must beat "Labyrinth (USA)" — Rev 1's +100 bonus outweighs both the -5
+        // penalty and USA's region-preference edge.
+        let usa = rom("Labyrinth", &["USA"], &[], &[]);
+        let mut europe_rev1 = rom("Labyrinth", &["Europe"], &["En", "Fr", "De", "It"], &[]);
         europe_rev1.revision = 1;
-        europe_rev1.extra_tags = vec!["Not for Resale".into()];
+        europe_rev1.extra_tags = vec!["Ravensburger".into()];
         assert!(
-            score_rom(&usa, &en_prefs()) > score_rom(&europe_rev1, &en_prefs()),
-            "USA {:?} must still beat Europe Rev 1 (Not for Resale) {:?}",
-            score_rom(&usa, &en_prefs()),
+            score_rom(&europe_rev1, &en_prefs()) > score_rom(&usa, &en_prefs()),
+            "Europe Rev 1 (Ravensburger) {:?} must beat USA {:?} — revision outweighs the mild generic-tag penalty",
             score_rom(&europe_rev1, &en_prefs()),
+            score_rom(&usa, &en_prefs()),
+        );
+
+        // But the same tag on an UNrevised copy still loses to an unpenalised
+        // original — the -5 penalty itself is real, just not revision-blind.
+        let mut europe_bare = rom("Labyrinth", &["Europe"], &["En", "Fr", "De", "It"], &[]);
+        europe_bare.extra_tags = vec!["Ravensburger".into()];
+        assert!(
+            score_rom(&usa, &en_prefs()) > score_rom(&europe_bare, &en_prefs()),
+            "USA {:?} must beat unrevised Europe (Ravensburger) {:?} — the -5 penalty still applies",
+            score_rom(&usa, &en_prefs()),
+            score_rom(&europe_bare, &en_prefs()),
         );
     }
 
