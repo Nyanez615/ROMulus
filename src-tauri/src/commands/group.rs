@@ -542,6 +542,14 @@ fn prerelease_stage(flags: &[String]) -> u8 {
             _       => {}
         }
     }
+    // Proto ranks above the generic pre-release bucket (Demo, Kiosk, Preview,
+    // etc.): a Proto is typically the actual in-development game, unfinished
+    // but closer to the complete artifact, whereas a Demo is a deliberately
+    // content-limited promotional slice — prefer the more complete artifact
+    // when a title's only surviving copies are otherwise-tied pre-releases.
+    if flags.iter().any(|f| f == "Proto" || f == "Possible Proto") {
+        return 3;
+    }
     2
 }
 
@@ -2069,6 +2077,28 @@ mod tests {
         assert!(
             score_rom(&proto1, &prefs) > score_rom(&dated, &prefs),
             "Proto 1 must also beat dated proto",
+        );
+    }
+
+    #[test]
+    fn proto_preferred_over_demo_when_otherwise_tied() {
+        // Real-world case: "Nancy Drew DS - Mystery Andventure (USA) (Demo) (2007-09-14)"
+        // and "...(USA) (Proto) (2007-09-14)" tie on score_rom's whole tuple (same date,
+        // region, language) — prerelease_stage must break the tie in Proto's favor, as
+        // the more complete artifact, rather than falling to an arbitrary filename sort.
+        let mut demo = rom("Nancy Drew DS", &["USA"], &[], &["Demo"]);
+        demo.build_date = Some(20_070_914_000_000);
+        let mut proto = rom("Nancy Drew DS", &["USA"], &[], &["Proto"]);
+        proto.build_date = Some(20_070_914_000_000);
+        let prefs = en_prefs();
+        let groups = group_roms(vec![demo, proto], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.status_flags.contains(&"Proto".to_string()),
+            "Proto must be preferred over Demo when otherwise tied, got status_flags: {:?}",
+            preferred.status_flags,
         );
     }
 
