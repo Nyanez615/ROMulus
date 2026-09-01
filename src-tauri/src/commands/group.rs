@@ -620,16 +620,24 @@ fn build_group(mut variants: Vec<RomFile>, prefs: &UserPreferences) -> RomGroup 
     let disc_count = if max_disc > 0 { max_disc } else { 1 };
 
     // Sort variants: (score, revision, lang_matches) descending; then version descending
-    // so "v2.1" beats "v1.0" when everything else ties; build_date descending so the
-    // newest build wins when no explicit version tag is present (common for aftermarket
-    // releases that tag only a date); filename ascending as the final deterministic
+    // so "v2.1" beats "v1.0" when everything else ties; then build_date — when both
+    // variants carry a date, the newer one wins (common for aftermarket releases that
+    // tag only a date, e.g. successive homebrew builds); when only one carries a date
+    // and the other has none at all, the undated copy wins instead — a bare date stamp
+    // on an otherwise-identical unofficial release isn't a reliable "newer/better"
+    // signal the way an explicit version bump is, so it shouldn't automatically beat a
+    // copy that simply doesn't carry one; filename ascending is the final deterministic
     // tiebreaker so groups are stable across runs.
     variants.sort_by(|a, b| {
         score_rom(b, prefs)
             .cmp(&score_rom(a, prefs))
             .then_with(|| prerelease_stage(&b.status_flags).cmp(&prerelease_stage(&a.status_flags)))
             .then_with(|| version_ord(&b.version).cmp(&version_ord(&a.version)))
-            .then_with(|| b.build_date.cmp(&a.build_date))
+            .then_with(|| match (a.build_date, b.build_date) {
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                _ => b.build_date.cmp(&a.build_date),
+            })
             .then_with(|| a.filename.cmp(&b.filename))
     });
 
@@ -1885,6 +1893,40 @@ mod tests {
         assert!(
             preferred.filename.contains("2023-06-08"),
             "newer build date must be preferred, got: {}",
+            preferred.filename,
+        );
+    }
+
+    #[test]
+    fn undated_preferred_over_dated_when_otherwise_tied() {
+        // Real-world case: "Tales of Dagur (World) (2025-03-25) (BlocksDS) (Unl)" and
+        // "Tales of Dagur (World) (Datel Games n' Music) (Unl)" tie on every field of
+        // score_rom (same -30 base, both get the generic -5 unrecognised-tag penalty,
+        // no revision/version/language difference) and on prerelease_stage and version.
+        // A bare date stamp isn't a reliable "newer/better" signal for an unofficial
+        // release the way an explicit version bump is, so the undated copy must win —
+        // not the dated one, and not an arbitrary filename tiebreak.
+        let prefs = UserPreferences {
+            preferred_languages: vec!["En".into()],
+            preferred_regions: vec![],
+            short_console_names: false,
+        };
+        let mut dated = rom("Tales of Dagur", &["World"], &[], &["Unl"]);
+        dated.file_category = FileCategory::Unofficial;
+        dated.build_date = Some(20_250_325_000_000);
+        dated.extra_tags = vec!["2025-03-25".into(), "BlocksDS".into()];
+        dated.filename = "Tales of Dagur (World) (2025-03-25) (BlocksDS) (Unl).zip".into();
+        let mut undated = rom("Tales of Dagur", &["World"], &[], &["Unl"]);
+        undated.file_category = FileCategory::Unofficial;
+        undated.extra_tags = vec!["Datel Games n' Music".into()];
+        undated.filename = "Tales of Dagur (World) (Datel Games n' Music) (Unl).zip".into();
+        let groups = group_roms(vec![dated, undated], &prefs);
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        let preferred = g.preferred_idx.map(|i| &g.variants[i]).expect("must have preferred");
+        assert!(
+            preferred.build_date.is_none(),
+            "undated copy must be preferred over the dated one when otherwise tied, got: {}",
             preferred.filename,
         );
     }
