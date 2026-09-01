@@ -131,7 +131,7 @@ fn normalize_key(s: &str) -> String {
                 .or_else(|| crate::parser::word_number_to_arabic(tok))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| tok.to_string());
-            if let Some(canonical) = regional_word_equivalent(&tok) {
+            if let Some(canonical) = british_american_word_equivalent(&tok) {
                 canonical.to_string()
             } else if tok.ends_with("ou") {
                 // Japanese long-vowel romanization: Heiankyou → Heiankyo
@@ -148,17 +148,13 @@ fn normalize_key(s: &str) -> String {
         .join(" ")
 }
 
-/// Explicit cross-locale word-pair equivalents that aren't a simple suffix
-/// swap (unlike colour→color, handled separately above) — British/American
-/// spelling differences, but also e.g. French/English product-name spelling
-/// where a European release's official title uses the French word. Kept to
-/// a short, confirmed list — a blanket word-final "-s" strip would be
-/// unsafe, since plenty of titles differ only by a genuinely-plural
-/// trailing "s".
-fn regional_word_equivalent(tok: &str) -> Option<&'static str> {
+/// Explicit British/American word-pair equivalents that aren't a simple
+/// suffix swap (unlike colour→color, handled separately above). Kept to a
+/// short, confirmed list — a blanket word-final "-s" strip would be unsafe,
+/// since plenty of titles differ only by a genuinely-plural trailing "s".
+fn british_american_word_equivalent(tok: &str) -> Option<&'static str> {
     match tok {
         "maths" => Some("math"), // "Challenge Me - Maths Workout" (Europe) vs "Math Workout" (USA)
-        "connexion" => Some("connection"), // "Tamagotchi Connexion" (Europe, French spelling) vs "Tamagotchi Connection" (USA)
         _ => None,
     }
 }
@@ -647,16 +643,5 @@ mod tests {
         // Genuinely distinct plural titles must NOT be collapsed by a blanket
         // trailing-"s" rule — only the explicit math/maths pair is normalised.
         assert_ne!(k("Tank (USA).zip"), k("Tanks (USA).zip"));
-    }
-
-    #[test]
-    fn french_english_connexion_connection_same_group() {
-        // Real-world case: "Tamagotchi Connexion - Corner Shop 2" (Europe, French
-        // product-name spelling) and "Tamagotchi Connection - Corner Shop 2" (USA)
-        // are the same game — connexion→connection must normalise to the same key.
-        assert_eq!(
-            k("Tamagotchi Connexion - Corner Shop 2 (Europe) (En,Fr,De,Es,It).zip"),
-            k("Tamagotchi Connection - Corner Shop 2 (USA).zip"),
-        );
     }
 }
