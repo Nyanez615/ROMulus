@@ -134,6 +134,13 @@ fn is_bare_serial_code(s: &str) -> bool {
         && s.chars().any(|c| c.is_ascii_alphabetic())
 }
 
+/// True when an extra_tag is exempt from the generic unrecognized-tag penalty
+/// (a hardware capability flag, or a bare cartridge serial code) — shared by
+/// the official and unofficial scoring tiers' penalty computation below.
+fn is_exempt_extra_tag(tag: &str) -> bool {
+    HARDWARE_FEATURE_TAGS.contains(&tag) || is_bare_serial_code(tag)
+}
+
 /// Higher score = more preferred variant.
 /// Returns (score, revision, lang_match_count) tuple — all three compared
 /// lexicographically so ties break cleanly: same score → higher revision → more
@@ -206,7 +213,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u64, usize) {
             } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
                 -5
             } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
-                .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part) && !is_bare_serial_code(part)) {
+                .any(|part| !is_exempt_extra_tag(part)) {
                 // Any unrecognised extra_tag that isn't a hardware capability flag
                 // (platform port, store label, date stamp, studio label, etc.)
                 // indicates a platform/distribution variant — prefer the base ROM.
@@ -248,7 +255,7 @@ pub fn score_rom(rom: &RomFile, prefs: &UserPreferences) -> (i32, u64, usize) {
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", ")).any(|part| FORMAT_VARIANT_TAGS.contains(&part)) {
             (-5, true)
         } else if rom.extra_tags.iter().flat_map(|t| t.split(", "))
-            .any(|part| !HARDWARE_FEATURE_TAGS.contains(&part) && !is_bare_serial_code(part)) {
+            .any(|part| !is_exempt_extra_tag(part)) {
             // Any unrecognised extra_tag that isn't a hardware capability flag
             // (platform port, store label, studio label, etc.) indicates a
             // possible platform/distribution variant — apply a mild penalty, but
@@ -1880,11 +1887,11 @@ mod tests {
         };
         let mut older = rom("Song of Morus", &["World"], &[], &["Aftermarket"]);
         older.file_category = FileCategory::Unofficial;
-        older.build_date = Some(20230520);
+        older.build_date = Some(20_230_520_000_000);
         older.filename = "Song of Morus (World) (2023-05-20) (Aftermarket) (Unl).zip".into();
         let mut newer = rom("Song of Morus", &["World"], &[], &["Aftermarket"]);
         newer.file_category = FileCategory::Unofficial;
-        newer.build_date = Some(20230608);
+        newer.build_date = Some(20_230_608_000_000);
         newer.filename = "Song of Morus (World) (2023-06-08) (Aftermarket) (Unl).zip".into();
         let groups = group_roms(vec![older, newer], &prefs);
         assert_eq!(groups.len(), 1);
@@ -2105,7 +2112,7 @@ mod tests {
         let mut proto7 = rom("Army Men", &["USA", "Europe"], &[], &["Proto"]);
         proto7.revision = 7;
         let mut dated = rom("Army Men", &["USA", "Europe"], &[], &["Proto"]);
-        dated.build_date = Some(20000914); // 2000-09-14 — a late dated build
+        dated.build_date = Some(20_000_914_000_000); // 2000-09-14 — a late dated build
         let prefs = en_prefs();
         assert!(
             score_rom(&proto7, &prefs) > score_rom(&dated, &prefs),
@@ -2599,10 +2606,10 @@ mod tests {
         let gbc          = "Nintendo - Game Boy Color";
         let gbc_aftermkt = "Nintendo - Game Boy Color (Aftermarket)";
 
-        // GBC (Aftermarket): dated demo, no version tag → build_ord = 20240815 in score tuple.
+        // GBC (Aftermarket): dated demo, no version tag → build_ord = 20_240_815_000_000 in score tuple.
         let mut dated = rom("Witches and Butchers (World) (2024-08-15) (Demo)", &["World"], &["En", "Es"], &[]);
         dated.console = gbc_aftermkt.into();
-        dated.build_date = Some(20240815);
+        dated.build_date = Some(20_240_815_000_000);
         dated.file_category = FileCategory::Game; // scored as demo via status_flags
         dated.status_flags = vec!["Demo".into()];
 

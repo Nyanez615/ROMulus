@@ -24,12 +24,13 @@
 ### Browse
 - **Unified ROMs tab** — all games, hacks, unofficial releases, and utilities in one view with colour-coded category badges
 - **System Files tab** — BIOS, Video, e-Reader, and Accessories (amiibo NFC dumps) separate from regular ROMs
-- **Alphabet scrubber** — A–Z strip for instant jump-to-letter navigation when sorted by name
+- **Starts-With letter filter** — # + A–Z chip in the filter bar (ROMs, System Files, Journal) composes with Category/Language/Region chips to narrow the list down to one letter (or a few) at a time
 - **Variant count scrubber** — numeric strip for jump-to-count navigation when sorted by variants
 - **Console badge in All-ROMs mode** — short console abbreviation (N64, GBA, …) on each row so same-title entries from different consoles are distinguishable
 
 ### Downloads
 - **qBittorrent integration** — connect to a local qBittorrent Web UI instance; preview which files in a torrent are worth downloading based on your language/region preferences; apply priority rules (download/skip) with one click, then auto-rescan your collection
+- **Filterable preview** — the same Starts-With/Category/Language/Region chips used elsewhere in the app, available on all four preview views (Titles, All, Download, Skip)
 - **Pre-download filter** — same scoring pipeline as the live pruner applied to DAT entries before any files land on disk; export as `.txt` include-filter or `.csv`
 
 ### Enrichment & verification
@@ -84,7 +85,7 @@ cargo install cargo-sweep
 
 From `src-tauri/`:
 ```bash
-cargo test             # 285 unit tests + regenerates TypeScript bindings
+cargo test             # 316 unit tests + regenerates TypeScript bindings
 cargo clippy -- -D warnings
 ```
 

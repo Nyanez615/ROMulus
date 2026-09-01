@@ -17,12 +17,34 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Live run feedback** — each row gets a checkmark or failure marker as it completes, an "N done · M failed" summary, and a byte-weighted countdown ETA (anchored at each file completion, ticking down every second in between, rather than recomputed every second from a naive per-file average).
 - Collisions (a same-name target that already exists with a *different* size) are never overwritten — that item is reported as a conflict and its source is left untouched.
 
+**App-wide filter/sort/UX consistency**
+- `FilterBar`/`SortControl` adopted across System Files, History, Journal, and Downloads — previously each had its own hand-rolled chip row, or (Journal) a single-select status control now converted to multi-select, consistent with every other status-like filter in the app.
+- `AlphabetScrubber` retired app-wide in favor of the same Starts-With `FilterBar` chip already used by the Archive dialog — now also in ROMs, System Files, and Journal. Trades continuous scroll-jump browsing for composable faceted filtering: an active letter now correctly narrows which Category/Language/Region chips are offered, and vice versa.
+- Downloads' qBittorrent preview gained the same Starts-With/Category/Language/Region filter chips on all four sub-tabs (Titles, All, Download, Skip) — not just the grouped Titles view.
+- New shared `pluralize()` helper (`src/lib/pluralize.ts`), replacing three separate inline pluralization patterns.
+
 ### Changed
 
 **Pruning**
 - Prune now prefers the extracted/native file over its zip twin when both exist for the same game (previously the reverse — zips were kept for storage efficiency). Deliberately not configurable via Settings; use the Extract/Compress dialogs' own delete-after option for zip-vs-raw cleanup control instead.
 
+**ROMs tab**
+- Extract/Compress/Prune buttons moved out of the title bar into the `FilterBar`'s trailing slot, bringing the tab into compliance with the documented canonical tab-layout pattern (no controls in the `h-14` title bar).
+
+**Dev tooling**
+- Added a `pre-push` git hook (`.githooks/pre-push`) that runs `cargo-sweep --maxsize 5GB` against `src-tauri/target/` on every push, keeping the Rust build cache from growing unbounded while preserving recent artifacts (no cold-compile penalty, unlike `cargo clean`). One-time setup per clone: `git config core.hooksPath .githooks`. Requires `cargo install cargo-sweep`.
+
 ### Fixed
+
+**Scoring & grouping** (surfaced by manually auditing a real ~7,770-file 3DS/DS collection through the new Downloads Titles-view filters)
+- Pre-release, bad-dump, and unofficial-tier scoring now fall back to region-inferred language in their tiebreak, matching `matches_preferred`'s own fallback — a tag-less regional release (e.g. a USA ROM with no explicit language tag) was scoring 0 on this tiebreak purely for not spelling out its language, even against a release that explicitly tags the identical language.
+- Bare 4-character cartridge product/serial codes (e.g. "YWDZ") no longer trigger the generic distribution-variant penalty, so a Rev 1 copy that happens to carry one keeps its revision bonus.
+- "NDSi Enhanced"/"NDSi Exclusive" are now recognized as hardware-feature tags (some No-Intro sets use "NDSi" instead of "DSi" for the same tag).
+- `build_date` now preserves time-of-day precision (`YYYYMMDD * 1_000_000 + HHMMSS`, was `YYYYMMDD` only) — two pre-release builds dated the same day but different times now tiebreak correctly by time instead of tying and falling to an arbitrary filename sort.
+- The generic unrecognized-extra_tag penalty no longer suppresses `revision_bonus` — only the two confident penalty tiers (`COLLECTION_TAGS`, `FORMAT_VARIANT_TAGS`) still do. A Rev 1 copy carrying an unrecognized-but-not-clearly-lesser tag can now win on its revision advantage as it should.
+- Proto now beats Demo when a pre-release tier tie has no other distinguishing signal (same date/region/language) — previously resolved arbitrarily by filename.
+- An undated copy now beats a dated one when otherwise tied (previously any date beat no date at all); when both carry a date, the newer one still wins.
+- Title grouping now normalizes spelled-out sequel numbers ("Two" through "Twenty", e.g. "Happy Feet Two" ↔ "Happy Feet 2") and "Math"/"Maths", so regional releases that spell a number differently merge into one title group instead of both surviving as separate "preferred" downloads. Deliberately excludes "One" and "Four" — they're common ordinary English words in real titles ("4 Games on One Game Pak", "Four Swords Adventures"), not sequel numbers.
 
 **Onboarding**
 - Continue button on the Language & Region step no longer blocks when preferred languages or regions are cleared to empty. Empty preferences are valid (no preference) and were already handled correctly by the scoring backend — only the UI guard was too strict. Fixes a fresh-install lockout reported on Windows.
@@ -39,12 +61,11 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - New Rust module `commands/archive.rs`; new models `ExtractCandidate`, `CompressCandidate`, `DirSpace`, `ExtractPreview`, `CompressPreview`, `ExtractProgress`, `CompressProgress`, `ArchiveCollision`, `ExtractionResult`, `CompressionResult`
 - New crate: `fs4` (cross-platform free-disk-space queries)
 - New events: `extract:progress` / `extract:complete`, `compress:progress` / `compress:complete`
-- Rust tests: 288 → 305 (+17)
-
-### Changed
-
-**Dev tooling**
-- Added a `pre-push` git hook (`.githooks/pre-push`) that runs `cargo-sweep --maxsize 5GB` against `src-tauri/target/` on every push, keeping the Rust build cache from growing unbounded while preserving recent artifacts (no cold-compile penalty, unlike `cargo clean`). One-time setup per clone: `git config core.hooksPath .githooks`. Requires `cargo install cargo-sweep`.
+- `src-tauri/src/commands/group.rs`: added `preferred_lang_count()`, `is_bare_serial_code()`, `is_exempt_extra_tag()`; `score_rom`'s return tuple widened from `(i32, u32, usize)` to `(i32, u64, usize)`.
+- `RomFile.build_date` widened `u32` → `u64` (`#[ts(type = "number | null")]`); `src-tauri/examples/audit.rs` updated for the same tuple-type change.
+- `QbtGroupInfo`/`QbtFileDecision` extended with `title_normalized`/`regions`/`languages`/`status_flags`/`file_category`, sourced from the already-parsed `RomFile` in `qbt.rs::run_filter`.
+- `src/lib/romFilters.ts`'s predicates widened from `RomGroup`-specific to minimal structural types (`Pick<RomGroup, ...>`) so Downloads.tsx can reuse them without a cast.
+- Rust tests: 288 → 305 → 316 (+17, then +11); Vitest: 134 (unchanged — existing test files updated for the new FilterBar-based DOM structure, no new test files added)
 
 ## [0.2.13] — 2026-08-25
 
